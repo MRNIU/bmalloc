@@ -1,0 +1,6 @@
+# Copyright The malloc Contributors
+
+---
+# @version clang-format version 15
+BasedOnStyle: Google
+...
