@@ -9,9 +9,9 @@
  * 4. 释放时：尝试与相邻的buddy块合并成更大的块
  *
  * 数据结构：
- * - freeList_[i]: 管理大小为2^i个页面的空闲块链表（静态数组）
+ * - free_block_lists_[i]: 管理大小为2^i个页面的空闲块链表（静态数组）
  * - 每个空闲块的开头存储指向下一个空闲块的指针
- * - 使用静态数组存储freeList，所有管理的内存都可用于分配
+ * - 使用静态数组存储free_block_lists_，所有管理的内存都可用于分配
  *
  * 重要设计说明：
  * - length_字段被重新定义为最大阶数级别，而不是页数
@@ -67,46 +67,45 @@ Buddy::Buddy(const char* name, void* start_addr, size_t total_pages)
     return;
   }
 
-  // 检查是否超出静态数组大小
-  if (length_ > kMaxFreeListEntries) {
-    // 内存块数量超出支持范围
-    return;
+  // 初始化所有空闲块链表为空
+  for (size_t i = 0; i < length_; i++) {
+    free_block_lists_[i] = nullptr;
   }
 
-  // 初始化空闲块：将可用内存按最大可能的块大小组织到空闲链表中
-  // 最大块大小的索引
-  int maxLength = length_ - 1;
-  // 最大块包含的页面数
-  int maxLengthBlocks = 1 << maxLength;
+  // 最大阶数（order）级别，对应最大块的索引
+  auto max_order = length_ - 1;
+  // 最大块包含的页面数，即 2^max_order
+  auto max_block_pages = 1 << max_order;
+  // 剩余页数，用于贪心分配
+  auto remaining_pages = total_pages;
 
-  // 贪心分配：优先分配最大的块，剩余部分继续分配次大的块
-  while (total_pages > 0) {
-    // 计算当前最大块的起始地址（现在从space开始，不需要跳过第一个页面）
-    void* addr =
-        (char*)start_addr + (total_pages - maxLengthBlocks) * kPageSize;
+  while (remaining_pages > 0) {
+    // 计算当前最大块的起始地址
+    auto block_addr =
+        (char*)start_addr_ + (remaining_pages - max_block_pages) * kPageSize;
 
     // 将该块添加到对应大小的空闲链表头部
-    freeList_[maxLength] = addr;
+    free_block_lists_[max_order] = block_addr;
     // 该块的next指针设为null
-    *(void**)addr = nullptr;
+    *(void**)block_addr = nullptr;
 
     // 减去已分配的块数
-    total_pages -= maxLengthBlocks;
+    remaining_pages -= max_block_pages;
 
     // 如果还有剩余块，计算下一个最大可能的块大小
-    if (total_pages > 0) {
-      size_t i = 1;
-      maxLength = 0;
+    if (remaining_pages > 0) {
+      size_t power_of_2 = 1;
+      max_order = 0;
       // 找到不超过剩余块数的最大2的幂
       while (true) {
-        if (i <= total_pages && 2 * i > total_pages) {
+        if (power_of_2 <= remaining_pages && 2 * power_of_2 > remaining_pages) {
           break;
         }
-        i = i * 2;
-        maxLength++;
+        power_of_2 = power_of_2 * 2;
+        max_order++;
       }
       // 计算新的最大块大小
-      maxLengthBlocks = 1 << maxLength;
+      max_block_pages = 1 << max_order;
     }
   }
 }
@@ -130,22 +129,22 @@ auto Buddy::Alloc(size_t order) -> void* {
   void* returningSpace = nullptr;
 
   // 情况1：直接有合适大小的空闲块
-  if (freeList_[order] != nullptr) {
+  if (free_block_lists_[order] != nullptr) {
     // 从空闲链表头部取出一个块
-    returningSpace = freeList_[order];
+    returningSpace = free_block_lists_[order];
     // 更新链表头
-    freeList_[order] = *(void**)returningSpace;
+    free_block_lists_[order] = *(void**)returningSpace;
     // 清空返回块的next指针
     *(void**)returningSpace = nullptr;
   } else {
     // 情况2：没有合适大小的块，需要分割更大的块
     for (auto i = order + 1; i < length_; i++) {
-      if (freeList_[i] != nullptr) {
+      if (free_block_lists_[i] != nullptr) {
         // 找到一个更大的块，将其分割
         // 取出大块
-        void* ptr1 = freeList_[i];
+        void* ptr1 = free_block_lists_[i];
         // 更新大块链表
-        freeList_[i] = *(void**)ptr1;
+        free_block_lists_[i] = *(void**)ptr1;
         // 计算分割后的第二个块地址
         void* ptr2 = (char*)ptr1 + kPageSize * (1 << (i - 1));
 
@@ -153,9 +152,9 @@ auto Buddy::Alloc(size_t order) -> void* {
         // ptr1的next指向ptr2
         *(void**)ptr1 = ptr2;
         // ptr2的next指向原链表头
-        *(void**)ptr2 = freeList_[i - 1];
+        *(void**)ptr2 = free_block_lists_[i - 1];
         // 更新链表头为ptr1
-        freeList_[i - 1] = ptr1;
+        free_block_lists_[i - 1] = ptr1;
 
         // 递归分配，直到得到合适大小的块
         returningSpace = Alloc(order);
@@ -247,13 +246,13 @@ void Buddy::Free(void* addr, size_t order) {
   int bNum = 1 << order;
 
   // 情况1：该大小的空闲链表为空，直接插入
-  if (freeList_[order] == nullptr) {
-    freeList_[order] = addr;
+  if (free_block_lists_[order] == nullptr) {
+    free_block_lists_[order] = addr;
     *(void**)addr = nullptr;
   } else {
     // 情况2：尝试与相邻的buddy块合并
     void* prev = nullptr;
-    void* curr = freeList_[order];
+    void* curr = free_block_lists_[order];
 
     // 遍历同大小的空闲链表，寻找buddy块
     while (curr != nullptr) {
@@ -265,7 +264,7 @@ void Buddy::Free(void* addr, size_t order) {
         if (isValid(addr, order + 1)) {
           // 从链表中移除找到的buddy块
           if (prev == nullptr) {
-            freeList_[order] = *(void**)freeList_[order];
+            free_block_lists_[order] = *(void**)free_block_lists_[order];
           } else {
             *(void**)prev = *(void**)curr;
           }
@@ -282,7 +281,7 @@ void Buddy::Free(void* addr, size_t order) {
         if (isValid(curr, order + 1)) {
           // 从链表中移除找到的buddy块
           if (prev == nullptr) {
-            freeList_[order] = *(void**)freeList_[order];
+            free_block_lists_[order] = *(void**)free_block_lists_[order];
           } else {
             *(void**)prev = *(void**)curr;
           }
@@ -299,8 +298,8 @@ void Buddy::Free(void* addr, size_t order) {
     }
 
     // 没有找到可合并的buddy，直接插入到链表头部
-    *(void**)addr = freeList_[order];
-    freeList_[order] = addr;
+    *(void**)addr = free_block_lists_[order];
+    free_block_lists_[order] = addr;
   }
 }
 
@@ -318,7 +317,7 @@ void Buddy::buddy_print() {
   //   for (int i = 0; i < length_; i++) {
   //     int size = 1 << i;
   //     cout << "entry[" << i << "] (size " << size << ") -> ";
-  //     void* curr = freeList_[i];
+  //     void* curr = free_block_lists_[i];
 
   //     while (curr != nullptr) {
   //       int first = ((char*)curr - (char*)start_addr_) / kPageSize;
@@ -349,7 +348,7 @@ auto Buddy::GetUsedCount() const -> size_t {
  *
  * 实现说明：
  * 遍历所有空闲链表，统计空闲块的总页数
- * - freeList_[i] 中的每个块包含 2^i 个页面
+ * - free_block_lists_[i] 中的每个块包含 2^i 个页面
  * - 需要遍历每个链表，计算块数并乘以对应的页面数
  */
 auto Buddy::GetFreeCount() const -> size_t {
@@ -361,7 +360,7 @@ auto Buddy::GetFreeCount() const -> size_t {
     size_t block_count = 0;
 
     // 遍历当前阶数的空闲链表，统计块数
-    void* current = freeList_[order];
+    void* current = free_block_lists_[order];
     while (current != nullptr) {
       block_count++;
       current = *(void**)current;  // 获取下一个块
