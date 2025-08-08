@@ -1,0 +1,398 @@
+/**
+ * @file slab.cpp
+ * @brief slab 分配器
+ * @author Zone.N (Zone.Niuzh@hotmail.com)
+ * @version 1.0
+ * @date 2021-09-18
+ * @copyright MIT LICENSE
+ * https://github.com/Simple-XX/SimpleKernel
+ * @par change log:
+ * <table>
+ * <tr><th>Date<th>Author<th>Description
+ * <tr><td>2021-09-18<td>digmouse233<td>迁移到 doxygen
+ * </table>
+ */
+
+#include "slab_old.h"
+
+#include "cstdio"
+#include "pmm.h"
+
+SLAB::chunk_t::chunk_t(void) {
+  addr = HEAD;
+  len = HEAD;
+  prev = this;
+  next = this;
+  return;
+}
+
+SLAB::chunk_t::~chunk_t(void) { return; }
+
+size_t SLAB::chunk_t::size(void) const {
+  size_t res = 0;
+  chunk_t* tmp = this->next;
+  while (tmp != this) {
+    res++;
+    tmp = tmp->next;
+  }
+  return res;
+}
+
+bool SLAB::chunk_t::operator==(const chunk_t& _node) const {
+  return addr == _node.addr && len == _node.len && prev == _node.prev &&
+         next == _node.next;
+}
+
+bool SLAB::chunk_t::operator!=(const chunk_t& _node) const {
+  return addr != _node.addr || len != _node.len || prev != _node.prev ||
+         next != _node.next;
+}
+
+SLAB::chunk_t& SLAB::chunk_t::operator[](size_t _idx) const {
+  // 判断越界
+  if (_idx >= size()) {
+    printf("SLAB Error: Index %zu out of bounds (size: %zu)\n", _idx, size());
+    // 返回一个有效的引用，避免程序崩溃
+    return *const_cast<chunk_t*>(this);
+  }
+  const chunk_t* res = nullptr;
+  // 找到头节点
+  const chunk_t* tmp = this;
+  while (tmp->next != this) {
+    if (tmp->addr == HEAD && tmp->len == HEAD) {
+      res = tmp;
+      break;
+    }
+    tmp = tmp->next;
+  }
+  // 返回第 _idx 个节点
+  for (size_t i = 0; i < _idx; i++) {
+    res = res->next;
+  }
+  // res 必不为空
+  if (res == nullptr) {
+    printf("SLAB Error: Unexpected null pointer in operator[]\n");
+    return *const_cast<chunk_t*>(this);
+  }
+  return *(const_cast<chunk_t*>(res));
+}
+
+// 由于是循环队列，相当于在头节点前面插入
+void SLAB::chunk_t::push_back(chunk_t* _new_node) {
+  _new_node->next = this;
+  _new_node->prev = prev;
+  prev->next = _new_node;
+  prev = _new_node;
+  return;
+}
+
+void SLAB::slab_cache_t::move(chunk_t& _list, chunk_t* _node) {
+  // 从当前链表中删除
+  _node->prev->next = _node->next;
+  _node->next->prev = _node->prev;
+  // 重置指针
+  _node->prev = _node;
+  _node->next = _node;
+  // 插入新链表
+  _list.push_back(_node);
+  return;
+}
+
+SLAB::chunk_t* SLAB::slab_cache_t::alloc_pmm(size_t _len) {
+  // 计算页数
+  size_t pages = _len / kPageSize;
+  if (_len % kPageSize != 0) {
+    pages += 1;
+  }
+  // 申请
+  chunk_t* new_node = nullptr;
+  new_node = (chunk_t*)PMM::get_instance().alloc_pages(pages);
+
+  // 不为空的话进行初始化
+  if (new_node != nullptr) {
+    // 初始化
+    // 自身的地址
+    new_node->addr = (uintptr_t)new_node;
+    // 长度需要减去 chunk_t 的长度
+    new_node->len = (pages * kPageSize) - CHUNK_SIZE;
+    // 链表指针
+    new_node->prev = new_node;
+    new_node->next = new_node;
+    // 加入 free 链表
+    free.push_back(new_node);
+  }
+  return new_node;
+}
+
+void SLAB::slab_cache_t::free_pmm(void) {
+  size_t pages = 0;
+  // 遍历 free 链表
+  chunk_t* tmp = free.next;
+  while (tmp != &free) {
+    pages = (tmp->len + CHUNK_SIZE) / kPageSize;
+    // 必须是整数个页
+    if (((tmp->len + CHUNK_SIZE) % kPageSize) != 0) {
+      printf("SLAB Error: Page size is not aligned, size: %zu\n",
+             tmp->len + CHUNK_SIZE);
+      return;
+    }
+    PMM::get_instance().free_pages(tmp->addr, pages);
+    // 删除节点
+    tmp->prev->next = tmp->next;
+    tmp->next->prev = tmp->prev;
+    // 保存下一个节点，因为当前节点已经被释放
+    auto tmp_next = tmp->next;
+    // 迭代
+    tmp = tmp_next;
+  }
+  // 释放完后 free 链表项应该为 0
+  if (free.size() != 0) {
+    printf("SLAB Error: Free list size is not zero after cleanup: %zu\n",
+           free.size());
+  }
+  return;
+}
+
+void SLAB::slab_cache_t::split(chunk_t* _node, size_t _len) {
+  // 记录原大小
+  size_t old_len = _node->len;
+  // 更新旧节点
+  _node->len = _len;
+  // 旧节点移动到 full
+  move(full, _node);
+  // 原长度大于要分配的长度+新 chunk 长度
+  // 不能等于，等于的话相当于新节点的 len 为 0
+  if (old_len > _len + CHUNK_SIZE) {
+    // 处理新节点
+    // 新节点地址为原本地址+chunk大小+要分配出去的长度
+    chunk_t* new_node = (chunk_t*)(_node->addr + CHUNK_SIZE + _len);
+    new_node->addr = (uintptr_t)new_node;
+    // 剩余长度为原本的长度减去要分配给 _node 的长度，减去新节点的 chunk
+    // 大小
+    new_node->len = old_len - _len - CHUNK_SIZE;
+    // 手动初始化节点
+    new_node->prev = new_node;
+    new_node->next = new_node;
+    // 判断剩余空间是否可以容纳至少一个节点，即大于等于  len+CHUNK_SIZE
+    // 如果大于等于则建立新的节点，小于的话不用新建
+    // 这里只有 len 是因为 chunk 的大小并不包括在 chunk->len
+    // 中， 前面几行代码已经计算过了
+    if (new_node->len > len) {
+      // 新的节点必然属于 part 链表
+      part.push_back(new_node);
+    }
+  }
+  return;
+}
+
+// TODO: 优化算法
+void SLAB::slab_cache_t::merge(void) {
+  // 如果节点少于两个，不需要合并
+  if (part.size() < 2) {
+    return;
+  }
+  // 合并的条件
+  // node1->addr+CHUNK_SIZE+node1->len==node2->addr
+  // 暴力遍历
+  chunk_t* chunk = part.next;
+  chunk_t* tmp = chunk->next;
+  // 外层循环
+  while (chunk != &part) {
+    // 内层循环
+    while (chunk != tmp) {
+      // 如果符合条件
+      if (chunk->addr + CHUNK_SIZE + chunk->len == tmp->addr) {
+        // 进行合并
+        // 加上 tmp 的 chunk 长度
+        chunk->len += CHUNK_SIZE;
+        // 加上 tmp 的 len 长度
+        chunk->len += tmp->len;
+        // 删除 tmp
+        tmp->prev->next = tmp->next;
+        tmp->next->prev = tmp->prev;
+        break;
+      }
+      tmp = tmp->next;
+    }
+    chunk = chunk->next;
+  }
+
+  // 遍历查找可以移动到 free 链表的
+  // 如果 part 长度等于 len-chunnk 大小
+  tmp = part.next;
+  while (tmp != &part) {
+    // 节点 len + chunk 长度对页大小取余，如果为零说明有整数页没有被使用
+    if (((tmp->len + CHUNK_SIZE) % kPageSize) == 0) {
+      // 移动到 free
+      move(free, tmp);
+      // 因为 tmp 已经被修改了，所以重新赋值
+      tmp = part.next;
+    } else {
+      // 没有被修改，直接指向 next
+      tmp = tmp->next;
+    }
+  }
+  // 寻找可以释放的节点进行释放
+  free_pmm();
+  return;
+}
+
+SLAB::chunk_t* SLAB::slab_cache_t::find(chunk_t& _which, size_t _len,
+                                        bool _alloc) {
+  chunk_t* res = nullptr;
+  // 在 _which 中查找，直接遍历即可
+  chunk_t* tmp = _which.next;
+  while (tmp != &_which) {
+    // 如果 tmp 节点的长度大于等于 _len
+    if (tmp->len >= _len) {
+      // 更新 res
+      res = tmp;
+      // 跳出循环
+      break;
+    }
+    tmp = tmp->next;
+  }
+  // 如果 res 为空，说明在 _which 链表中没有找到合适的节点
+  // 如果同时 _alloc 成立
+  if (res == nullptr && _alloc == true) {
+    // 申请新的空间
+    res = alloc_pmm(_len);
+  }
+  // 如果 res 不为空
+  if (res != nullptr) {
+    // 对 res 进行切割，res 加入 full，剩余部分进入 part
+    split(res, _len);
+  }
+  return res;
+}
+
+SLAB::chunk_t* SLAB::slab_cache_t::find(size_t _len) {
+  chunk_t* chunk = nullptr;
+  // 在 part 里找，如果没有找到允许申请新的空间
+  chunk = find(part, _len, true);
+  // 如果到这里 chunk 还为 nullptr 说明空间不够了
+  if (chunk == nullptr) {
+    printf("SLAB Error: Unable to allocate memory, length: %zu\n", _len);
+    return nullptr;
+  }
+  return chunk;
+}
+
+void SLAB::slab_cache_t::remove(chunk_t* _node) {
+  // 将 _node 移动到 part 即可
+  move(part, _node);
+  // merge 会处理节点合并的情况
+  merge();
+  return;
+}
+
+size_t SLAB::get_idx(size_t _len) const {
+  size_t res = 0;
+  // _len 向上取整
+  _len += _len - 1;
+  while (1) {
+    // 每次右移一位
+    _len = _len >> 1;
+    if (_len == 0) {
+      // res 需要减去 SHIFT
+      if (res < SHIFT) {
+        res = 0;
+      } else {
+        res -= SHIFT;
+      }
+      break;
+    }
+    res++;
+  }
+  return res;
+}
+
+SLAB::SLAB(const char* name, uint64_t addr, size_t length)
+    : AllocatorBase(name, addr, length) {
+  // 初始化 slab_cache
+  for (size_t i = LEN256; i < LEN65536; i++) {
+    slab_cache[i].len = MIN << i;
+  }
+  printf("%s: 0x%p(0x%p bytes) init.\n", name_, start_addr_, length_);
+  return;
+}
+
+SLAB::~SLAB(void) {
+  printf("%s finit.\n", name_);
+  return;
+}
+
+auto SLAB::Alloc(size_t length) -> uint64_t {
+  uint64_t res = 0;
+  // 分配时，首先确定需要分配的大小
+  // length 为零直接返回
+  // 大小不能超过 65536B
+  if (length > 0 && length <= MIN << LEN65536) {
+    // length 按照 8bytes 对齐
+    length = COMMON::ALIGN(length, 8);
+    // 根据大小确定 slab_cache 索引
+    auto idx = get_idx(length);
+    // 寻找合适的 slab 节点
+    chunk_t* chunk = slab_cache[idx].find(length);
+    // 不为空的话计算地址
+    if (chunk != nullptr) {
+      if ((uint64_t)chunk != chunk->addr) {
+        printf("SLAB Error: Chunk address mismatch: %p != %p\n", (void*)chunk,
+               (void*)chunk->addr);
+        return 0;
+      }
+      // 计算地址
+      res = chunk->addr + CHUNK_SIZE;
+    }
+// #define DEBUG
+#ifdef DEBUG
+    printf("slab alloc\n");
+    std::cout << slab_cache[idx];
+#undef DEBUG
+#endif
+  }
+  // 更新统计数据
+  if (res != 0) {
+    used_count_ += length;
+  }
+  // 返回
+  return res;
+}
+
+auto SLAB::Alloc(uint64_t, size_t) -> bool { return true; }
+
+void SLAB::Free(uint64_t addr, size_t) {
+  if (addr == 0) {
+    return;
+  }
+  // 要释放一个 chunk
+  // 1. 计算 chunk 地址
+  chunk_t* chunk = (chunk_t*)(addr - CHUNK_SIZE);
+  if ((uint64_t)chunk != chunk->addr) {
+    printf("SLAB Error: Invalid chunk address during free: %p != %p\n",
+           (void*)chunk, (void*)chunk->addr);
+    return;
+  }
+  // 2. 计算所属 slab_cache 索引
+  auto a = chunk->len;
+  if (chunk->len == 0) {
+    printf("SLAB Error: Chunk length is zero during free\n");
+    return;
+  }
+  auto idx = get_idx(chunk->len);
+  // 3. 调用对应的 remove 函数
+  slab_cache[idx].remove(chunk);
+// #define DEBUG
+#ifdef DEBUG
+  printf("slab free\n");
+  std::cout << slab_cache[idx];
+#undef DEBUG
+#endif
+  // 更新统计数据
+  used_count_ -= a;
+  return;
+}
+
+auto SLAB::GetUsedCount() const -> size_t { return used_count_; }
+
+auto SLAB::GetFreeCount() const -> size_t { return 0; }

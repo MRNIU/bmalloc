@@ -4,4 +4,4 @@
 
 #include "include/malloc.hpp"
 
-namespace malloc {}  // namespace malloc
+namespace bmalloc {}  // namespace bmalloc

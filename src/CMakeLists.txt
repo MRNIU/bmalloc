@@ -1,6 +1,7 @@
 # Copyright The malloc Contributors
 
 add_library(${PROJECT_NAME} STATIC
+        buddy.cpp
         malloc.cpp
         first_fit.cpp
         slab.cpp
