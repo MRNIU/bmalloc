@@ -1,35 +1,10 @@
 /**
- * @file buddy.cpp
- * @brief 二进制伙伴 (Binary Buddy) 内存分配器实现
- *
- * 算法原理：
- * 1. 将内存按 2 的幂次方大小进行分割和管理
- * 2. 维护多个空闲链表，每个链表管理特定大小 (2^i) 的空闲块
- * 3. 分配时：如果没有合适大小的块，就分割更大的块
- * 4. 释放时：尝试与相邻的 buddy 块合并成更大的块
- *
- * 数据结构：
- * - free_block_lists_[i]: 管理大小为 2^i 个页面的空闲块链表（静态数组）
- * - 每个空闲块的开头存储指向下一个空闲块的指针
- * - 使用静态数组存储 free_block_lists_，所有管理的内存都可用于分配
- *
- * 重要设计说明：
- * - length_ 字段被重新定义为最大阶数级别，而不是页数
- * - 对于管理 N 页内存，length_ = log2(N) + 1
- * - 实际管理的最大页数为：2^(length_-1)
- * - order 范围：0 到 length_-1
- *
- * 分配单位说明：
- * - 参数 order 表示 2 的幂次方的指数
- * - order=0: 分配 1 页 (2^0=1)
- * - order=1: 分配 2 页 (2^1=2)
- * - order=2: 分配 4 页 (2^2=4)
- * - order=3: 分配 8 页 (2^3=8)
- * - 以此类推...
+ * Copyright The bmalloc Contributors
  */
 
 #include "buddy.h"
 
+#include <cstdio>
 #include <iterator>
 
 namespace bmalloc {
@@ -305,24 +280,26 @@ auto Buddy::GetFreeCount() const -> size_t {
     total_free_pages += block_count * pages_per_block;
   }
 
+  buddy_print();
+
   return total_free_pages;
 }
 
 void Buddy::buddy_print() const {
-  std::cout << "Buddy current state (first block,last block):" << std::endl;
+  printf("Buddy current state (first block,last block):\n");
   for (size_t i = 0; i < length_; i++) {
     auto size = static_cast<size_t>(1 << i);
-    std::cout << "entry[" << i << "] (size " << size << ") -> ";
+    printf("entry[%zu] (size %zu) -> ", i, size);
     void* curr = free_block_lists_[i];
 
     while (curr != nullptr) {
       auto first = static_cast<size_t>((static_cast<const char*>(curr) -
                                         static_cast<const char*>(start_addr_)) /
                                        kPageSize);
-      std::cout << "(" << first << "," << first + size - 1 << ") -> ";
+      printf("(%zu,%zu) -> ", first, first + size - 1);
       curr = *(void**)curr;
     }
-    std::cout << "NULL" << std::endl;
+    printf("NULL\n");
   }
 }
 
