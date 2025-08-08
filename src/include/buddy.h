@@ -77,16 +77,8 @@ class Buddy : public AllocatorBase {
   int startingBlockNum;  // 初始总块数
 
   // 改为固定大小的静态数组，避免占用管理的内存空间
-  static void* freeList
+  void* freeList
       [kMaxFreeListEntries];  // 空闲链表数组，每个索引对应一种大小的空闲块链表
-
-  void buddy_init(void* space, int block_num);  // allocate buddy
-
-  void* buddy_alloc(int n);  // allocate page (size of page is 2^n)
-
-  void buddy_free(
-      void* space,
-      int n);  // free page (starting address is space, size of page is 2^n)
 
   void buddy_print();  // print current state of buddy
 

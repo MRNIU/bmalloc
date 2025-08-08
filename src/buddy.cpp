@@ -43,10 +43,14 @@ namespace bmalloc {
 Buddy::Buddy(const char* name, void* start_addr, size_t pages)
     : AllocatorBase(name, start_addr, pages) {
   // 参数检查：空间不能为空，页数至少为1
-  if (start_addr == nullptr || pages < 1) exit(1);
+  if (start_addr == nullptr || pages < 1) {
+    exit(1);
+  }
 
-  startingBlockNum = pages;  // 保存初始块数
-  buddySpace = start_addr;   // 保存管理空间的起始地址
+  // 保存初始块数
+  startingBlockNum = pages;
+  // 保存管理空间的起始地址
+  buddySpace = start_addr;
 
   // 现在所有的内存都可以用于分配，不需要预留第一个页面
   // start_addr 保持不变，block_num 也保持不变
@@ -58,15 +62,20 @@ Buddy::Buddy(const char* name, void* start_addr, size_t pages)
 
   // 检查是否超出静态数组大小
   if (numOfEntries > kMaxFreeListEntries) {
-    exit(1);  // 内存块数量超出支持范围
+    // 内存块数量超出支持范围
+    exit(1);
   }
 
   // 初始化所有空闲链表为空
-  for (i = 0; i < numOfEntries; i++) freeList[i] = nullptr;
+  for (i = 0; i < numOfEntries; i++) {
+    freeList[i] = nullptr;
+  }
 
   // 初始化空闲块：将可用内存按最大可能的块大小组织到空闲链表中
-  int maxLength = numOfEntries - 1;      // 最大块大小的索引
-  int maxLengthBlocks = 1 << maxLength;  // 最大块包含的页面数
+  // 最大块大小的索引
+  int maxLength = numOfEntries - 1;
+  // 最大块包含的页面数
+  int maxLengthBlocks = 1 << maxLength;
 
   // 贪心分配：优先分配最大的块，剩余部分继续分配次大的块
   while (pages > 0) {
@@ -75,9 +84,11 @@ Buddy::Buddy(const char* name, void* start_addr, size_t pages)
 
     // 将该块添加到对应大小的空闲链表头部
     freeList[maxLength] = addr;
-    *(void**)addr = nullptr;  // 该块的next指针设为null
+    // 该块的next指针设为null
+    *(void**)addr = nullptr;
 
-    pages -= maxLengthBlocks;  // 减去已分配的块数
+    // 减去已分配的块数
+    pages -= maxLengthBlocks;
 
     // 如果还有剩余块，计算下一个最大可能的块大小
     if (pages > 0) {
@@ -85,11 +96,14 @@ Buddy::Buddy(const char* name, void* start_addr, size_t pages)
       maxLength = 0;
       // 找到不超过剩余块数的最大2的幂
       while (true) {
-        if (i <= pages && 2 * i > pages) break;
+        if (i <= pages && 2 * i > pages) {
+          break;
+        }
         i = i * 2;
         maxLength++;
       }
-      maxLengthBlocks = 1 << maxLength;  // 计算新的最大块大小
+      // 计算新的最大块大小
+      maxLengthBlocks = 1 << maxLength;
     }
   }
 }
@@ -106,7 +120,9 @@ Buddy::Buddy(const char* name, void* start_addr, size_t pages)
  */
 void* Buddy::Alloc(size_t n) {
   // 参数检查：n必须在有效范围内
-  if (n >= numOfEntries) return nullptr;
+  if (n >= numOfEntries) {
+    return nullptr;
+  }
 
   void* returningSpace = nullptr;
 
@@ -114,25 +130,32 @@ void* Buddy::Alloc(size_t n) {
   if (freeList[n] != nullptr) {
     // 从空闲链表头部取出一个块
     returningSpace = freeList[n];
-    freeList[n] = *(void**)returningSpace;  // 更新链表头
-    *(void**)returningSpace = nullptr;      // 清空返回块的next指针
+    // 更新链表头
+    freeList[n] = *(void**)returningSpace;
+    // 清空返回块的next指针
+    *(void**)returningSpace = nullptr;
   } else {
     // 情况2：没有合适大小的块，需要分割更大的块
     for (auto i = n + 1; i < numOfEntries; i++) {
       if (freeList[i] != nullptr) {
         // 找到一个更大的块，将其分割
-        void* ptr1 = freeList[i];     // 取出大块
-        freeList[i] = *(void**)ptr1;  // 更新大块链表
-        void* ptr2 = (char*)ptr1 +
-                     kPageSize * (1 << (i - 1));  // 计算分割后的第二个块地址
+        // 取出大块
+        void* ptr1 = freeList[i];
+        // 更新大块链表
+        freeList[i] = *(void**)ptr1;
+        // 计算分割后的第二个块地址
+        void* ptr2 = (char*)ptr1 + kPageSize * (1 << (i - 1));
 
         // 将分割后的两个块加入到小一级的空闲链表中
-        *(void**)ptr1 = ptr2;             // ptr1的next指向ptr2
-        *(void**)ptr2 = freeList[i - 1];  // ptr2的next指向原链表头
-        freeList[i - 1] = ptr1;           // 更新链表头为ptr1
+        // ptr1的next指向ptr2
+        *(void**)ptr1 = ptr2;
+        // ptr2的next指向原链表头
+        *(void**)ptr2 = freeList[i - 1];
+        // 更新链表头为ptr1
+        freeList[i - 1] = ptr1;
 
         // 递归分配，直到得到合适大小的块
-        returningSpace = buddy_alloc(n);
+        returningSpace = Alloc(n);
         break;
       }
     }
@@ -152,21 +175,19 @@ void* Buddy::Alloc(size_t n) {
  * buddy分配器要求块的起始地址必须满足对齐要求：
  * 对于大小为2^n的块，其起始地址必须是2^n的倍数
  */
-inline bool Buddy::isValid(
-    void* space,
-    int n)  // check if starting address (space1) is valid for length 2^n
-{
-  int length = 1 << n;  // 块大小（页面数）
-  int num =
-      (startingBlockNum % length);  // 计算对齐要求（简化计算，因为现在从0开始）
-  int i = ((char*)space - (char*)buddySpace) /
-          kPageSize;  // 计算块编号（现在直接从buddySpace开始计算）
+inline bool Buddy::isValid(void* space, int n) {
+  // 块大小（页面数）
+  int length = 1 << n;
+  // 计算对齐要求（简化计算，因为现在从0开始）
+  int num = (startingBlockNum % length);
+  // 计算块编号（现在直接从buddySpace开始计算）
+  int i = ((char*)space - (char*)buddySpace) / kPageSize;
 
   // 检查块编号是否满足对齐要求：对于大小为2^n的块，起始位置必须是2^n的倍数
-  if (i % length ==
-      num %
-          length)  // if starting block number is valid for length 2^n then true
+  // if starting block number is valid for length 2^n then true
+  if (i % length == num % length) {
     return true;
+  }
 
   return false;
 }
@@ -184,9 +205,12 @@ inline bool Buddy::isValid(
  */
 void Buddy::Free(void* addr, size_t pages) {
   // 参数检查：n必须在有效范围内
-  if (pages >= numOfEntries) return;
+  if (pages >= numOfEntries) {
+    return;
+  }
 
-  int bNum = 1 << pages;  // 计算块大小（页面数）
+  // 计算块大小（页面数）
+  int bNum = 1 << pages;
 
   // 情况1：该大小的空闲链表为空，直接插入
   if (freeList[pages] == nullptr) {
@@ -200,12 +224,11 @@ void Buddy::Free(void* addr, size_t pages) {
     // 遍历同大小的空闲链表，寻找buddy块
     while (curr != nullptr) {
       // 检查是否为右buddy（当前块的右边相邻块）
-      if (curr == (void*)((char*)addr +
-                          kPageSize * bNum))  // right buddy potentially found
-      {
-        if (isValid(addr,
-                    pages + 1))  // 验证是否为有效的buddy // right buddy found
-        {
+      // right buddy potentially found
+      if (curr == (void*)((char*)addr + kPageSize * bNum)) {
+        // 验证是否为有效的buddy
+        // right buddy found
+        if (isValid(addr, pages + 1)) {
           // 从链表中移除找到的buddy块
           if (prev == nullptr) {
             freeList[pages] = *(void**)freeList[pages];
@@ -214,19 +237,15 @@ void Buddy::Free(void* addr, size_t pages) {
           }
 
           // 递归释放合并后的更大块
-          buddy_free(addr, pages + 1);
-
+          Free(addr, pages + 1);
           return;
         }
-      } else if (addr ==
-                 (void*)((char*)curr +
-                         kPageSize *
-                             bNum))  // 检查是否为左buddy（当前块的左边相邻块）
-                                     // // left buddy potentially found
-      {
-        if (isValid(curr,
-                    pages + 1))  // 验证是否为有效的buddy // left buddy found
-        {
+      } else if (addr == (void*)((char*)curr + kPageSize * bNum)) {
+        // 检查是否为左buddy（当前块的左边相邻块）
+        // left buddy potentially found
+        // 验证是否为有效的buddy
+        // left buddy found
+        if (isValid(curr, pages + 1)) {
           // 从链表中移除找到的buddy块
           if (prev == nullptr) {
             freeList[pages] = *(void**)freeList[pages];
@@ -235,8 +254,7 @@ void Buddy::Free(void* addr, size_t pages) {
           }
 
           // 递归释放合并后的更大块（使用左buddy的地址作为起始地址）
-          buddy_free(curr, pages + 1);
-
+          Free(curr, pages + 1);
           return;
         }
       }
