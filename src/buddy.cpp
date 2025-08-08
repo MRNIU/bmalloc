@@ -171,7 +171,7 @@ auto Buddy::Alloc(size_t order) -> void* {
  * @param order 阶数，实际分配 2^order 个页面
  * @return true 分配成功
  * @return false 分配失败
- * 
+ *
  * 实现说明：
  * buddy分配器通常不支持指定地址分配，因为：
  * 1. buddy算法依赖于特定的内存布局和对齐要求
@@ -181,8 +181,8 @@ auto Buddy::Alloc(size_t order) -> void* {
 auto Buddy::Alloc(void* addr, size_t order) -> bool {
   // buddy分配器不支持指定地址分配
   // 这与buddy算法的设计原理不符
-  (void)addr;    // 避免未使用参数警告
-  (void)order;   // 避免未使用参数警告
+  (void)addr;   // 避免未使用参数警告
+  (void)order;  // 避免未使用参数警告
   return false;
 }
 
@@ -229,6 +229,12 @@ void Buddy::Free(void* addr, size_t order) {
   // 参数检查：order必须在有效范围内
   if (order >= maxOrderLevel_) {
     return;
+  }
+
+  // 参数检查：地址必须在管理的内存范围内
+  if (addr < start_addr_ ||
+      addr >= (void*)((char*)start_addr_ + length_ * kPageSize)) {
+    return;  // 地址超出管理范围，直接返回
   }
 
   // 计算块大小（页面数）
@@ -320,18 +326,16 @@ void Buddy::buddy_print() {
 /**
  * @brief 获取已使用的页数
  * @return size_t 已使用的页数
- * 
+ *
  * 实现说明：
  * 通过计算总页数减去空闲页数来得到已使用页数
  */
-auto Buddy::GetUsedCount() const -> size_t {
-  return length_ - GetFreeCount();
-}
+auto Buddy::GetUsedCount() const -> size_t { return length_ - GetFreeCount(); }
 
 /**
  * @brief 获取空闲的页数
  * @return size_t 空闲的页数
- * 
+ *
  * 实现说明：
  * 遍历所有空闲链表，统计空闲块的总页数
  * - freeList_[i] 中的每个块包含 2^i 个页面
@@ -339,23 +343,23 @@ auto Buddy::GetUsedCount() const -> size_t {
  */
 auto Buddy::GetFreeCount() const -> size_t {
   size_t total_free_pages = 0;
-  
+
   // 遍历所有阶数的空闲链表
   for (size_t order = 0; order < maxOrderLevel_; ++order) {
     size_t pages_per_block = 1 << order;  // 2^order 个页面
     size_t block_count = 0;
-    
+
     // 遍历当前阶数的空闲链表，统计块数
     void* current = freeList_[order];
     while (current != nullptr) {
       block_count++;
       current = *(void**)current;  // 获取下一个块
     }
-    
+
     // 累加当前阶数的空闲页数
     total_free_pages += block_count * pages_per_block;
   }
-  
+
   return total_free_pages;
 }
 

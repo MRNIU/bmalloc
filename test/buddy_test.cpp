@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <iostream>
 #include <random>
 #include <vector>
 
@@ -133,7 +134,11 @@ TEST_F(BuddyTest, MemoryExhaustion) {
   }
 
   EXPECT_GT(allocated_ptrs.size(), 0) << "应该能分配至少一些内存";
-  EXPECT_LT(allocated_ptrs.size(), test_pages_) << "分配的页数不应超过总页数";
+  EXPECT_LE(allocated_ptrs.size(), test_pages_) << "分配的页数不应超过总页数";
+
+  // 记录实际分配的页数，用于调试
+  std::cout << "实际分配了 " << allocated_ptrs.size() << " 页，总共 "
+            << test_pages_ << " 页" << std::endl;
 
   // 验证再次分配失败
   void* ptr = buddy_->Alloc(0);
@@ -279,7 +284,6 @@ TEST_F(BuddyTest, DifferentOrderSizes) {
 
       // 验证能够写入相应大小的数据
       size_t pages = 1 << order;
-      size_t size = pages * AllocatorBase::kPageSize;
 
       // 在每页的开头和结尾写入标记
       for (size_t page = 0; page < pages; ++page) {
@@ -312,12 +316,23 @@ TEST_F(BuddyTest, DifferentOrderSizes) {
 }
 
 /**
- * @brief 测试nullptr释放（应该安全）
+ * @brief 测试释放无效地址（应该安全）
  */
-TEST_F(BuddyTest, FreeNullptr) {
-  // 释放nullptr应该是安全的，不应该崩溃
+TEST_F(BuddyTest, FreeInvalidAddress) {
+  // 释放不在管理范围内的地址应该是安全的
+  // buddy分配器会检查地址范围，对于超出范围的地址直接返回
+
+  // 测试nullptr（地址0，通常不在管理范围内）
   EXPECT_NO_FATAL_FAILURE(buddy_->Free(nullptr, 0));
   EXPECT_NO_FATAL_FAILURE(buddy_->Free(nullptr, 5));
+
+  // 测试其他无效地址
+  void* invalid_addr1 = (void*)0x1000000;  // 远超管理范围的地址
+  void* invalid_addr2 =
+      (void*)((char*)test_memory_ - 4096);  // 管理范围之前的地址
+
+  EXPECT_NO_FATAL_FAILURE(buddy_->Free(invalid_addr1, 0));
+  EXPECT_NO_FATAL_FAILURE(buddy_->Free(invalid_addr2, 1));
 }
 
 /**
