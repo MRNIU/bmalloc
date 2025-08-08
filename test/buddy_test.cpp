@@ -4,13 +4,14 @@
  * @brief Buddy分配器的Google Test测试用例
  */
 
-#include <gtest/gtest.h>
-#include <cstring>
-#include <vector>
-#include <random>
-#include <algorithm>
-
 #include "buddy.h"
+
+#include <gtest/gtest.h>
+
+#include <algorithm>
+#include <cstring>
+#include <random>
+#include <vector>
 
 namespace bmalloc {
 namespace test {
@@ -23,15 +24,16 @@ class BuddyTest : public ::testing::Test {
  protected:
   void SetUp() override {
     // 分配测试用的内存池 (1MB = 256页)
-    test_memory_size_ = 1024 * 1024;  // 1MB
+    test_memory_size_ = 1024 * 1024;                             // 1MB
     test_pages_ = test_memory_size_ / AllocatorBase::kPageSize;  // 256页
-    test_memory_ = std::aligned_alloc(AllocatorBase::kPageSize, test_memory_size_);
-    
+    test_memory_ =
+        std::aligned_alloc(AllocatorBase::kPageSize, test_memory_size_);
+
     ASSERT_NE(test_memory_, nullptr) << "无法分配测试内存";
-    
+
     // 初始化为0，便于检测内存污染
     std::memset(test_memory_, 0, test_memory_size_);
-    
+
     // 创建buddy分配器实例
     buddy_ = std::make_unique<Buddy>("test_buddy", test_memory_, test_pages_);
   }
@@ -120,10 +122,10 @@ TEST_F(BuddyTest, BoundaryConditions) {
  */
 TEST_F(BuddyTest, MemoryExhaustion) {
   std::vector<void*> allocated_ptrs;
-  
+
   // 持续分配直到内存耗尽
   for (int i = 0; i < 1000; ++i) {  // 防止无限循环
-    void* ptr = buddy_->Alloc(0);  // 分配1页
+    void* ptr = buddy_->Alloc(0);   // 分配1页
     if (ptr == nullptr) {
       break;  // 内存耗尽
     }
@@ -165,7 +167,7 @@ TEST_F(BuddyTest, BuddyMerging) {
   // 现在应该能分配一个2页的块（如果buddy合并正常工作）
   void* large_ptr = buddy_->Alloc(1);
   EXPECT_NE(large_ptr, nullptr) << "buddy合并后应该能分配更大的块";
-  
+
   if (large_ptr) {
     buddy_->Free(large_ptr, 1);
   }
@@ -177,7 +179,7 @@ TEST_F(BuddyTest, BuddyMerging) {
 TEST_F(BuddyTest, AllocFreePairMatching) {
   // 分配不同大小的块
   std::vector<std::pair<void*, size_t>> allocated_blocks;
-  
+
   for (size_t order = 0; order <= 4; ++order) {
     void* ptr = buddy_->Alloc(order);
     if (ptr != nullptr) {
@@ -234,16 +236,17 @@ TEST_F(BuddyTest, StressTest) {
       if (ptr != nullptr) {
         allocated_blocks.emplace_back(ptr, order);
         alloc_count++;
-        
+
         // 验证分配的内存可写
         *static_cast<char*>(ptr) = static_cast<char>('A' + (i % 26));
       }
     } else {
       // 40%概率释放
       if (!allocated_blocks.empty()) {
-        std::uniform_int_distribution<> index_dist(0, allocated_blocks.size() - 1);
+        std::uniform_int_distribution<> index_dist(0,
+                                                   allocated_blocks.size() - 1);
         size_t index = index_dist(gen);
-        
+
         auto [ptr, order] = allocated_blocks[index];
         buddy_->Free(ptr, order);
         allocated_blocks.erase(allocated_blocks.begin() + index);
@@ -273,15 +276,16 @@ TEST_F(BuddyTest, DifferentOrderSizes) {
     void* ptr = buddy_->Alloc(order);
     if (ptr != nullptr) {
       ptrs.emplace_back(ptr, order);
-      
+
       // 验证能够写入相应大小的数据
       size_t pages = 1 << order;
       size_t size = pages * AllocatorBase::kPageSize;
-      
+
       // 在每页的开头和结尾写入标记
       for (size_t page = 0; page < pages; ++page) {
-        char* page_start = static_cast<char*>(ptr) + page * AllocatorBase::kPageSize;
-        *page_start = 'S';  // Start marker
+        char* page_start =
+            static_cast<char*>(ptr) + page * AllocatorBase::kPageSize;
+        *page_start = 'S';                                   // Start marker
         *(page_start + AllocatorBase::kPageSize - 1) = 'E';  // End marker
       }
     }
@@ -292,14 +296,17 @@ TEST_F(BuddyTest, DifferentOrderSizes) {
   // 验证数据完整性并释放
   for (const auto& [ptr, order] : ptrs) {
     size_t pages = 1 << order;
-    
+
     // 验证标记
     for (size_t page = 0; page < pages; ++page) {
-      char* page_start = static_cast<char*>(ptr) + page * AllocatorBase::kPageSize;
-      EXPECT_EQ(*page_start, 'S') << "起始标记被破坏，order=" << order << ", page=" << page;
-      EXPECT_EQ(*(page_start + AllocatorBase::kPageSize - 1), 'E') << "结束标记被破坏，order=" << order << ", page=" << page;
+      char* page_start =
+          static_cast<char*>(ptr) + page * AllocatorBase::kPageSize;
+      EXPECT_EQ(*page_start, 'S')
+          << "起始标记被破坏，order=" << order << ", page=" << page;
+      EXPECT_EQ(*(page_start + AllocatorBase::kPageSize - 1), 'E')
+          << "结束标记被破坏，order=" << order << ", page=" << page;
     }
-    
+
     buddy_->Free(ptr, order);
   }
 }
@@ -314,6 +321,72 @@ TEST_F(BuddyTest, FreeNullptr) {
 }
 
 /**
+ * @brief 测试GetUsedCount和GetFreeCount方法
+ */
+TEST_F(BuddyTest, UsedAndFreeCount) {
+  // 初始状态：所有内存都应该是空闲的
+  size_t initial_free = buddy_->GetFreeCount();
+  size_t initial_used = buddy_->GetUsedCount();
+
+  EXPECT_EQ(initial_used, 0) << "初始已使用页数应该为0";
+  EXPECT_EQ(initial_free, test_pages_) << "初始空闲页数应该等于总页数";
+  EXPECT_EQ(initial_free + initial_used, test_pages_)
+      << "空闲页数+已使用页数应该等于总页数";
+
+  // 分配一些内存块
+  void* ptr1 = buddy_->Alloc(0);  // 1页
+  void* ptr2 = buddy_->Alloc(1);  // 2页
+  void* ptr3 = buddy_->Alloc(2);  // 4页
+
+  ASSERT_NE(ptr1, nullptr);
+  ASSERT_NE(ptr2, nullptr);
+  ASSERT_NE(ptr3, nullptr);
+
+  // 检查计数变化
+  size_t after_alloc_free = buddy_->GetFreeCount();
+  size_t after_alloc_used = buddy_->GetUsedCount();
+
+  EXPECT_EQ(after_alloc_used, 7) << "分配1+2+4=7页后，已使用页数应该为7";
+  EXPECT_EQ(after_alloc_free + after_alloc_used, test_pages_)
+      << "空闲页数+已使用页数应该等于总页数";
+  EXPECT_LT(after_alloc_free, initial_free) << "分配后空闲页数应该减少";
+
+  // 释放部分内存
+  buddy_->Free(ptr1, 0);  // 释放1页
+
+  size_t after_partial_free_free = buddy_->GetFreeCount();
+  size_t after_partial_free_used = buddy_->GetUsedCount();
+
+  EXPECT_EQ(after_partial_free_used, 6) << "释放1页后，已使用页数应该为6";
+  EXPECT_EQ(after_partial_free_free + after_partial_free_used, test_pages_)
+      << "空闲页数+已使用页数应该等于总页数";
+
+  // 释放剩余内存
+  buddy_->Free(ptr2, 1);
+  buddy_->Free(ptr3, 2);
+
+  size_t final_free = buddy_->GetFreeCount();
+  size_t final_used = buddy_->GetUsedCount();
+
+  EXPECT_EQ(final_used, 0) << "释放所有内存后，已使用页数应该为0";
+  EXPECT_EQ(final_free, test_pages_)
+      << "释放所有内存后，空闲页数应该等于总页数";
+}
+
+/**
+ * @brief 测试指定地址分配（应该失败）
+ */
+TEST_F(BuddyTest, AllocAtSpecificAddress) {
+  // buddy分配器通常不支持指定地址分配
+  void* specific_addr =
+      static_cast<char*>(test_memory_) + AllocatorBase::kPageSize;
+  bool result = buddy_->Alloc(specific_addr, 0);
+
+  // 根据buddy分配器的特性，这应该返回false
+  EXPECT_FALSE(result) << "buddy分配器不应该支持指定地址分配";
+}
+
+/**
  * @brief 测试分配器构造参数验证
  */
 TEST_F(BuddyTest, ConstructorValidation) {
@@ -321,27 +394,27 @@ TEST_F(BuddyTest, ConstructorValidation) {
   size_t small_size = AllocatorBase::kPageSize * 4;  // 4页
   void* small_memory = std::aligned_alloc(AllocatorBase::kPageSize, small_size);
   ASSERT_NE(small_memory, nullptr);
-  
+
   std::memset(small_memory, 0, small_size);
-  
+
   // 创建小内存的buddy分配器
   auto small_buddy = std::make_unique<Buddy>("small_buddy", small_memory, 4);
-  
+
   // 测试在小内存中的分配
   void* ptr1 = small_buddy->Alloc(0);  // 1页
   EXPECT_NE(ptr1, nullptr);
-  
+
   void* ptr2 = small_buddy->Alloc(1);  // 2页
   EXPECT_NE(ptr2, nullptr);
-  
+
   // 现在应该没有更多空间了
   void* ptr3 = small_buddy->Alloc(1);  // 再分配2页
   EXPECT_EQ(ptr3, nullptr) << "小内存池应该已经耗尽";
-  
+
   // 清理
   if (ptr1) small_buddy->Free(ptr1, 0);
   if (ptr2) small_buddy->Free(ptr2, 1);
-  
+
   small_buddy.reset();
   std::free(small_memory);
 }

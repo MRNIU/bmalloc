@@ -166,6 +166,27 @@ auto Buddy::Alloc(size_t order) -> void* {
 }
 
 /**
+ * @brief 在指定地址分配2的幂次方页数的内存
+ * @param addr 指定的地址
+ * @param order 阶数，实际分配 2^order 个页面
+ * @return true 分配成功
+ * @return false 分配失败
+ * 
+ * 实现说明：
+ * buddy分配器通常不支持指定地址分配，因为：
+ * 1. buddy算法依赖于特定的内存布局和对齐要求
+ * 2. 指定地址可能破坏buddy块的对齐和合并规则
+ * 3. 实现复杂度高，且与buddy算法的设计初衷不符
+ */
+auto Buddy::Alloc(void* addr, size_t order) -> bool {
+  // buddy分配器不支持指定地址分配
+  // 这与buddy算法的设计原理不符
+  (void)addr;    // 避免未使用参数警告
+  (void)order;   // 避免未使用参数警告
+  return false;
+}
+
+/**
  * @brief 检查给定地址是否为大小为2^n的块的有效起始地址
  * @param space 要检查的地址
  * @param n 块大小的指数（块大小为2^n）
