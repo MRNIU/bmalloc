@@ -69,12 +69,10 @@ class Buddy : public AllocatorBase {
 
  private:
   // 常量定义
-  static constexpr size_t kMaxFreeListEntries =
-      32;                // 最大支持2^31个页面，足够大部分应用
-                         // 全局变量定义
-  void* buddySpace;      // buddy分配器管理的内存空间起始地址
-  size_t numOfEntries;   // 当前使用的空闲链表数组条目数（对应不同大小的块）
-  int startingBlockNum;  // 初始总块数
+  // 最大支持2^31个页面，足够大部分应用
+  static constexpr size_t kMaxFreeListEntries = 32;
+  // 当前使用的空闲链表数组条目数（对应不同大小的块）
+  size_t numOfEntries;
 
   // 改为固定大小的静态数组，避免占用管理的内存空间
   void* freeList
@@ -82,7 +80,7 @@ class Buddy : public AllocatorBase {
 
   void buddy_print();  // print current state of buddy
 
-  inline bool isValid(void* space, int n);
+  inline bool isValid(void* space, int n) const;
 };
 
 }  // namespace bmalloc

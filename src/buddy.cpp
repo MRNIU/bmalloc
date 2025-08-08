@@ -12,16 +12,6 @@
  * - freeList[i]: 管理大小为2^i个页面的空闲块链表（静态数组）
  * - 每个空闲块的开头存储指向下一个空闲块的指针
  * - 使用静态数组存储freeList，所有管理的内存都可用于分配
- *
- * 优点：
- * - 减少外部碎片
- * - 分配和释放速度快
- * - 实现相对简单
- * - 不占用管理的内存空间（使用静态数组）
- *
- * 缺点：
- * - 存在内部碎片（只能分配2的幂次方大小）
- * - freeList数组大小固定，限制了最大支持的内存大小
  */
 
 #include "buddy.h"
@@ -32,7 +22,7 @@ namespace bmalloc {
 
 /**
  * @brief 初始化buddy分配器
- * @param start_addr 要管理的内存空间起始地址
+ * @param start_addr_ 要管理的内存空间起始地址
  * @param pages 总页数（每块大小为kPageSize）
  *
  * 功能说明：
@@ -46,14 +36,6 @@ Buddy::Buddy(const char* name, void* start_addr, size_t pages)
   if (start_addr == nullptr || pages < 1) {
     exit(1);
   }
-
-  // 保存初始块数
-  startingBlockNum = pages;
-  // 保存管理空间的起始地址
-  buddySpace = start_addr;
-
-  // 现在所有的内存都可以用于分配，不需要预留第一个页面
-  // start_addr 保持不变，block_num 也保持不变
 
   size_t i = 1;
   // 计算需要的空闲链表条目数：log2(pages) + 1
@@ -175,13 +157,13 @@ void* Buddy::Alloc(size_t n) {
  * buddy分配器要求块的起始地址必须满足对齐要求：
  * 对于大小为2^n的块，其起始地址必须是2^n的倍数
  */
-inline bool Buddy::isValid(void* space, int n) {
+inline bool Buddy::isValid(void* space, int n) const {
   // 块大小（页面数）
   int length = 1 << n;
   // 计算对齐要求（简化计算，因为现在从0开始）
-  int num = (startingBlockNum % length);
-  // 计算块编号（现在直接从buddySpace开始计算）
-  int i = ((char*)space - (char*)buddySpace) / kPageSize;
+  int num = (length_ % length);
+  // 计算块编号（现在直接从start_addr开始计算）
+  int i = ((char*)space - (char*)start_addr_) / kPageSize;
 
   // 检查块编号是否满足对齐要求：对于大小为2^n的块，起始位置必须是2^n的倍数
   // if starting block number is valid for length 2^n then true
@@ -287,7 +269,7 @@ void Buddy::buddy_print() {
   //     void* curr = freeList[i];
 
   //     while (curr != nullptr) {
-  //       int first = ((char*)curr - (char*)buddySpace) / kPageSize;
+  //       int first = ((char*)curr - (char*)start_addr_) / kPageSize;
   //       cout << "(" << first << "," << first + size - 1 << ") -> ";
   //       curr = *(void**)curr;
   //     }
