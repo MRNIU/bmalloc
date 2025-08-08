@@ -1,9 +1,9 @@
 /**
- * Copyright The malloc Contributors
+ * Copyright The bmalloc Contributors
  */
 
-#ifndef MALLOC_SRC_INCLUDE_BUDDY_H_
-#define MALLOC_SRC_INCLUDE_BUDDY_H_
+#ifndef BMALLOC_SRC_INCLUDE_BUDDY_H_
+#define BMALLOC_SRC_INCLUDE_BUDDY_H_
 
 #include <cstddef>
 #include <cstdint>
@@ -83,4 +83,4 @@ class Buddy : public AllocatorBase {
 
 }  // namespace bmalloc
 
-#endif /* MALLOC_SRC_INCLUDE_BUDDY_H_ */
+#endif /* BMALLOC_SRC_INCLUDE_BUDDY_H_ */

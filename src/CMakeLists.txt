@@ -1,10 +1,10 @@
-# Copyright The malloc Contributors
+# Copyright The bmalloc Contributors
 
 add_library(${PROJECT_NAME} STATIC
         buddy.cpp
-        malloc.cpp
-        first_fit.cpp
-        slab.cpp
+        # first_fit.cpp
+        # slab.cpp
+        bmalloc.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -18,4 +18,4 @@ target_compile_options(${PROJECT_NAME} PRIVATE
         -Wextra
 )
 
-set_target_properties(${PROJECT_NAME} PROPERTIES PUBLIC_HEADER "include/malloc.h")
+set_target_properties(${PROJECT_NAME} PROPERTIES PUBLIC_HEADER "include/bmalloc.h")

@@ -1,9 +1,9 @@
 /**
- * Copyright The malloc Contributors
+ * Copyright The bmalloc Contributors
  */
 
-#ifndef MALLOC_SRC_INCLUDE_FIRST_FIT_H_
-#define MALLOC_SRC_INCLUDE_FIRST_FIT_H_
+#ifndef BMALLOC_SRC_INCLUDE_FIRST_FIT_H_
+#define BMALLOC_SRC_INCLUDE_FIRST_FIT_H_
 
 #include <bitset>
 #include <cstddef>
@@ -86,4 +86,4 @@ class FirstFit : public AllocatorBase {
       -> size_t;
 };
 
-#endif /* MALLOC_SRC_INCLUDE_FIRST_FIT_H_ */
+#endif /* BMALLOC_SRC_INCLUDE_FIRST_FIT_H_ */

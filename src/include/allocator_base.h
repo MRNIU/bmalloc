@@ -2,8 +2,8 @@
  * Copyright The SimpleKernel Contributors
  */
 
-#ifndef MALLOC_SRC_INCLUDE_ALLOCATOR_BASE_H_
-#define MALLOC_SRC_INCLUDE_ALLOCATOR_BASE_H_
+#ifndef BMALLOC_SRC_INCLUDE_ALLOCATOR_BASE_H_
+#define BMALLOC_SRC_INCLUDE_ALLOCATOR_BASE_H_
 
 #include <cstddef>
 #include <cstdint>
@@ -87,4 +87,4 @@ class AllocatorBase {
   size_t used_count_;
 };
 
-#endif /* MALLOC_SRC_INCLUDE_ALLOCATOR_BASE_H_ */
+#endif /* BMALLOC_SRC_INCLUDE_ALLOCATOR_BASE_H_ */

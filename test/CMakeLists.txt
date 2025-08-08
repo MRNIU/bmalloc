@@ -1,7 +1,7 @@
-# Copyright The malloc Contributors
+# Copyright The bmalloc Contributors
 
 project(
-        malloc_test
+        bmalloc_test
 )
 
 add_executable(${PROJECT_NAME}
@@ -21,9 +21,9 @@ target_link_options(${PROJECT_NAME} PRIVATE
 
 # 添加要链接的库
 target_link_libraries(${PROJECT_NAME} PRIVATE
-        malloc
+        bmalloc
 )
 
 add_dependencies(${PROJECT_NAME}
-        malloc
+        bmalloc
 )

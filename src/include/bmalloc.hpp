@@ -1,9 +1,9 @@
 /**
- * Copyright The malloc Contributors
+ * Copyright The bmalloc Contributors
  */
 
-#ifndef MALLOC_SRC_INCLUDE_MALLOC_HPP_
-#define MALLOC_SRC_INCLUDE_MALLOC_HPP_
+#ifndef BMALLOC_SRC_INCLUDE_BMALLOC_HPP_
+#define BMALLOC_SRC_INCLUDE_BMALLOC_HPP_
 
 #include <concepts>
 #include <cstddef>
@@ -114,4 +114,4 @@ class Malloc {
 
 }  // namespace bmalloc
 
-#endif /* MALLOC_SRC_INCLUDE_MALLOC_HPP_ */
+#endif /* BMALLOC_SRC_INCLUDE_BMALLOC_HPP_ */

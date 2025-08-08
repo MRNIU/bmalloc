@@ -1,8 +1,8 @@
-# Copyright The malloc Contributors
+# Copyright The bmalloc Contributors
 
 cmake_minimum_required(VERSION 3.27 FATAL_ERROR)
 
-project(malloc)
+project(bmalloc)
 
 if (${PROJECT_SOURCE_DIR} STREQUAL ${PROJECT_BINARY_DIR})
     message(
