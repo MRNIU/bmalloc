@@ -30,10 +30,7 @@
 
 #include "buddy.h"
 
-#include <algorithm>
 #include <iterator>
-
-// #include <cmath>
 
 namespace bmalloc {
 
@@ -54,11 +51,6 @@ static inline size_t log2(size_t value) {
   return result;
 }
 
-/**
- * @brief 初始化 buddy 分配器
- * @param start_addr 要管理的内存空间起始地址
- * @param total_pages 总页数（每块大小为 kPageSize）
- */
 Buddy::Buddy(const char* name, void* start_addr, size_t total_pages)
     : AllocatorBase(name, start_addr, log2(total_pages) + 1) {
   if (total_pages < 1) {
@@ -70,10 +62,6 @@ Buddy::Buddy(const char* name, void* start_addr, size_t total_pages)
     return;
   }
 
-  // 初始化所有空闲块链表为空
-  std::fill(free_block_lists_.begin(), free_block_lists_.begin() + length_,
-            nullptr);
-
   // 最大阶数（order）级别，对应最大块的索引
   auto max_order = length_ - 1;
   // 最大块包含的页面数，即 2^max_order
@@ -83,8 +71,8 @@ Buddy::Buddy(const char* name, void* start_addr, size_t total_pages)
 
   while (remaining_pages > 0) {
     // 计算当前最大块的起始地址
-    auto block_addr =
-        (char*)start_addr_ + (remaining_pages - max_block_pages) * kPageSize;
+    auto block_addr = const_cast<char*>(static_cast<const char*>(start_addr_)) +
+                      (remaining_pages - max_block_pages) * kPageSize;
 
     // 将该块添加到对应大小的空闲链表头部
     free_block_lists_[max_order] = block_addr;
@@ -112,16 +100,6 @@ Buddy::Buddy(const char* name, void* start_addr, size_t total_pages)
   }
 }
 
-/**
- * @brief 分配大小为 2^order 个页面的内存块
- * @param order 指数，分配 2^order 个页面
- * @return void* 分配的内存地址，失败返回 nullptr
- *
- * 算法说明：
- * 1. 如果有合适大小的空闲块，直接从链表头部取出
- * 2. 如果没有，找到最小的更大块进行分割
- * 3. 分割过程：将大块一分为二，放入小一级的链表，递归分配
- */
 auto Buddy::Alloc(size_t order) -> void* {
   // 参数检查：order 必须在有效范围内
   if (order >= length_) {
@@ -149,8 +127,8 @@ auto Buddy::Alloc(size_t order) -> void* {
         // 更新大块链表
         free_block_lists_[current_order] = *(void**)large_block;
         // 计算分割后的第二个块地址
-        void* buddy_block =
-            (char*)large_block + kPageSize * (1 << (current_order - 1));
+        void* buddy_block = static_cast<char*>(large_block) +
+                            kPageSize * (1 << (current_order - 1));
 
         // 将分割后的两个块加入到小一级的空闲链表中s
         // large_block 的 next 指向 buddy_block
@@ -172,30 +150,22 @@ auto Buddy::Alloc(size_t order) -> void* {
 
 auto Buddy::Alloc(void*, size_t) -> bool { return false; }
 
-/**
- * @brief 检查给定地址是否为大小为 2^order 的块的有效起始地址
- * @param space 要检查的地址
- * @param order 块大小的指数（块大小为 2^order）
- * @return true 如果地址有效
- * @return false 如果地址无效
- *
- * 算法说明：
- * buddy 分配器要求块的起始地址必须满足对齐要求：
- * 对于大小为 2^order 的块，其起始地址必须是 2^order 的倍数
- */
-inline bool Buddy::isValid(void* space, int n) const {
+inline bool Buddy::isValid(void* addr, size_t order) const {
   // 块大小（页面数）
-  int length = 1 << n;
+  auto block_size_pages = static_cast<size_t>(1 << order);
   // 计算实际管理的最大页数：2^(length_-1)
-  size_t maxPages = 1 << (length_ - 1);
-  // 计算对齐要求
-  int num = (maxPages % length);
+  auto total_managed_pages = static_cast<size_t>(1 << (length_ - 1));
+  // 计算对齐偏移量
+  auto alignment_offset =
+      static_cast<size_t>(total_managed_pages % block_size_pages);
   // 计算块编号（现在直接从 start_addr 开始计算）
-  int i = ((char*)space - (char*)start_addr_) / kPageSize;
+  auto block_index = static_cast<size_t>(
+      (static_cast<const char*>(addr) - static_cast<const char*>(start_addr_)) /
+      kPageSize);
 
   // 检查块编号是否满足对齐要求：对于大小为 2^order 的块，起始位置必须是 2^order
   // 的倍数 if starting block number is valid for length 2^order then true
-  if (i % length == num % length) {
+  if (block_index % block_size_pages == alignment_offset % block_size_pages) {
     return true;
   }
 
@@ -223,8 +193,9 @@ void Buddy::Free(void* addr, size_t order) {
   // 计算实际管理的最大页数：2^(length_-1)
   size_t maxPages = 1 << (length_ - 1);
   if (addr < start_addr_ ||
-      addr >= (void*)((char*)start_addr_ + maxPages * kPageSize)) {
-    return;  // 地址超出管理范围，直接返回
+      addr >= static_cast<const void*>(static_cast<const char*>(start_addr_) +
+                                       maxPages * kPageSize)) {
+    return;
   }
 
   // 计算块大小（页面数）
@@ -243,7 +214,8 @@ void Buddy::Free(void* addr, size_t order) {
     while (curr != nullptr) {
       // 检查是否为右 buddy（当前块的右边相邻块）
       // right buddy potentially found
-      if (curr == (void*)((char*)addr + kPageSize * bNum)) {
+      if (curr ==
+          static_cast<void*>(static_cast<char*>(addr) + kPageSize * bNum)) {
         // 验证是否为有效的 buddy
         // right buddy found
         if (isValid(addr, order + 1)) {
@@ -258,7 +230,8 @@ void Buddy::Free(void* addr, size_t order) {
           Free(addr, order + 1);
           return;
         }
-      } else if (addr == (void*)((char*)curr + kPageSize * bNum)) {
+      } else if (addr == static_cast<void*>(static_cast<char*>(curr) +
+                                            kPageSize * bNum)) {
         // 检查是否为左 buddy（当前块的左边相邻块）
         // left buddy potentially found
         // 验证是否为有效的 buddy
@@ -286,31 +259,6 @@ void Buddy::Free(void* addr, size_t order) {
     *(void**)addr = free_block_lists_[order];
     free_block_lists_[order] = addr;
   }
-}
-
-/**
- * @brief 打印 buddy 分配器当前状态（调试用）
- *
- * 功能说明：
- * 遍历所有空闲链表，打印每个链表中的空闲块信息
- * 包括块的起始和结束页面编号
- *
- * 注：当前实现被注释掉了，可能是为了避免依赖 iostream
- */
-void Buddy::buddy_print() {
-  //   cout << "Buddy current state (first block,last block):" << endl;
-  //   for (int i = 0; i < length_; i++) {
-  //     int size = 1 << i;
-  //     cout << "entry[" << i << "] (size " << size << ") -> ";
-  //     void* curr = free_block_lists_[i];
-
-  //     while (curr != nullptr) {
-  //       int first = ((char*)curr - (char*)start_addr_) / kPageSize;
-  //       cout << "(" << first << "," << first + size - 1 << ") -> ";
-  //       curr = *(void**)curr;
-  //     }
-  //     cout << "NULL" << endl;
-  //   }
 }
 
 /**
@@ -350,7 +298,7 @@ auto Buddy::GetFreeCount() const -> size_t {
     void* current = *it;
     while (current != nullptr) {
       block_count++;
-      current = *(void**)current;  // 获取下一个块
+      current = *(void**)current;
     }
 
     // 累加当前阶数的空闲页数
@@ -358,6 +306,24 @@ auto Buddy::GetFreeCount() const -> size_t {
   }
 
   return total_free_pages;
+}
+
+void Buddy::buddy_print() const {
+  std::cout << "Buddy current state (first block,last block):" << std::endl;
+  for (size_t i = 0; i < length_; i++) {
+    auto size = static_cast<size_t>(1 << i);
+    std::cout << "entry[" << i << "] (size " << size << ") -> ";
+    void* curr = free_block_lists_[i];
+
+    while (curr != nullptr) {
+      auto first = static_cast<size_t>((static_cast<const char*>(curr) -
+                                        static_cast<const char*>(start_addr_)) /
+                                       kPageSize);
+      std::cout << "(" << first << "," << first + size - 1 << ") -> ";
+      curr = *(void**)curr;
+    }
+    std::cout << "NULL" << std::endl;
+  }
 }
 
 }  // namespace bmalloc

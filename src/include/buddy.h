@@ -77,10 +77,16 @@ class Buddy : public AllocatorBase {
   std::array<void*, kMaxFreeListEntries> free_block_lists_{};
 
   // 调试用：打印buddy分配器当前状态
-  void buddy_print();
+  void buddy_print() const;
 
-  // 检查地址是否为2^order大小块的有效起始地址
-  inline bool isValid(void* space, int order) const;
+  /**
+   * @brief 检查给定地址是否为大小为 2^order 的块的有效起始地址
+   * @param addr 要检查的地址
+   * @param order 块大小的指数（块大小为 2^order）
+   * @return true 如果地址有效
+   * @return false 如果地址无效
+   */
+  inline bool isValid(void* addr, size_t order) const;
 };
 
 }  // namespace bmalloc
