@@ -20,6 +20,7 @@ class Buddy : public AllocatorBase {
    * @param name 分配器名称
    * @param start_addr 管理的内存起始地址
    * @param total_pages 管理的总页数
+   * @note 内部会将length_设置为最大阶数级别(log2(total_pages)+1)，而不是页数
    */
   explicit Buddy(const char* name, void* start_addr, size_t total_pages);
 
@@ -75,8 +76,6 @@ class Buddy : public AllocatorBase {
   // 常量定义
   // 最大支持2^31个页面，足够大部分应用
   static constexpr size_t kMaxFreeListEntries = 32;
-  // 当前支持的最大阶数级别（order范围：0 到 maxOrderLevel_-1）
-  size_t maxOrderLevel_;
 
   // 固定大小的数组，避免占用管理的内存空间
   // 空闲链表数组，freeList[i]管理大小为2^i页的空闲块链表

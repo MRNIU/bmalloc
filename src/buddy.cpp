@@ -12,6 +12,12 @@
  * - freeList_[i]: 管理大小为2^i个页面的空闲块链表（静态数组）
  * - 每个空闲块的开头存储指向下一个空闲块的指针
  * - 使用静态数组存储freeList，所有管理的内存都可用于分配
+ * 
+ * 重要设计说明：
+ * - length_字段被重新定义为最大阶数级别，而不是页数
+ * - 对于管理N页内存，length_ = log2(N) + 1
+ * - 实际管理的最大页数为：2^(length_-1)
+ * - order范围：0 到 length_-1
  *
  * 分配单位说明：
  * - 参数order表示2的幂次方的指数
@@ -51,37 +57,45 @@ static inline size_t log2(size_t value) {
  * @param pages 总页数（每块大小为 kPageSize）
  */
 Buddy::Buddy(const char* name, void* start_addr, size_t pages)
-    : AllocatorBase(name, start_addr, pages) {
+    : AllocatorBase(name, start_addr, log2(pages) + 1) {  // length_存储最大阶数级别
   // 参数检查：空间不能为空，页数至少为1
   if (start_addr == nullptr || pages < 1) {
     return;
   }
 
-  // 计算需要的空闲链表条目数：log2(pages) + 1
-  // 例如：8个块需要4个条目（1,2,4,8块大小的链表）
-  maxOrderLevel_ = log2(pages) + 1;
+  // length_现在直接表示最大阶数级别
+  size_t maxOrderLevel = length_;
 
   // 检查是否超出静态数组大小
-  if (maxOrderLevel_ > kMaxFreeListEntries) {
+  if (maxOrderLevel > kMaxFreeListEntries) {
+    // 内存块数量超出支持范围
+    return;
+  }
+
+  // 保存原始页数用于后续计算
+  size_t totalPages = pages;
+
+  // 检查是否超出静态数组大小
+  if (maxOrderLevel > kMaxFreeListEntries) {
     // 内存块数量超出支持范围
     return;
   }
 
   // 初始化所有空闲链表为空
-  for (size_t i = 0; i < maxOrderLevel_; i++) {
+  for (size_t i = 0; i < maxOrderLevel; i++) {
     freeList_[i] = nullptr;
   }
 
   // 初始化空闲块：将可用内存按最大可能的块大小组织到空闲链表中
   // 最大块大小的索引
-  int maxLength = maxOrderLevel_ - 1;
+  int maxLength = maxOrderLevel - 1;
   // 最大块包含的页面数
   int maxLengthBlocks = 1 << maxLength;
 
   // 贪心分配：优先分配最大的块，剩余部分继续分配次大的块
-  while (pages > 0) {
+  while (totalPages > 0) {
     // 计算当前最大块的起始地址（现在从space开始，不需要跳过第一个页面）
-    void* addr = (char*)start_addr + (pages - maxLengthBlocks) * kPageSize;
+    void* addr = (char*)start_addr + (totalPages - maxLengthBlocks) * kPageSize;
 
     // 将该块添加到对应大小的空闲链表头部
     freeList_[maxLength] = addr;
@@ -89,15 +103,15 @@ Buddy::Buddy(const char* name, void* start_addr, size_t pages)
     *(void**)addr = nullptr;
 
     // 减去已分配的块数
-    pages -= maxLengthBlocks;
+    totalPages -= maxLengthBlocks;
 
     // 如果还有剩余块，计算下一个最大可能的块大小
-    if (pages > 0) {
+    if (totalPages > 0) {
       size_t i = 1;
       maxLength = 0;
       // 找到不超过剩余块数的最大2的幂
       while (true) {
-        if (i <= pages && 2 * i > pages) {
+        if (i <= totalPages && 2 * i > totalPages) {
           break;
         }
         i = i * 2;
@@ -121,7 +135,7 @@ Buddy::Buddy(const char* name, void* start_addr, size_t pages)
  */
 auto Buddy::Alloc(size_t order) -> void* {
   // 参数检查：order必须在有效范围内
-  if (order >= maxOrderLevel_) {
+  if (order >= length_) {
     return nullptr;
   }
 
@@ -137,7 +151,7 @@ auto Buddy::Alloc(size_t order) -> void* {
     *(void**)returningSpace = nullptr;
   } else {
     // 情况2：没有合适大小的块，需要分割更大的块
-    for (auto i = order + 1; i < maxOrderLevel_; i++) {
+    for (auto i = order + 1; i < length_; i++) {
       if (freeList_[i] != nullptr) {
         // 找到一个更大的块，将其分割
         // 取出大块
@@ -200,8 +214,10 @@ auto Buddy::Alloc(void* addr, size_t order) -> bool {
 inline bool Buddy::isValid(void* space, int n) const {
   // 块大小（页面数）
   int length = 1 << n;
-  // 计算对齐要求（简化计算，因为现在从0开始）
-  int num = (length_ % length);
+  // 计算实际管理的最大页数：2^(length_-1)
+  size_t maxPages = 1 << (length_ - 1);
+  // 计算对齐要求
+  int num = (maxPages % length);
   // 计算块编号（现在直接从start_addr开始计算）
   int i = ((char*)space - (char*)start_addr_) / kPageSize;
 
@@ -227,13 +243,15 @@ inline bool Buddy::isValid(void* space, int n) const {
  */
 void Buddy::Free(void* addr, size_t order) {
   // 参数检查：order必须在有效范围内
-  if (order >= maxOrderLevel_) {
+  if (order >= length_) {
     return;
   }
 
   // 参数检查：地址必须在管理的内存范围内
+  // 计算实际管理的最大页数：2^(length_-1)
+  size_t maxPages = 1 << (length_ - 1);
   if (addr < start_addr_ ||
-      addr >= (void*)((char*)start_addr_ + length_ * kPageSize)) {
+      addr >= (void*)((char*)start_addr_ + maxPages * kPageSize)) {
     return;  // 地址超出管理范围，直接返回
   }
 
@@ -309,7 +327,7 @@ void Buddy::Free(void* addr, size_t order) {
  */
 void Buddy::buddy_print() {
   //   cout << "Buddy current state (first block,last block):" << endl;
-  //   for (int i = 0; i < maxOrderLevel_; i++) {
+  //   for (int i = 0; i < length_; i++) {
   //     int size = 1 << i;
   //     cout << "entry[" << i << "] (size " << size << ") -> ";
   //     void* curr = freeList_[i];
@@ -328,9 +346,14 @@ void Buddy::buddy_print() {
  * @return size_t 已使用的页数
  *
  * 实现说明：
- * 通过计算总页数减去空闲页数来得到已使用页数
+ * 通过计算实际管理的总页数减去空闲页数来得到已使用页数
+ * length_现在表示最大阶数级别，实际管理的最大页数为2^(length_-1)
  */
-auto Buddy::GetUsedCount() const -> size_t { return length_ - GetFreeCount(); }
+auto Buddy::GetUsedCount() const -> size_t { 
+  // 计算实际管理的最大页数
+  size_t maxPages = (length_ > 0) ? (1 << (length_ - 1)) : 0;
+  return maxPages - GetFreeCount(); 
+}
 
 /**
  * @brief 获取空闲的页数
@@ -345,7 +368,7 @@ auto Buddy::GetFreeCount() const -> size_t {
   size_t total_free_pages = 0;
 
   // 遍历所有阶数的空闲链表
-  for (size_t order = 0; order < maxOrderLevel_; ++order) {
+  for (size_t order = 0; order < length_; ++order) {
     size_t pages_per_block = 1 << order;  // 2^order 个页面
     size_t block_count = 0;
 
