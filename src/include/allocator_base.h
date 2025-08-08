@@ -78,9 +78,9 @@ class AllocatorBase {
   /// 分配器名称
   const char* name_;
   /// 当前管理的内存区域起始地址
-  void* start_addr_;
+  const void* start_addr_;
   /// 当前管理的内存区域长度
-  size_t length_;
+  const size_t length_;
   /// 当前管理的内存区域空闲数量
   size_t free_count_;
   /// 当前管理的内存区域已使用数量
