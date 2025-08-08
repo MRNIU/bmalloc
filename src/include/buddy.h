@@ -43,14 +43,9 @@ class Buddy : public AllocatorBase {
   [[nodiscard]] auto Alloc(size_t order) -> void* override;
 
   /**
-   * @brief 在指定地址分配2的幂次方页数的内存
-   * @param addr 指定的地址
-   * @param order 阶数，实际分配 2^order 个页面
-   * @return true 分配成功
-   * @return false 分配失败
-   * @note buddy分配器通常不支持指定地址分配
+   * 不支持指定地址分配
    */
-  auto Alloc(void* addr, size_t order) -> bool override;
+  auto Alloc(void*, size_t) -> bool override;
 
   /**
    * @brief 释放2的幂次方页数的内存

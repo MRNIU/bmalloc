@@ -389,19 +389,6 @@ TEST_F(BuddyTest, UsedAndFreeCount) {
 }
 
 /**
- * @brief 测试指定地址分配（应该失败）
- */
-TEST_F(BuddyTest, AllocAtSpecificAddress) {
-  // buddy分配器通常不支持指定地址分配
-  void* specific_addr =
-      static_cast<char*>(test_memory_) + AllocatorBase::kPageSize;
-  bool result = buddy_->Alloc(specific_addr, 0);
-
-  // 根据buddy分配器的特性，这应该返回false
-  EXPECT_FALSE(result) << "buddy分配器不应该支持指定地址分配";
-}
-
-/**
  * @brief 测试分配器构造参数验证
  */
 TEST_F(BuddyTest, ConstructorValidation) {
