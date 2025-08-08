@@ -22,7 +22,7 @@ class AllocatorBase {
    * @param  addr            要管理的内存开始地址
    * @param  length          要管理的内存长度，单位以具体实现为准
    */
-  explicit AllocatorBase(const char* name, uint64_t addr, size_t length)
+  explicit AllocatorBase(const char* name, void* addr, size_t length)
       : name_(name),
         start_addr_(addr),
         length_(length),
@@ -42,9 +42,9 @@ class AllocatorBase {
   /**
    * @brief 分配指定长度的内存
    * @param  length          要分配的长度
-   * @return uint64_t       分配到的地址，失败时返回0
+   * @return void*          分配到的地址，失败时返回nullptr
    */
-  [[nodiscard]] virtual auto Alloc(size_t length) -> uint64_t = 0;
+  [[nodiscard]] virtual auto Alloc(size_t length) -> void* = 0;
 
   /**
    * @brief 在指定地址分配指定长度的内存
@@ -53,14 +53,14 @@ class AllocatorBase {
    * @return true            成功
    * @return false           失败
    */
-  virtual auto Alloc(uint64_t addr, size_t length) -> bool = 0;
+  virtual auto Alloc(void* addr, size_t length) -> bool = 0;
 
   /**
    * @brief 释放指定地址和长度的内存
    * @param  addr            要释放的地址
    * @param  length          要释放的长度
    */
-  virtual void Free(uint64_t addr, size_t length) = 0;
+  virtual void Free(void* addr, size_t length) = 0;
 
   /**
    * @brief 获取已使用的内存数量
@@ -78,7 +78,7 @@ class AllocatorBase {
   /// 分配器名称
   const char* name_;
   /// 当前管理的内存区域起始地址
-  uint64_t start_addr_;
+  void* start_addr_;
   /// 当前管理的内存区域长度
   size_t length_;
   /// 当前管理的内存区域空闲数量

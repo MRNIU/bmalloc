@@ -18,9 +18,9 @@ class Buddy : public AllocatorBase {
    * @brief 构造 Buddy 分配器
    * @param name 分配器名称
    * @param start_addr 管理的内存起始地址
-   * @param bytes 管理的字节数
+   * @param pages 管理的页数
    */
-  explicit Buddy(const char* name, uint64_t start_addr, size_t bytes);
+  explicit Buddy(const char* name, void* start_addr, size_t pages);
 
   /// @name 构造/析构函数
   /// @{
@@ -33,41 +33,53 @@ class Buddy : public AllocatorBase {
   /// @}
 
   /**
-   * @brief 分配指定字节的内存
-   * @param bytes 要分配的字节
-   * @return uint64_t 分配的内存起始地址，失败时返回0
+   * @brief 分配指定页数的内存
+   * @param pages 要分配的页数
+   * @return void* 分配的内存起始地址，失败时返回 nullptr
    */
-  [[nodiscard]] auto Alloc(size_t bytes) -> uint64_t override;
+  [[nodiscard]] auto Alloc(size_t pages) -> void* override;
 
   /**
-   * @brief 在指定地址分配指定字节的内存
+   * @brief 在指定地址分配指定页数的内存
    * @param addr 指定的地址
-   * @param bytes 要分配的字节
+   * @param pages 要分配的页数
    * @return true 分配成功
    * @return false 分配失败
    */
-  auto Alloc(uint64_t addr, size_t bytes) -> bool override;
+  auto Alloc(void* addr, size_t pages) -> bool override;
 
   /**
    * @brief 释放指定地址的内存
    * @param addr 要释放的内存起始地址
-   * @param bytes 要释放的字节
+   * @param pages 要释放的页数
    */
-  void Free(uint64_t addr, size_t bytes) override;
+  void Free(void* addr, size_t pages) override;
 
   /**
-   * @brief 获取已使用的字节
-   * @return size_t 已使用的字节
+   * @brief 获取已使用的页数
+   * @return size_t 已使用的页数
    */
   [[nodiscard]] auto GetUsedCount() const -> size_t override;
 
   /**
-   * @brief 获取空闲的字节
-   * @return size_t 空闲的字节
+   * @brief 获取空闲的页数
+   * @return size_t 空闲的页数
    */
   [[nodiscard]] auto GetFreeCount() const -> size_t override;
 
  private:
+  // 常量定义
+  static constexpr size_t kMaxFreeListEntries =
+      32;                // 最大支持2^31个页面，足够大部分应用
+                         // 全局变量定义
+  void* buddySpace;      // buddy分配器管理的内存空间起始地址
+  size_t numOfEntries;   // 当前使用的空闲链表数组条目数（对应不同大小的块）
+  int startingBlockNum;  // 初始总块数
+
+  // 改为固定大小的静态数组，避免占用管理的内存空间
+  static void* freeList
+      [kMaxFreeListEntries];  // 空闲链表数组，每个索引对应一种大小的空闲块链表
+
   void buddy_init(void* space, int block_num);  // allocate buddy
 
   void* buddy_alloc(int n);  // allocate page (size of page is 2^n)
