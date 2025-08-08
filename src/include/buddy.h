@@ -108,15 +108,6 @@ class Buddy : public AllocatorBase {
     FreeBlockNode* next;  ///< 指向下一个空闲块的指针
 
     /**
-     * @brief 从 void* 地址创建 FreeBlockNode
-     * @param addr 内存地址
-     * @return FreeBlockNode* 节点指针
-     */
-    static auto FromAddress(void* addr) -> FreeBlockNode* {
-      return static_cast<FreeBlockNode*>(addr);
-    }
-
-    /**
      * @brief 转换为 void* 地址
      * @return void* 内存地址
      */

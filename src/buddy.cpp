@@ -50,7 +50,7 @@ Buddy::Buddy(const char* name, void* start_addr, size_t total_pages)
                       (remaining_pages - max_block_pages) * kPageSize;
 
     // 将该块添加到对应大小的空闲链表头部
-    auto* node = FreeBlockNode::FromAddress(block_addr);
+    auto* node = static_cast<FreeBlockNode*>(static_cast<void*>(block_addr));
     node->next = free_block_lists_[max_order];
     free_block_lists_[max_order] = node;
 
@@ -106,8 +106,8 @@ auto Buddy::Alloc(size_t order) -> void* {
                             kPageSize * (1 << (current_order - 1));
 
         // 将分割后的两个块加入到小一级的空闲链表中
-        auto* large_block_node = FreeBlockNode::FromAddress(large_block);
-        auto* buddy_block_node = FreeBlockNode::FromAddress(buddy_block);
+        auto* large_block_node = static_cast<FreeBlockNode*>(large_block);
+        auto* buddy_block_node = static_cast<FreeBlockNode*>(buddy_block);
 
         // large_block 的 next 指向 buddy_block
         large_block_node->next = buddy_block_node;
@@ -181,7 +181,7 @@ void Buddy::Free(void* addr, size_t order) {
 
   // 情况 1：该大小的空闲链表为空，直接插入
   if (free_block_lists_[order] == nullptr) {
-    auto* node = FreeBlockNode::FromAddress(addr);
+    auto* node = static_cast<FreeBlockNode*>(addr);
     node->next = nullptr;
     free_block_lists_[order] = node;
   } else {
@@ -236,7 +236,7 @@ void Buddy::Free(void* addr, size_t order) {
     }
 
     // 没有找到可合并的 buddy，直接插入到链表头部
-    auto* node = FreeBlockNode::FromAddress(addr);
+    auto* node = static_cast<FreeBlockNode*>(addr);
     node->next = free_block_lists_[order];
     free_block_lists_[order] = node;
   }
