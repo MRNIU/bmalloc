@@ -18,9 +18,9 @@ class Buddy : public AllocatorBase {
    * @brief 构造 Buddy 分配器
    * @param name 分配器名称
    * @param start_addr 管理的内存起始地址
-   * @param pages 管理的页数
+   * @param total_pages 管理的总页数
    */
-  explicit Buddy(const char* name, void* start_addr, size_t pages);
+  explicit Buddy(const char* name, void* start_addr, size_t total_pages);
 
   /// @name 构造/析构函数
   /// @{
@@ -33,27 +33,30 @@ class Buddy : public AllocatorBase {
   /// @}
 
   /**
-   * @brief 分配指定页数的内存
-   * @param pages 要分配的页数
+   * @brief 分配2的幂次方页数的内存
+   * @param order 阶数，实际分配 2^order 个页面
    * @return void* 分配的内存起始地址，失败时返回 nullptr
+   * @note 例如：order=0分配1页，order=1分配2页，order=2分配4页
    */
-  [[nodiscard]] auto Alloc(size_t pages) -> void* override;
+  [[nodiscard]] auto Alloc(size_t order) -> void* override;
 
   /**
-   * @brief 在指定地址分配指定页数的内存
+   * @brief 在指定地址分配2的幂次方页数的内存
    * @param addr 指定的地址
-   * @param pages 要分配的页数
+   * @param order 阶数，实际分配 2^order 个页面
    * @return true 分配成功
    * @return false 分配失败
+   * @note buddy分配器通常不支持指定地址分配
    */
-  auto Alloc(void* addr, size_t pages) -> bool override;
+  auto Alloc(void* addr, size_t order) -> bool override;
 
   /**
-   * @brief 释放指定地址的内存
+   * @brief 释放2的幂次方页数的内存
    * @param addr 要释放的内存起始地址
-   * @param pages 要释放的页数
+   * @param order 阶数，实际释放 2^order 个页面
+   * @note 必须与分配时使用的order值相同
    */
-  void Free(void* addr, size_t pages) override;
+  void Free(void* addr, size_t order) override;
 
   /**
    * @brief 获取已使用的页数
@@ -71,16 +74,18 @@ class Buddy : public AllocatorBase {
   // 常量定义
   // 最大支持2^31个页面，足够大部分应用
   static constexpr size_t kMaxFreeListEntries = 32;
-  // 当前使用的空闲链表数组条目数（对应不同大小的块）
-  size_t numOfEntries;
+  // 当前支持的最大阶数级别（order范围：0 到 maxOrderLevel-1）
+  size_t maxOrderLevel;
 
-  // 改为固定大小的静态数组，避免占用管理的内存空间
-  void* freeList
-      [kMaxFreeListEntries];  // 空闲链表数组，每个索引对应一种大小的空闲块链表
+  // 固定大小的数组，避免占用管理的内存空间
+  // 空闲链表数组，freeList[i]管理大小为2^i页的空闲块链表
+  void* freeList[kMaxFreeListEntries];
 
-  void buddy_print();  // print current state of buddy
+  // 调试用：打印buddy分配器当前状态
+  void buddy_print();
 
-  inline bool isValid(void* space, int n) const;
+  // 检查地址是否为2^order大小块的有效起始地址
+  inline bool isValid(void* space, int order) const;
 };
 
 }  // namespace bmalloc
