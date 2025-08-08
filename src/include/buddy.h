@@ -5,6 +5,7 @@
 #ifndef BMALLOC_SRC_INCLUDE_BUDDY_H_
 #define BMALLOC_SRC_INCLUDE_BUDDY_H_
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -74,12 +75,12 @@ class Buddy : public AllocatorBase {
   // 常量定义
   // 最大支持2^31个页面，足够大部分应用
   static constexpr size_t kMaxFreeListEntries = 32;
-  // 当前支持的最大阶数级别（order范围：0 到 maxOrderLevel-1）
-  size_t maxOrderLevel;
+  // 当前支持的最大阶数级别（order范围：0 到 maxOrderLevel_-1）
+  size_t maxOrderLevel_;
 
   // 固定大小的数组，避免占用管理的内存空间
   // 空闲链表数组，freeList[i]管理大小为2^i页的空闲块链表
-  void* freeList[kMaxFreeListEntries];
+  std::array<void*, kMaxFreeListEntries> freeList_;
 
   // 调试用：打印buddy分配器当前状态
   void buddy_print();
