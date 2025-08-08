@@ -50,9 +50,9 @@ Buddy::Buddy(const char* name, void* start_addr, size_t total_pages)
                       (remaining_pages - max_block_pages) * kPageSize;
 
     // 将该块添加到对应大小的空闲链表头部
-    free_block_lists_[max_order] = block_addr;
-    // 该块的 next 指针设为 null
-    *(void**)block_addr = nullptr;
+    auto* node = FreeBlockNode::FromAddress(block_addr);
+    node->next = free_block_lists_[max_order];
+    free_block_lists_[max_order] = node;
 
     // 减去已分配的块数
     remaining_pages -= max_block_pages;
@@ -86,11 +86,10 @@ auto Buddy::Alloc(size_t order) -> void* {
   // 情况 1：直接有合适大小的空闲块
   if (free_block_lists_[order] != nullptr) {
     // 从空闲链表头部取出一个块
-    allocated_block = free_block_lists_[order];
+    auto* node = free_block_lists_[order];
+    allocated_block = node->ToAddress();
     // 更新链表头
-    free_block_lists_[order] = *(void**)allocated_block;
-    // 清空返回块的 next 指针
-    *(void**)allocated_block = nullptr;
+    free_block_lists_[order] = node->next;
   } else {
     // 情况 2：没有合适大小的块，需要分割更大的块
     for (auto current_order = order + 1; current_order < length_;
@@ -98,20 +97,24 @@ auto Buddy::Alloc(size_t order) -> void* {
       if (free_block_lists_[current_order] != nullptr) {
         // 找到一个更大的块，将其分割
         // 取出大块
-        void* large_block = free_block_lists_[current_order];
+        auto* large_node = free_block_lists_[current_order];
+        void* large_block = large_node->ToAddress();
         // 更新大块链表
-        free_block_lists_[current_order] = *(void**)large_block;
+        free_block_lists_[current_order] = large_node->next;
         // 计算分割后的第二个块地址
         void* buddy_block = static_cast<char*>(large_block) +
                             kPageSize * (1 << (current_order - 1));
 
-        // 将分割后的两个块加入到小一级的空闲链表中s
+        // 将分割后的两个块加入到小一级的空闲链表中
+        auto* large_block_node = FreeBlockNode::FromAddress(large_block);
+        auto* buddy_block_node = FreeBlockNode::FromAddress(buddy_block);
+
         // large_block 的 next 指向 buddy_block
-        *(void**)large_block = buddy_block;
+        large_block_node->next = buddy_block_node;
         // buddy_block 的 next 指向原链表头
-        *(void**)buddy_block = free_block_lists_[current_order - 1];
+        buddy_block_node->next = free_block_lists_[current_order - 1];
         // 更新链表头为 large_block
-        free_block_lists_[current_order - 1] = large_block;
+        free_block_lists_[current_order - 1] = large_block_node;
 
         // 递归分配，直到得到合适大小的块
         allocated_block = Alloc(order);
@@ -178,61 +181,64 @@ void Buddy::Free(void* addr, size_t order) {
 
   // 情况 1：该大小的空闲链表为空，直接插入
   if (free_block_lists_[order] == nullptr) {
-    free_block_lists_[order] = addr;
-    *(void**)addr = nullptr;
+    auto* node = FreeBlockNode::FromAddress(addr);
+    node->next = nullptr;
+    free_block_lists_[order] = node;
   } else {
     // 情况 2：尝试与相邻的 buddy 块合并
-    void* prev = nullptr;
-    void* curr = free_block_lists_[order];
+    FreeBlockNode* prev = nullptr;
+    FreeBlockNode* curr = free_block_lists_[order];
 
     // 遍历同大小的空闲链表，寻找 buddy 块
     while (curr != nullptr) {
       // 检查是否为右 buddy（当前块的右边相邻块）
       // right buddy potentially found
-      if (curr ==
+      if (curr->ToAddress() ==
           static_cast<void*>(static_cast<char*>(addr) + kPageSize * bNum)) {
         // 验证是否为有效的 buddy
         // right buddy found
         if (isValid(addr, order + 1)) {
           // 从链表中移除找到的 buddy 块
           if (prev == nullptr) {
-            free_block_lists_[order] = *(void**)free_block_lists_[order];
+            free_block_lists_[order] = curr->next;
           } else {
-            *(void**)prev = *(void**)curr;
+            prev->next = curr->next;
           }
 
           // 递归释放合并后的更大块
           Free(addr, order + 1);
           return;
         }
-      } else if (addr == static_cast<void*>(static_cast<char*>(curr) +
-                                            kPageSize * bNum)) {
+      } else if (addr ==
+                 static_cast<void*>(static_cast<char*>(curr->ToAddress()) +
+                                    kPageSize * bNum)) {
         // 检查是否为左 buddy（当前块的左边相邻块）
         // left buddy potentially found
         // 验证是否为有效的 buddy
         // left buddy found
-        if (isValid(curr, order + 1)) {
+        if (isValid(curr->ToAddress(), order + 1)) {
           // 从链表中移除找到的 buddy 块
           if (prev == nullptr) {
-            free_block_lists_[order] = *(void**)free_block_lists_[order];
+            free_block_lists_[order] = curr->next;
           } else {
-            *(void**)prev = *(void**)curr;
+            prev->next = curr->next;
           }
 
           // 递归释放合并后的更大块（使用左 buddy 的地址作为起始地址）
-          Free(curr, order + 1);
+          Free(curr->ToAddress(), order + 1);
           return;
         }
       }
 
       // 继续遍历链表
       prev = curr;
-      curr = *(void**)curr;
+      curr = curr->next;
     }
 
     // 没有找到可合并的 buddy，直接插入到链表头部
-    *(void**)addr = free_block_lists_[order];
-    free_block_lists_[order] = addr;
+    auto* node = FreeBlockNode::FromAddress(addr);
+    node->next = free_block_lists_[order];
+    free_block_lists_[order] = node;
   }
 }
 
@@ -270,17 +276,15 @@ auto Buddy::GetFreeCount() const -> size_t {
     size_t block_count = 0;
 
     // 遍历当前阶数的空闲链表，统计块数
-    void* current = *it;
+    FreeBlockNode* current = *it;
     while (current != nullptr) {
       block_count++;
-      current = *(void**)current;
+      current = current->next;
     }
 
     // 累加当前阶数的空闲页数
     total_free_pages += block_count * pages_per_block;
   }
-
-  buddy_print();
 
   return total_free_pages;
 }
@@ -290,14 +294,15 @@ void Buddy::buddy_print() const {
   for (size_t i = 0; i < length_; i++) {
     auto size = static_cast<size_t>(1 << i);
     printf("entry[%zu] (size %zu) -> ", i, size);
-    void* curr = free_block_lists_[i];
+    FreeBlockNode* curr = free_block_lists_[i];
 
     while (curr != nullptr) {
-      auto first = static_cast<size_t>((static_cast<const char*>(curr) -
-                                        static_cast<const char*>(start_addr_)) /
-                                       kPageSize);
+      auto first =
+          static_cast<size_t>((static_cast<const char*>(curr->ToAddress()) -
+                               static_cast<const char*>(start_addr_)) /
+                              kPageSize);
       printf("(%zu,%zu) -> ", first, first + size - 1);
-      curr = *(void**)curr;
+      curr = curr->next;
     }
     printf("NULL\n");
   }

@@ -100,9 +100,40 @@ class Buddy : public AllocatorBase {
   // 最大支持2^31个页面，足够大部分应用
   static constexpr size_t kMaxFreeListEntries = 32;
 
+  /**
+   * @brief 空闲块节点结构
+   * 用于表示空闲链表中的每个节点，提供类型安全的链表操作
+   */
+  struct FreeBlockNode {
+    FreeBlockNode* next;  ///< 指向下一个空闲块的指针
+
+    /**
+     * @brief 从 void* 地址创建 FreeBlockNode
+     * @param addr 内存地址
+     * @return FreeBlockNode* 节点指针
+     */
+    static auto FromAddress(void* addr) -> FreeBlockNode* {
+      return static_cast<FreeBlockNode*>(addr);
+    }
+
+    /**
+     * @brief 转换为 void* 地址
+     * @return void* 内存地址
+     */
+    auto ToAddress() -> void* { return static_cast<void*>(this); }
+
+    /**
+     * @brief 转换为 void* 地址（常量版本）
+     * @return void* 内存地址
+     */
+    auto ToAddress() const -> const void* {
+      return static_cast<const void*>(this);
+    }
+  };
+
   // 固定大小的数组，避免占用管理的内存空间
   // 空闲块链表数组，free_block_lists_[i]管理大小为2^i页的空闲块链表
-  std::array<void*, kMaxFreeListEntries> free_block_lists_{};
+  std::array<FreeBlockNode*, kMaxFreeListEntries> free_block_lists_{};
 
   // 调试用：打印buddy分配器当前状态
   void buddy_print() const;
