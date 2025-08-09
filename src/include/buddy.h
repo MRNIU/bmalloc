@@ -125,22 +125,94 @@ class Buddy : public AllocatorBase {
     /**
      * @brief 隐式转换为 const char*
      */
-    operator const char*() const { return static_cast<const char*>(static_cast<const void*>(this)); }
+    operator const char*() const {
+      return static_cast<const char*>(static_cast<const void*>(this));
+    }
+
+    /**
+     * @brief 从地址创建 FreeBlockNode*（类似构造函数的静态工厂）
+     */
+    static FreeBlockNode* make_node(void* addr) {
+      return static_cast<FreeBlockNode*>(addr);
+    }
+
+    /**
+     * @brief 从地址创建 FreeBlockNode*（类似构造函数的静态工厂）
+     */
+    static FreeBlockNode* make_node(char* addr) {
+      return static_cast<FreeBlockNode*>(static_cast<void*>(addr));
+    }
+
+    /**
+     * @brief 检查给定节点是否为大小为 2^order 的块的有效起始地址
+     * @param allocator_start 分配器管理的内存起始地址
+     * @param allocator_length 分配器管理的最大阶数级别
+     * @param order 块大小的指数（块大小为 2^order）
+     * @return true 如果节点有效
+     * @return false 如果节点无效
+     */
+    bool isValid(const void* allocator_start, size_t allocator_length,
+                 size_t order) const {
+      // 计算块大小（页数）
+      size_t block_pages = 1 << order;
+
+      // 计算节点相对于起始地址的字节偏移
+      auto node_offset =
+          static_cast<const char*>(static_cast<const void*>(this)) -
+          static_cast<const char*>(allocator_start);
+
+      // 计算节点相对于起始地址的页偏移
+      auto page_offset = node_offset / kPageSize;
+
+      // 检查地址对齐：块的起始地址必须是块大小的整数倍
+      if (page_offset % block_pages != 0) {
+        return false;
+      }
+
+      // 检查边界：确保块不超出管理的内存范围
+      size_t max_pages = 1 << (allocator_length - 1);
+      return page_offset + block_pages <= max_pages;
+    }
+
+    /**
+     * @brief 将节点插入到链表头部
+     * @param list_head 链表头部的引用
+     */
+    void insertToList(FreeBlockNode*& list_head) {
+      this->next = list_head;
+      list_head = this;
+    }
+
+    /**
+     * @brief 从链表中移除节点
+     * @param list_head 链表头部的引用
+     * @param target 要移除的目标节点
+     * @return true 如果成功移除
+     * @return false 如果节点不在链表中
+     */
+    static bool removeFromList(FreeBlockNode*& list_head,
+                               FreeBlockNode* target) {
+      if (list_head == nullptr || target == nullptr) {
+        return false;
+      }
+
+      // 如果要移除的是头节点
+      if (list_head == target) {
+        list_head = target->next;
+        return true;
+      }
+
+      // 遍历链表查找目标节点
+      for (auto* curr = list_head; curr->next != nullptr; curr = curr->next) {
+        if (curr->next == target) {
+          curr->next = target->next;
+          return true;
+        }
+      }
+
+      return false;
+    }
   };
-
-  /**
-   * @brief 从地址创建 FreeBlockNode*（类似构造函数的静态工厂）
-   */
-  static FreeBlockNode* make_node(void* addr) {
-    return static_cast<FreeBlockNode*>(addr);
-  }
-
-  /**
-   * @brief 从地址创建 FreeBlockNode*（类似构造函数的静态工厂）
-   */
-  static FreeBlockNode* make_node(char* addr) {
-    return static_cast<FreeBlockNode*>(static_cast<void*>(addr));
-  }
 
   // 固定大小的数组，避免占用管理的内存空间
   // 空闲块链表数组，free_block_lists_[i]管理大小为2^i页的空闲块链表
@@ -148,15 +220,6 @@ class Buddy : public AllocatorBase {
 
   // 调试用：打印buddy分配器当前状态
   void buddy_print() const;
-
-  /**
-   * @brief 检查给定节点是否为大小为 2^order 的块的有效起始地址
-   * @param node 要检查的节点
-   * @param order 块大小的指数（块大小为 2^order）
-   * @return true 如果节点有效
-   * @return false 如果节点无效
-   */
-  inline bool isValid(FreeBlockNode* node, size_t order) const;
 };
 
 }  // namespace bmalloc
