@@ -36,40 +36,30 @@ Buddy::Buddy(const char* name, void* start_addr, size_t total_pages)
     return;
   }
 
-  // 最大阶数（order）级别，对应最大块的索引
-  auto max_order = length_ - 1;
-  // 最大块包含的页面数，即 2^max_order
-  auto max_block_pages = 1 << max_order;
-  // 剩余页数，用于贪心分配
+  // 将 total_pages 按二进制位分解，每个位对应一个大小的块
   auto remaining_pages = total_pages;
+  // 当前地址偏移（以页为单位）
+  size_t current_addr_offset = 0;
 
-  while (remaining_pages > 0) {
-    // 计算当前最大块的起始地址
-    auto block_addr = const_cast<char*>(static_cast<const char*>(start_addr_)) +
-                      (remaining_pages - max_block_pages) * kPageSize;
+  for (size_t order = 0; order < length_ && remaining_pages > 0; order++) {
+    // 当前 order 对应的块大小
+    auto block_size = 1 << order;
 
-    // 创建节点并插入到对应大小的空闲链表中
-    auto* node = FreeBlockNode::make_node(block_addr);
-    node->next = nullptr;
-    free_block_lists_[max_order] = node;
+    // 如果剩余页数的第 order 位为 1，则创建一个对应大小的块
+    if (remaining_pages & block_size) {
+      // 计算块地址
+      auto block_addr =
+          const_cast<char*>(static_cast<const char*>(start_addr_)) +
+          current_addr_offset * kPageSize;
 
-    // 减去已分配的块数
-    remaining_pages -= max_block_pages;
+      // 创建节点并插入链表头部
+      auto* node = FreeBlockNode::make_node(block_addr);
+      node->next = free_block_lists_[order];
+      free_block_lists_[order] = node;
 
-    // 如果还有剩余块，计算下一个最大可能的块大小
-    if (remaining_pages > 0) {
-      size_t power_of_2 = 1;
-      max_order = 0;
-      // 找到不超过剩余块数的最大 2 的幂
-      while (true) {
-        if (power_of_2 <= remaining_pages && 2 * power_of_2 > remaining_pages) {
-          break;
-        }
-        power_of_2 = power_of_2 * 2;
-        max_order++;
-      }
-      // 计算新的最大块大小
-      max_block_pages = 1 << max_order;
+      // 更新地址偏移和剩余页数
+      current_addr_offset += block_size;
+      remaining_pages -= block_size;
     }
   }
 }
