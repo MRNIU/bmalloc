@@ -4,7 +4,6 @@
 
 #include "buddy.h"
 
-#include <cstdio>
 #include <iterator>
 
 namespace bmalloc {
@@ -261,27 +260,8 @@ auto Buddy::GetFreeCount() const -> size_t {
     // 累加当前阶数的空闲页数
     total_free_pages += block_count * pages_per_block;
   }
-  buddy_print();
 
   return total_free_pages;
-}
-
-void Buddy::buddy_print() const {
-  printf("Buddy current state (first block,last block):\n");
-  for (size_t i = 0; i < length_; i++) {
-    auto size = static_cast<size_t>(1 << i);
-    printf("entry[%zu] (size %zu) -> ", i, size);
-    FreeBlockNode* curr = free_block_lists_[i];
-
-    while (curr != nullptr) {
-      auto first = static_cast<size_t>((static_cast<const char*>(*curr) -
-                                        static_cast<const char*>(start_addr_)) /
-                                       kPageSize);
-      printf("(%zu,%zu) -> ", first, first + size - 1);
-      curr = curr->next;
-    }
-    printf("NULL\n");
-  }
 }
 
 }  // namespace bmalloc

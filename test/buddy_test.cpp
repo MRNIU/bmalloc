@@ -15,7 +15,45 @@
 #include <vector>
 
 namespace bmalloc {
-namespace test {
+
+/**
+ * @brief 辅助函数：打印 Buddy 分配器的当前状态
+ * 由于 Buddy 的成员现在是 protected，我们创建一个继承类来访问内部状态
+ */
+class BuddyDebugHelper : public Buddy {
+ public:
+  BuddyDebugHelper(const char* name, void* start_addr, size_t total_pages)
+      : Buddy(name, start_addr, total_pages) {}
+
+  void print() const {
+    printf("\n==========================================\n");
+    printf("Buddy 分配器状态详情\n");
+
+    printf("当前空闲块链表状态:\n");
+    for (size_t i = 0; i < length_; i++) {
+      auto size = static_cast<size_t>(1 << i);
+      printf("entry[%zu](管理%zu页块) -> ", i, size);
+      FreeBlockNode* curr = free_block_lists_[i];
+
+      bool has_blocks = false;
+      while (curr != nullptr) {
+        auto first =
+            static_cast<size_t>((static_cast<const char*>(*curr) -
+                                 static_cast<const char*>(start_addr_)) /
+                                kPageSize);
+        printf("块[页%zu~%zu] -> ", first, first + size - 1);
+        curr = curr->next;
+        has_blocks = true;
+      }
+      printf("NULL");
+      if (!has_blocks) {
+        printf("  (此大小无空闲块)");
+      }
+      printf("\n");
+    }
+    printf("==========================================\n");
+  }
+};
 
 /**
  * @brief Buddy分配器测试夹具类
@@ -35,8 +73,9 @@ class BuddyTest : public ::testing::Test {
     // 初始化为0，便于检测内存污染
     std::memset(test_memory_, 0, test_memory_size_);
 
-    // 创建buddy分配器实例
-    buddy_ = std::make_unique<Buddy>("test_buddy", test_memory_, test_pages_);
+    // 创建buddy分配器实例（使用带调试功能的版本）
+    buddy_ = std::make_unique<BuddyDebugHelper>("test_buddy", test_memory_,
+                                                test_pages_);
   }
 
   void TearDown() override {
@@ -63,7 +102,7 @@ class BuddyTest : public ::testing::Test {
     return (offset / AllocatorBase::kPageSize) % pages == 0;
   }
 
-  std::unique_ptr<Buddy> buddy_;
+  std::unique_ptr<BuddyDebugHelper> buddy_;
   void* test_memory_ = nullptr;
   size_t test_memory_size_ = 0;
   size_t test_pages_ = 0;
@@ -73,21 +112,31 @@ class BuddyTest : public ::testing::Test {
  * @brief 测试基本的分配和释放功能
  */
 TEST_F(BuddyTest, BasicAllocAndFree) {
+  std::cout << "\n=== BasicAllocAndFree 测试开始 ===" << std::endl;
+  std::cout << "初始状态:" << std::endl;
+  buddy_->print();
+
   // 测试基本分配
+  std::cout << "\n分配1页 (order=0)..." << std::endl;
   void* ptr1 = buddy_->Alloc(0);  // 分配1页 (2^0 = 1页)
   ASSERT_NE(ptr1, nullptr) << "分配1页失败";
   EXPECT_TRUE(IsInManagedRange(ptr1)) << "分配的地址不在管理范围内";
   EXPECT_TRUE(IsAligned(ptr1, 0)) << "分配的地址未正确对齐";
+  buddy_->print();
 
+  std::cout << "\n分配2页 (order=1)..." << std::endl;
   void* ptr2 = buddy_->Alloc(1);  // 分配2页 (2^1 = 2页)
   ASSERT_NE(ptr2, nullptr) << "分配2页失败";
   EXPECT_TRUE(IsInManagedRange(ptr2)) << "分配的地址不在管理范围内";
   EXPECT_TRUE(IsAligned(ptr2, 1)) << "分配的地址未正确对齐";
+  buddy_->print();
 
+  std::cout << "\n分配4页 (order=2)..." << std::endl;
   void* ptr3 = buddy_->Alloc(2);  // 分配4页 (2^2 = 4页)
   ASSERT_NE(ptr3, nullptr) << "分配4页失败";
   EXPECT_TRUE(IsInManagedRange(ptr3)) << "分配的地址不在管理范围内";
   EXPECT_TRUE(IsAligned(ptr3, 2)) << "分配的地址未正确对齐";
+  buddy_->print();
 
   // 检查分配的地址不重叠
   EXPECT_NE(ptr1, ptr2) << "分配的地址重叠";
@@ -95,9 +144,19 @@ TEST_F(BuddyTest, BasicAllocAndFree) {
   EXPECT_NE(ptr2, ptr3) << "分配的地址重叠";
 
   // 测试释放
+  std::cout << "\n释放1页..." << std::endl;
   buddy_->Free(ptr1, 0);
+  buddy_->print();
+
+  std::cout << "\n释放2页..." << std::endl;
   buddy_->Free(ptr2, 1);
+  buddy_->print();
+
+  std::cout << "\n释放4页..." << std::endl;
   buddy_->Free(ptr3, 2);
+  buddy_->print();
+
+  std::cout << "=== BasicAllocAndFree 测试结束 ===\n" << std::endl;
 }
 
 /**
@@ -122,12 +181,19 @@ TEST_F(BuddyTest, BoundaryConditions) {
  * @brief 测试内存耗尽情况
  */
 TEST_F(BuddyTest, MemoryExhaustion) {
+  std::cout << "\n=== MemoryExhaustion 测试开始 ===" << std::endl;
+  std::cout << "初始状态:" << std::endl;
+  buddy_->print();
+
   std::vector<void*> allocated_ptrs;
 
   // 持续分配直到内存耗尽
   for (int i = 0; i < 1000; ++i) {  // 防止无限循环
     void* ptr = buddy_->Alloc(0);   // 分配1页
     if (ptr == nullptr) {
+      std::cout << "\n内存耗尽，共分配了 " << allocated_ptrs.size() << " 页"
+                << std::endl;
+      buddy_->print();
       break;  // 内存耗尽
     }
     allocated_ptrs.push_back(ptr);
@@ -145,37 +211,62 @@ TEST_F(BuddyTest, MemoryExhaustion) {
   EXPECT_EQ(ptr, nullptr) << "内存耗尽后应该无法继续分配";
 
   // 释放所有内存
+  std::cout << "\n开始释放所有内存..." << std::endl;
   for (void* allocated_ptr : allocated_ptrs) {
     buddy_->Free(allocated_ptr, 0);
   }
+  std::cout << "所有内存释放完成，当前状态:" << std::endl;
+  buddy_->print();
 
   // 验证释放后可以重新分配
   ptr = buddy_->Alloc(0);
   EXPECT_NE(ptr, nullptr) << "释放内存后应该能重新分配";
   buddy_->Free(ptr, 0);
+
+  std::cout << "=== MemoryExhaustion 测试结束 ===\n" << std::endl;
 }
 
 /**
  * @brief 测试buddy合并功能
  */
 TEST_F(BuddyTest, BuddyMerging) {
+  std::cout << "\n=== BuddyMerging 测试开始 ===" << std::endl;
+  std::cout << "初始状态:" << std::endl;
+  buddy_->print();
+
   // 分配两个相邻的1页块
+  std::cout << "\n分配第一个1页块..." << std::endl;
   void* ptr1 = buddy_->Alloc(0);
-  void* ptr2 = buddy_->Alloc(0);
   ASSERT_NE(ptr1, nullptr);
+  buddy_->print();
+
+  std::cout << "\n分配第二个1页块..." << std::endl;
+  void* ptr2 = buddy_->Alloc(0);
   ASSERT_NE(ptr2, nullptr);
+  buddy_->print();
 
   // 释放这两个块
+  std::cout << "\n释放第一个1页块..." << std::endl;
   buddy_->Free(ptr1, 0);
+  buddy_->print();
+
+  std::cout << "\n释放第二个1页块（应该触发合并）..." << std::endl;
   buddy_->Free(ptr2, 0);
+  buddy_->print();
 
   // 现在应该能分配一个2页的块（如果buddy合并正常工作）
+  std::cout << "\n尝试分配2页块（验证合并是否成功）..." << std::endl;
   void* large_ptr = buddy_->Alloc(1);
   EXPECT_NE(large_ptr, nullptr) << "buddy合并后应该能分配更大的块";
+  buddy_->print();
 
   if (large_ptr) {
+    std::cout << "\n释放2页块..." << std::endl;
     buddy_->Free(large_ptr, 1);
+    buddy_->print();
   }
+
+  std::cout << "=== BuddyMerging 测试结束 ===\n" << std::endl;
 }
 
 /**
@@ -274,13 +365,20 @@ TEST_F(BuddyTest, StressTest) {
  * @brief 测试不同order的分配大小
  */
 TEST_F(BuddyTest, DifferentOrderSizes) {
+  std::cout << "\n=== DifferentOrderSizes 测试开始 ===" << std::endl;
+  std::cout << "初始状态:" << std::endl;
+  buddy_->print();
+
   std::vector<std::pair<void*, size_t>> ptrs;
 
   // 分配不同order的内存块
   for (size_t order = 0; order <= 5; ++order) {
+    std::cout << "\n分配 order=" << order << " (" << (1 << order) << " 页)..."
+              << std::endl;
     void* ptr = buddy_->Alloc(order);
     if (ptr != nullptr) {
       ptrs.emplace_back(ptr, order);
+      buddy_->print();
 
       // 验证能够写入相应大小的数据
       size_t pages = 1 << order;
@@ -292,11 +390,14 @@ TEST_F(BuddyTest, DifferentOrderSizes) {
         *page_start = 'S';                                   // Start marker
         *(page_start + AllocatorBase::kPageSize - 1) = 'E';  // End marker
       }
+    } else {
+      std::cout << "分配 order=" << order << " 失败（内存不足）" << std::endl;
     }
   }
 
   EXPECT_GT(ptrs.size(), 0) << "应该能分配一些不同大小的内存块";
 
+  std::cout << "\n开始验证数据完整性并释放内存..." << std::endl;
   // 验证数据完整性并释放
   for (const auto& [ptr, order] : ptrs) {
     size_t pages = 1 << order;
@@ -311,8 +412,13 @@ TEST_F(BuddyTest, DifferentOrderSizes) {
           << "结束标记被破坏，order=" << order << ", page=" << page;
     }
 
+    std::cout << "释放 order=" << order << " (" << pages << " 页)..."
+              << std::endl;
     buddy_->Free(ptr, order);
+    buddy_->print();
   }
+
+  std::cout << "=== DifferentOrderSizes 测试结束 ===\n" << std::endl;
 }
 
 /**
@@ -392,6 +498,8 @@ TEST_F(BuddyTest, UsedAndFreeCount) {
  * @brief 测试分配器构造参数验证
  */
 TEST_F(BuddyTest, ConstructorValidation) {
+  std::cout << "\n=== ConstructorValidation 测试开始 ===" << std::endl;
+
   // 测试用很小的内存创建分配器
   size_t small_size = AllocatorBase::kPageSize * 4;  // 4页
   void* small_memory = std::aligned_alloc(AllocatorBase::kPageSize, small_size);
@@ -399,27 +507,79 @@ TEST_F(BuddyTest, ConstructorValidation) {
 
   std::memset(small_memory, 0, small_size);
 
-  // 创建小内存的buddy分配器
-  auto small_buddy = std::make_unique<Buddy>("small_buddy", small_memory, 4);
+  // 创建小内存的buddy分配器（使用带调试功能的版本）
+  auto small_buddy =
+      std::make_unique<BuddyDebugHelper>("small_buddy", small_memory, 4);
+
+  std::cout << "小内存池（4页）初始状态:" << std::endl;
+  small_buddy->print();
 
   // 测试在小内存中的分配
+  std::cout << "\n在小内存池中分配1页..." << std::endl;
   void* ptr1 = small_buddy->Alloc(0);  // 1页
   EXPECT_NE(ptr1, nullptr);
+  small_buddy->print();
 
+  std::cout << "\n在小内存池中分配2页..." << std::endl;
   void* ptr2 = small_buddy->Alloc(1);  // 2页
   EXPECT_NE(ptr2, nullptr);
+  small_buddy->print();
 
   // 现在应该没有更多空间了
+  std::cout << "\n尝试再分配2页（应该失败）..." << std::endl;
   void* ptr3 = small_buddy->Alloc(1);  // 再分配2页
   EXPECT_EQ(ptr3, nullptr) << "小内存池应该已经耗尽";
+  small_buddy->print();
 
   // 清理
-  if (ptr1) small_buddy->Free(ptr1, 0);
-  if (ptr2) small_buddy->Free(ptr2, 1);
+  std::cout << "\n清理小内存池..." << std::endl;
+  if (ptr1) {
+    small_buddy->Free(ptr1, 0);
+    std::cout << "释放1页后:" << std::endl;
+    small_buddy->print();
+  }
+  if (ptr2) {
+    small_buddy->Free(ptr2, 1);
+    std::cout << "释放2页后:" << std::endl;
+    small_buddy->print();
+  }
 
   small_buddy.reset();
   std::free(small_memory);
+
+  std::cout << "=== ConstructorValidation 测试结束 ===\n" << std::endl;
 }
 
-}  // namespace test
+/**
+ * @brief 测试 print 功能的演示
+ */
+TEST_F(BuddyTest, BuddyPrintDemo) {
+  std::cout << "\n=== Buddy Print Demo ===" << std::endl;
+
+  std::cout << "\n1. 初始状态:" << std::endl;
+  buddy_->print();
+
+  std::cout << "\n2. 分配一些内存块后:" << std::endl;
+  void* ptr1 = buddy_->Alloc(0);  // 1页
+  void* ptr2 = buddy_->Alloc(1);  // 2页
+  void* ptr3 = buddy_->Alloc(2);  // 4页
+
+  ASSERT_NE(ptr1, nullptr);
+  ASSERT_NE(ptr2, nullptr);
+  ASSERT_NE(ptr3, nullptr);
+
+  buddy_->print();
+
+  std::cout << "\n3. 释放部分内存后:" << std::endl;
+  buddy_->Free(ptr1, 0);  // 释放1页
+  buddy_->print();
+
+  std::cout << "\n4. 释放所有内存后:" << std::endl;
+  buddy_->Free(ptr2, 1);
+  buddy_->Free(ptr3, 2);
+  buddy_->print();
+
+  std::cout << "\n=== Demo 结束 ===" << std::endl;
+}
+
 }  // namespace bmalloc
