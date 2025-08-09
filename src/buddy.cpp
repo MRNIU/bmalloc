@@ -70,49 +70,37 @@ auto Buddy::Alloc(size_t order) -> void* {
     return nullptr;
   }
 
-  void* allocated_block = nullptr;
+  // 寻找第一个可用的块（从目标大小开始向上查找）
+  for (auto current_order = order; current_order < length_; current_order++) {
+    if (free_block_lists_[current_order] != nullptr) {
+      // 从空闲链表头部取出一个块
+      auto* node = free_block_lists_[current_order];
+      void* block = *node;  // 使用隐式转换
+      free_block_lists_[current_order] = node->next;
 
-  // 情况 1：直接有合适大小的空闲块
-  if (free_block_lists_[order] != nullptr) {
-    // 从空闲链表头部取出一个块
-    auto* node = free_block_lists_[order];
-    allocated_block = *node;  // 使用隐式转换
-    // 更新链表头
-    free_block_lists_[order] = node->next;
-  } else {
-    // 情况 2：没有合适大小的块，需要分割更大的块
-    for (auto current_order = order + 1; current_order < length_;
-         current_order++) {
-      if (free_block_lists_[current_order] != nullptr) {
-        // 找到一个更大的块，将其分割
-        // 取出大块
-        auto* large_node = free_block_lists_[current_order];
-        void* large_block = *large_node;  // 使用隐式转换
-        // 更新大块链表
-        free_block_lists_[current_order] = large_node->next;
-        // 计算分割后的第二个块地址
-        void* buddy_block = static_cast<char*>(large_block) +
-                            kPageSize * (1 << (current_order - 1));
-
-        // 将分割后的两个块加入到小一级的空闲链表中
-        auto* large_block_node = FreeBlockNode::make_node(large_block);
-        auto* buddy_block_node = FreeBlockNode::make_node(buddy_block);
-
-        // large_block 的 next 指向 buddy_block
-        large_block_node->next = buddy_block_node;
-        // buddy_block 的 next 指向原链表头
-        buddy_block_node->next = free_block_lists_[current_order - 1];
-        // 更新链表头为 large_block
-        free_block_lists_[current_order - 1] = large_block_node;
-
-        // 递归分配，直到得到合适大小的块
-        allocated_block = Alloc(order);
-        break;
+      // 如果找到的块正好是目标大小，直接返回
+      if (current_order == order) {
+        return block;
       }
+
+      // 否则需要分割成目标大小，将多余的块放回对应的空闲链表
+      while (current_order > order) {
+        current_order--;
+        // 计算 buddy 块地址（分割后的第二个块）
+        void* buddy_block =
+            static_cast<char*>(block) + kPageSize * (1 << current_order);
+
+        // 将 buddy 块插入到对应的空闲链表头部
+        auto* buddy_node = FreeBlockNode::make_node(buddy_block);
+        buddy_node->next = free_block_lists_[current_order];
+        free_block_lists_[current_order] = buddy_node;
+      }
+
+      return block;
     }
   }
 
-  return allocated_block;
+  return nullptr;
 }
 
 auto Buddy::Alloc(void*, size_t) -> bool { return false; }
