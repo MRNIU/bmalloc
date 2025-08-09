@@ -222,3 +222,10 @@ class Buddy : public AllocatorBase {
 }  // namespace bmalloc
 
 #endif /* BMALLOC_SRC_INCLUDE_BUDDY_H_ */
+
+/// @todo 为遍历 free_block_lists_ 的操作添加一个接口，接受一个 lambda 函数作为参数
+/// @todo FreeBlockNode 太复杂了，尝试简化
+/// @todo 将 FreeBlockNode 的实现移动到 cpp
+
+
+
