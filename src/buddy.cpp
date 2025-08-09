@@ -50,7 +50,7 @@ Buddy::Buddy(const char* name, void* start_addr, size_t total_pages)
                       (remaining_pages - max_block_pages) * kPageSize;
 
     // 将该块添加到对应大小的空闲链表头部
-    auto* node = static_cast<FreeBlockNode*>(static_cast<void*>(block_addr));
+    auto* node = make_node(block_addr);
     node->next = free_block_lists_[max_order];
     free_block_lists_[max_order] = node;
 
@@ -87,7 +87,7 @@ auto Buddy::Alloc(size_t order) -> void* {
   if (free_block_lists_[order] != nullptr) {
     // 从空闲链表头部取出一个块
     auto* node = free_block_lists_[order];
-    allocated_block = static_cast<void*>(node);
+    allocated_block = *node;  // 使用隐式转换
     // 更新链表头
     free_block_lists_[order] = node->next;
   } else {
@@ -98,7 +98,7 @@ auto Buddy::Alloc(size_t order) -> void* {
         // 找到一个更大的块，将其分割
         // 取出大块
         auto* large_node = free_block_lists_[current_order];
-        void* large_block = static_cast<void*>(large_node);
+        void* large_block = *large_node;  // 使用隐式转换
         // 更新大块链表
         free_block_lists_[current_order] = large_node->next;
         // 计算分割后的第二个块地址
@@ -106,8 +106,8 @@ auto Buddy::Alloc(size_t order) -> void* {
                             kPageSize * (1 << (current_order - 1));
 
         // 将分割后的两个块加入到小一级的空闲链表中
-        auto* large_block_node = static_cast<FreeBlockNode*>(large_block);
-        auto* buddy_block_node = static_cast<FreeBlockNode*>(buddy_block);
+        auto* large_block_node = make_node(large_block);
+        auto* buddy_block_node = make_node(buddy_block);
 
         // large_block 的 next 指向 buddy_block
         large_block_node->next = buddy_block_node;
@@ -159,7 +159,7 @@ void Buddy::Free(void* addr, size_t order) {
 
   // 情况 1：该大小的空闲链表为空，直接插入
   if (free_block_lists_[order] == nullptr) {
-    auto* node = static_cast<FreeBlockNode*>(addr);
+    auto* node = make_node(addr);
     node->next = nullptr;
     free_block_lists_[order] = node;
   } else {
@@ -171,11 +171,11 @@ void Buddy::Free(void* addr, size_t order) {
     while (curr != nullptr) {
       // 检查是否为右 buddy（当前块的右边相邻块）
       // right buddy potentially found
-      if (static_cast<void*>(curr) ==
+      if (*curr ==
           static_cast<void*>(static_cast<char*>(addr) + kPageSize * bNum)) {
         // 验证是否为有效的 buddy
         // right buddy found
-        if (isValid(static_cast<FreeBlockNode*>(addr), order + 1)) {
+        if (isValid(make_node(addr), order + 1)) {
           // 从链表中移除找到的 buddy 块
           if (prev == nullptr) {
             free_block_lists_[order] = curr->next;
@@ -187,9 +187,8 @@ void Buddy::Free(void* addr, size_t order) {
           Free(addr, order + 1);
           return;
         }
-      } else if (addr == static_cast<void*>(
-                             static_cast<char*>(static_cast<void*>(curr)) +
-                             kPageSize * bNum)) {
+      } else if (addr == static_cast<void*>(static_cast<char*>(*curr) +
+                                            kPageSize * bNum)) {
         // 检查是否为左 buddy（当前块的左边相邻块）
         // left buddy potentially found
         // 验证是否为有效的 buddy
@@ -203,7 +202,7 @@ void Buddy::Free(void* addr, size_t order) {
           }
 
           // 递归释放合并后的更大块（使用左 buddy 的地址作为起始地址）
-          Free(static_cast<void*>(curr), order + 1);
+          Free(*curr, order + 1);  // 使用隐式转换
           return;
         }
       }
@@ -214,7 +213,7 @@ void Buddy::Free(void* addr, size_t order) {
     }
 
     // 没有找到可合并的 buddy，直接插入到链表头部
-    auto* node = static_cast<FreeBlockNode*>(addr);
+    auto* node = make_node(addr);
     node->next = free_block_lists_[order];
     free_block_lists_[order] = node;
   }
@@ -275,10 +274,9 @@ void Buddy::buddy_print() const {
     FreeBlockNode* curr = free_block_lists_[i];
 
     while (curr != nullptr) {
-      auto first = static_cast<size_t>(
-          (static_cast<const char*>(static_cast<const void*>(curr)) -
-           static_cast<const char*>(start_addr_)) /
-          kPageSize);
+      auto first = static_cast<size_t>((static_cast<const char*>(*curr) -
+                                        static_cast<const char*>(start_addr_)) /
+                                       kPageSize);
       printf("(%zu,%zu) -> ", first, first + size - 1);
       curr = curr->next;
     }
@@ -295,10 +293,10 @@ inline bool Buddy::isValid(FreeBlockNode* node, size_t order) const {
   auto alignment_offset =
       static_cast<size_t>(total_managed_pages % block_size_pages);
   // 计算块编号（现在直接从 start_addr 开始计算）
-  auto block_index = static_cast<size_t>(
-      (static_cast<const char*>(static_cast<const void*>(node)) -
-       static_cast<const char*>(start_addr_)) /
-      kPageSize);
+  auto block_index =
+      static_cast<size_t>((static_cast<const char*>(*node) -
+                           static_cast<const char*>(start_addr_)) /
+                          kPageSize);
 
   // 检查块编号是否满足对齐要求：对于大小为 2^order 的块，起始位置必须是 2^order
   // 的倍数 if starting block number is valid for length 2^order then true

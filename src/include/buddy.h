@@ -106,7 +106,41 @@ class Buddy : public AllocatorBase {
   struct FreeBlockNode {
     // 指向下一个空闲块的指针
     FreeBlockNode* next;
+
+    /**
+     * @brief 隐式转换为 void*
+     */
+    operator void*() { return static_cast<void*>(this); }
+
+    /**
+     * @brief 隐式转换为 const void*
+     */
+    operator const void*() const { return static_cast<const void*>(this); }
+
+    /**
+     * @brief 隐式转换为 char*
+     */
+    operator char*() { return static_cast<char*>(static_cast<void*>(this)); }
+
+    /**
+     * @brief 隐式转换为 const char*
+     */
+    operator const char*() const { return static_cast<const char*>(static_cast<const void*>(this)); }
   };
+
+  /**
+   * @brief 从地址创建 FreeBlockNode*（类似构造函数的静态工厂）
+   */
+  static FreeBlockNode* make_node(void* addr) {
+    return static_cast<FreeBlockNode*>(addr);
+  }
+
+  /**
+   * @brief 从地址创建 FreeBlockNode*（类似构造函数的静态工厂）
+   */
+  static FreeBlockNode* make_node(char* addr) {
+    return static_cast<FreeBlockNode*>(static_cast<void*>(addr));
+  }
 
   // 固定大小的数组，避免占用管理的内存空间
   // 空闲块链表数组，free_block_lists_[i]管理大小为2^i页的空闲块链表
