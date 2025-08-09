@@ -87,7 +87,7 @@ auto Buddy::Alloc(size_t order) -> void* {
   if (free_block_lists_[order] != nullptr) {
     // 从空闲链表头部取出一个块
     auto* node = free_block_lists_[order];
-    allocated_block = node->ToAddress();
+    allocated_block = static_cast<void*>(node);
     // 更新链表头
     free_block_lists_[order] = node->next;
   } else {
@@ -98,7 +98,7 @@ auto Buddy::Alloc(size_t order) -> void* {
         // 找到一个更大的块，将其分割
         // 取出大块
         auto* large_node = free_block_lists_[current_order];
-        void* large_block = large_node->ToAddress();
+        void* large_block = static_cast<void*>(large_node);
         // 更新大块链表
         free_block_lists_[current_order] = large_node->next;
         // 计算分割后的第二个块地址
@@ -127,28 +127,6 @@ auto Buddy::Alloc(size_t order) -> void* {
 }
 
 auto Buddy::Alloc(void*, size_t) -> bool { return false; }
-
-inline bool Buddy::isValid(void* addr, size_t order) const {
-  // 块大小（页面数）
-  auto block_size_pages = static_cast<size_t>(1 << order);
-  // 计算实际管理的最大页数：2^(length_-1)
-  auto total_managed_pages = static_cast<size_t>(1 << (length_ - 1));
-  // 计算对齐偏移量
-  auto alignment_offset =
-      static_cast<size_t>(total_managed_pages % block_size_pages);
-  // 计算块编号（现在直接从 start_addr 开始计算）
-  auto block_index = static_cast<size_t>(
-      (static_cast<const char*>(addr) - static_cast<const char*>(start_addr_)) /
-      kPageSize);
-
-  // 检查块编号是否满足对齐要求：对于大小为 2^order 的块，起始位置必须是 2^order
-  // 的倍数 if starting block number is valid for length 2^order then true
-  if (block_index % block_size_pages == alignment_offset % block_size_pages) {
-    return true;
-  }
-
-  return false;
-}
 
 /**
  * @brief 释放大小为 2^n 个页面的内存块
@@ -193,11 +171,11 @@ void Buddy::Free(void* addr, size_t order) {
     while (curr != nullptr) {
       // 检查是否为右 buddy（当前块的右边相邻块）
       // right buddy potentially found
-      if (curr->ToAddress() ==
+      if (static_cast<void*>(curr) ==
           static_cast<void*>(static_cast<char*>(addr) + kPageSize * bNum)) {
         // 验证是否为有效的 buddy
         // right buddy found
-        if (isValid(addr, order + 1)) {
+        if (isValid(static_cast<FreeBlockNode*>(addr), order + 1)) {
           // 从链表中移除找到的 buddy 块
           if (prev == nullptr) {
             free_block_lists_[order] = curr->next;
@@ -209,14 +187,14 @@ void Buddy::Free(void* addr, size_t order) {
           Free(addr, order + 1);
           return;
         }
-      } else if (addr ==
-                 static_cast<void*>(static_cast<char*>(curr->ToAddress()) +
-                                    kPageSize * bNum)) {
+      } else if (addr == static_cast<void*>(
+                             static_cast<char*>(static_cast<void*>(curr)) +
+                             kPageSize * bNum)) {
         // 检查是否为左 buddy（当前块的左边相邻块）
         // left buddy potentially found
         // 验证是否为有效的 buddy
         // left buddy found
-        if (isValid(curr->ToAddress(), order + 1)) {
+        if (isValid(curr, order + 1)) {
           // 从链表中移除找到的 buddy 块
           if (prev == nullptr) {
             free_block_lists_[order] = curr->next;
@@ -225,7 +203,7 @@ void Buddy::Free(void* addr, size_t order) {
           }
 
           // 递归释放合并后的更大块（使用左 buddy 的地址作为起始地址）
-          Free(curr->ToAddress(), order + 1);
+          Free(static_cast<void*>(curr), order + 1);
           return;
         }
       }
@@ -297,15 +275,38 @@ void Buddy::buddy_print() const {
     FreeBlockNode* curr = free_block_lists_[i];
 
     while (curr != nullptr) {
-      auto first =
-          static_cast<size_t>((static_cast<const char*>(curr->ToAddress()) -
-                               static_cast<const char*>(start_addr_)) /
-                              kPageSize);
+      auto first = static_cast<size_t>(
+          (static_cast<const char*>(static_cast<const void*>(curr)) -
+           static_cast<const char*>(start_addr_)) /
+          kPageSize);
       printf("(%zu,%zu) -> ", first, first + size - 1);
       curr = curr->next;
     }
     printf("NULL\n");
   }
+}
+
+inline bool Buddy::isValid(FreeBlockNode* node, size_t order) const {
+  // 块大小（页面数）
+  auto block_size_pages = static_cast<size_t>(1 << order);
+  // 计算实际管理的最大页数：2^(length_-1)
+  auto total_managed_pages = static_cast<size_t>(1 << (length_ - 1));
+  // 计算对齐偏移量
+  auto alignment_offset =
+      static_cast<size_t>(total_managed_pages % block_size_pages);
+  // 计算块编号（现在直接从 start_addr 开始计算）
+  auto block_index = static_cast<size_t>(
+      (static_cast<const char*>(static_cast<const void*>(node)) -
+       static_cast<const char*>(start_addr_)) /
+      kPageSize);
+
+  // 检查块编号是否满足对齐要求：对于大小为 2^order 的块，起始位置必须是 2^order
+  // 的倍数 if starting block number is valid for length 2^order then true
+  if (block_index % block_size_pages == alignment_offset % block_size_pages) {
+    return true;
+  }
+
+  return false;
 }
 
 }  // namespace bmalloc

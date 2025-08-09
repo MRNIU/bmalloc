@@ -102,24 +102,10 @@ class Buddy : public AllocatorBase {
 
   /**
    * @brief 空闲块节点结构
-   * 用于表示空闲链表中的每个节点，提供类型安全的链表操作
    */
   struct FreeBlockNode {
-    FreeBlockNode* next;  ///< 指向下一个空闲块的指针
-
-    /**
-     * @brief 转换为 void* 地址
-     * @return void* 内存地址
-     */
-    auto ToAddress() -> void* { return static_cast<void*>(this); }
-
-    /**
-     * @brief 转换为 void* 地址（常量版本）
-     * @return void* 内存地址
-     */
-    auto ToAddress() const -> const void* {
-      return static_cast<const void*>(this);
-    }
+    // 指向下一个空闲块的指针
+    FreeBlockNode* next;
   };
 
   // 固定大小的数组，避免占用管理的内存空间
@@ -130,13 +116,13 @@ class Buddy : public AllocatorBase {
   void buddy_print() const;
 
   /**
-   * @brief 检查给定地址是否为大小为 2^order 的块的有效起始地址
-   * @param addr 要检查的地址
+   * @brief 检查给定节点是否为大小为 2^order 的块的有效起始地址
+   * @param node 要检查的节点
    * @param order 块大小的指数（块大小为 2^order）
-   * @return true 如果地址有效
-   * @return false 如果地址无效
+   * @return true 如果节点有效
+   * @return false 如果节点无效
    */
-  inline bool isValid(void* addr, size_t order) const;
+  inline bool isValid(FreeBlockNode* node, size_t order) const;
 };
 
 }  // namespace bmalloc
