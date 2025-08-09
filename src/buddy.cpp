@@ -105,17 +105,6 @@ auto Buddy::Alloc(size_t order) -> void* {
 
 auto Buddy::Alloc(void*, size_t) -> bool { return false; }
 
-/**
- * @brief 释放大小为 2^n 个页面的内存块
- * @param addr 要释放的内存块起始地址
- * @param order 块大小的指数（释放 2^order 个页面）
- *
- * 算法说明：
- * 1. 首先尝试找到相邻的 buddy 块进行合并
- * 2. buddy 块的特点：两个相邻的同大小块，地址相差一个块的大小
- * 3. 如果找到 buddy 且可以合并，递归合并成更大的块
- * 4. 否则直接将块插入对应大小的空闲链表
- */
 void Buddy::Free(void* addr, size_t order) {
   // 参数检查：order 必须在有效范围内
   if (order >= length_) {
@@ -131,68 +120,39 @@ void Buddy::Free(void* addr, size_t order) {
     return;
   }
 
-  // 计算块大小（页面数）
-  int bNum = 1 << order;
+  // 尝试查找并合并 buddy 块
+  size_t block_size = 1 << order;
+  void* right_buddy = static_cast<char*>(addr) + kPageSize * block_size;
+  void* left_buddy_start = static_cast<char*>(addr) - kPageSize * block_size;
 
-  // 情况 1：该大小的空闲链表为空，直接插入
-  if (free_block_lists_[order] == nullptr) {
-    auto* node = FreeBlockNode::make_node(addr);
-    node->insertToList(free_block_lists_[order]);
-  } else {
-    // 情况 2：尝试与相邻的 buddy 块合并
-    FreeBlockNode* prev = nullptr;
-    FreeBlockNode* curr = free_block_lists_[order];
+  // 遍历同大小的空闲链表，寻找 buddy 块
+  for (auto* curr = free_block_lists_[order]; curr != nullptr;
+       curr = curr->next) {
+    void* curr_addr = *curr;  // 使用隐式转换
 
-    // 遍历同大小的空闲链表，寻找 buddy 块
-    while (curr != nullptr) {
-      // 检查是否为右 buddy（当前块的右边相邻块）
-      // right buddy potentially found
-      if (*curr ==
-          static_cast<void*>(static_cast<char*>(addr) + kPageSize * bNum)) {
-        // 验证是否为有效的 buddy
-        // right buddy found
-        auto* node = FreeBlockNode::make_node(addr);
-        if (node->isValid(start_addr_, length_, order + 1)) {
-          // 从链表中移除找到的 buddy 块
-          if (prev == nullptr) {
-            free_block_lists_[order] = curr->next;
-          } else {
-            prev->next = curr->next;
-          }
-
-          // 递归释放合并后的更大块
-          Free(addr, order + 1);
-          return;
-        }
-      } else if (addr == static_cast<void*>(static_cast<char*>(*curr) +
-                                            kPageSize * bNum)) {
-        // 检查是否为左 buddy（当前块的左边相邻块）
-        // left buddy potentially found
-        // 验证是否为有效的 buddy
-        // left buddy found
-        if (curr->isValid(start_addr_, length_, order + 1)) {
-          // 从链表中移除找到的 buddy 块
-          if (prev == nullptr) {
-            free_block_lists_[order] = curr->next;
-          } else {
-            prev->next = curr->next;
-          }
-
-          // 递归释放合并后的更大块（使用左 buddy 的地址作为起始地址）
-          Free(*curr, order + 1);  // 使用隐式转换
-          return;
-        }
+    // 检查是否为右 buddy（当前要释放的块的右边相邻块）
+    if (curr_addr == right_buddy) {
+      auto* node = FreeBlockNode::make_node(addr);
+      if (node->isValid(start_addr_, length_, order + 1)) {
+        // 从链表中移除找到的 buddy 块并递归合并
+        FreeBlockNode::removeFromList(free_block_lists_[order], curr);
+        Free(addr, order + 1);
+        return;
       }
-
-      // 继续遍历链表
-      prev = curr;
-      curr = curr->next;
     }
-
-    // 没有找到可合并的 buddy，直接插入到链表头部
-    auto* node = FreeBlockNode::make_node(addr);
-    node->insertToList(free_block_lists_[order]);
+    // 检查是否为左 buddy（当前要释放的块的左边相邻块）
+    else if (curr_addr == left_buddy_start &&
+             curr->isValid(start_addr_, length_, order + 1)) {
+      // 从链表中移除找到的 buddy 块并递归合并（使用左 buddy 的地址）
+      FreeBlockNode::removeFromList(free_block_lists_[order], curr);
+      Free(curr_addr, order + 1);
+      return;
+    }
   }
+
+  // 没有找到可合并的 buddy，直接插入到链表头部
+  auto* node = FreeBlockNode::make_node(addr);
+  node->insertToList(free_block_lists_[order]);
 }
 
 /**
