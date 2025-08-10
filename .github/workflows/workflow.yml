@@ -26,7 +26,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install --fix-missing -y gcc g++
+          sudo apt install --fix-missing -y gcc g++ libgtest-dev
 
       - name: Run bmalloc tests
         run: |
