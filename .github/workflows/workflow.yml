@@ -32,4 +32,4 @@ jobs:
         run: |
           cmake --preset build
           cmake --build build --target bmalloc_test
-          ./build/test/bmalloc_test
+          ./build/bin/bmalloc_test
