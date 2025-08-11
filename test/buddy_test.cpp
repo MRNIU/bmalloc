@@ -38,7 +38,7 @@ class BuddyDebugHelper : public Buddy {
       bool has_blocks = false;
       while (curr != nullptr) {
         auto first =
-            static_cast<size_t>((static_cast<const char*>(*curr) -
+            static_cast<size_t>((static_cast<const char*>(static_cast<void*>(curr)) -
                                  static_cast<const char*>(start_addr_)) /
                                 kPageSize);
         printf("块[页%zu~%zu] -> ", first, first + size - 1);
