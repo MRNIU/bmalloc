@@ -63,7 +63,7 @@ class Buddy : public AllocatorBase {
   /// @}
 
   /**
-   * @brief 分配2的幂次方页数的内存
+   * @brief 分配 2 的幂次方页数的内存
    * @param order 阶数，实际分配 2^order 个页面
    * @return void* 分配的内存起始地址，失败时返回 nullptr
    * @note 例如：order=0 分配 1 页，order=1 分配 2 页，order=2 分配 4 页
@@ -71,7 +71,7 @@ class Buddy : public AllocatorBase {
   [[nodiscard]] auto Alloc(size_t order) -> void* override;
 
   /**
-   * @brief 释放2的幂次方页数的内存
+   * @brief 释放 2 的幂次方页数的内存
    * @param addr 要释放的内存起始地址
    * @param order 阶数，实际释放 2^order 个页面
    * @note 必须与分配时使用的order值相同
