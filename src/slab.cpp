@@ -22,68 +22,12 @@
 
 #include <cstring>
 #include <iostream>
-#include <mutex>
 
 #include "include/buddy.h"
+
+namespace bmalloc {
+
 using namespace std;
-using namespace bmalloc;
-
-// 缓存名称的最大长度
-#define CACHE_NAMELEN (20)  // maximum length of cache name
-// cache_cache的order值，表示管理kmem_cache_t结构体的cache使用的内存块大小
-#define CACHE_CACHE_ORDER (0)  // cache_cache order
-
-/**
- * Slab结构体 - 表示一个内存slab
- *
- * 每个slab包含多个相同大小的对象，通过链表管理空闲对象
- */
-typedef struct slab_s {
-  unsigned int colouroff;  // offset for this slab - 用于缓存行对齐的偏移量
-  void* objects;           // starting adress of objects - 对象数组的起始地址
-  int* freeList;           // list of free objects - 空闲对象索引列表
-  int nextFreeObj;         // next free object - 下一个空闲对象的索引
-  unsigned int
-      inuse;     // number of active objects in this slab - 当前使用的对象数量
-  slab_s* next;  // next slab in chain - 链表中的下一个slab
-  slab_s* prev;  // previous slab in chain - 链表中的前一个slab
-  kmem_cache_t* myCache;  // cache - owner - 拥有此slab的cache
-} slab_t;
-
-/**
- * Cache结构体 - 管理特定大小对象的高级结构
- *
- * 每个cache管理一种特定大小的对象，内部包含三种状态的slab链表：
- * - slabs_full: 完全使用的slab
- * - slabs_partial: 部分使用的slab
- * - slabs_free: 完全空闲的slab
- */
-struct kmem_cache_s {
-  slab_t* slabs_full;        // list of full slabs - 满slab链表
-  slab_t* slabs_partial;     // list of partial slabs - 部分使用slab链表
-  slab_t* slabs_free;        // list of free slabs - 空闲slab链表
-  char name[CACHE_NAMELEN];  // cache name - 缓存名称
-  unsigned int objectSize;   // size of one object - 单个对象大小
-  unsigned int
-      objectsInSlab;  // num of objects in one slab - 每个slab中的对象数量
-  unsigned long num_active;  // num of active objects in cache - 活跃对象数量
-  unsigned long num_allocations;  // num of total objects in cache - 总对象数量
-  mutex cache_mutex;              // mutex (uses to lock the cache) - 缓存互斥锁
-  unsigned int
-      order;  // order of one slab (one slab has 2^order blocks) - slab的order值
-  unsigned int colour_max;  // maximum multiplier for offset of first object in
-                            // slab - 最大颜色偏移乘数
-  unsigned int
-      colour_next;  // multiplier for next slab offset - 下一个slab的颜色偏移
-  bool growing;     // false - cache is not growing / true - cache is growing -
-                    // 是否正在增长
-  void (*ctor)(void*);  // objects constructor - 对象构造函数
-  void (*dtor)(void*);  // objects destructor - 对象析构函数
-  int error_code;       // last error that happened while working with cache -
-                        // 最后的错误码
-  kmem_cache_s* next;   // next cache in chain - 下一个cache
-};
-
 /*
 错误码定义 (error_code值的含义):
 0 - 无错误
@@ -107,9 +51,10 @@ ERROR CODES: (error_cod value)
 
 */
 
-// 全局互斥锁和变量
-mutex buddy_mutex;  // guarding buddy alocator - 保护buddy分配器的互斥锁
-mutex cout_mutex;   // guarding cout - 保护输出的互斥锁
+// guarding buddy alocator - 保护buddy分配器的互斥锁
+mutex buddy_mutex;
+// guarding cout - 保护输出的互斥锁
+mutex cout_mutex;
 
 // 全局Buddy分配器实例，用于底层内存管理
 static Buddy* global_buddy = nullptr;
@@ -1122,3 +1067,5 @@ ERROR CODES: (error_cod value)
 7 - invalid pointer passed for object dealocation
 
 */
+
+}  // namespace bmalloc
