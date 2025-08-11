@@ -52,9 +52,8 @@ Buddy::Buddy(const char* name, void* start_addr, size_t total_pages)
           const_cast<char*>(static_cast<const char*>(start_addr_)) +
           current_addr_offset * kPageSize;
 
-      // 创建节点并插入链表头部
-      auto* node = FreeBlockNode::FromAddress(block_addr);
-      InsertToFreeList(free_block_lists_[order], node);
+      // 直接插入块地址到链表头部
+      InsertToFreeList(free_block_lists_[order], block_addr);
 
       // 更新地址偏移和剩余页数
       current_addr_offset += block_size;
@@ -90,8 +89,7 @@ auto Buddy::Alloc(size_t order) -> void* {
             static_cast<char*>(block) + kPageSize * (1 << current_order);
 
         // 将 buddy 块插入到对应的空闲链表头部
-        auto* buddy_node = FreeBlockNode::FromAddress(buddy_block);
-        InsertToFreeList(free_block_lists_[current_order], buddy_node);
+        InsertToFreeList(free_block_lists_[current_order], buddy_block);
       }
 
       return block;
@@ -148,8 +146,7 @@ void Buddy::Free(void* addr, size_t order) {
   }
 
   // 没有找到可合并的 buddy，直接插入到链表头部
-  auto* node = FreeBlockNode::FromAddress(addr);
-  InsertToFreeList(free_block_lists_[order], node);
+  InsertToFreeList(free_block_lists_[order], addr);
 }
 
 auto Buddy::GetUsedCount() const -> size_t {

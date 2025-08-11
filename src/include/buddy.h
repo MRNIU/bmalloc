@@ -100,33 +100,16 @@ class Buddy : public AllocatorBase {
   static constexpr size_t kMaxFreeListEntries = 32;
 
   struct FreeBlockNode {
-    FreeBlockNode* next;
-
-    // 默认构造函数
-    FreeBlockNode() : next(nullptr) {}
-
-    // 禁用拷贝和移动(这是一个链表节点，不应该被拷贝)
-    FreeBlockNode(const FreeBlockNode&) = delete;
-    FreeBlockNode& operator=(const FreeBlockNode&) = delete;
-    FreeBlockNode(FreeBlockNode&&) = delete;
-    FreeBlockNode& operator=(FreeBlockNode&&) = delete;
-
-    /**
-     * @brief 从内存地址创建节点
-     * @param addr 内存地址
-     * @return FreeBlockNode* 节点指针
-     */
-    static __always_inline FreeBlockNode* FromAddress(void* addr) {
-      return static_cast<FreeBlockNode*>(addr);
-    }
+    FreeBlockNode* next{};
   };
 
   /**
    * @brief 将节点插入到链表头部
    * @param list_head 链表头部的引用
-   * @param node 要插入的节点
+   * @param addr 要插入的内存地址
    */
-  void InsertToFreeList(FreeBlockNode*& list_head, FreeBlockNode* node) {
+  void InsertToFreeList(FreeBlockNode*& list_head, void* addr) {
+    auto* node = static_cast<FreeBlockNode*>(addr);
     node->next = list_head;
     list_head = node;
   }
