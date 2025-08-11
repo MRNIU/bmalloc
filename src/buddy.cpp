@@ -126,6 +126,10 @@ void Buddy::Free(void* addr, size_t order) {
     return;
   }
 
+  Free(addr, order, true);
+}
+
+void Buddy::Free(void* addr, size_t order, bool update_counter) {
   // 尝试查找并合并 buddy 块
   size_t block_size = 1 << order;
   void* right_buddy = static_cast<char*>(addr) + kPageSize * block_size;
@@ -141,7 +145,7 @@ void Buddy::Free(void* addr, size_t order) {
       if (IsValidBlockAddress(addr, block_size)) {
         // 从链表中移除找到的 buddy 块并递归合并
         RemoveFromFreeList(free_block_lists_[order], curr);
-        Free(addr, order + 1);
+        Free(addr, order + 1, false);
         return;
       }
     }
@@ -150,7 +154,7 @@ void Buddy::Free(void* addr, size_t order) {
       if (IsValidBlockAddress(curr_addr, block_size)) {
         // 从链表中移除找到的 buddy 块并递归合并(使用左 buddy 的地址)
         RemoveFromFreeList(free_block_lists_[order], curr);
-        Free(curr_addr, order + 1);
+        Free(curr_addr, order + 1, false);
         return;
       }
     }
@@ -159,10 +163,55 @@ void Buddy::Free(void* addr, size_t order) {
   // 没有找到可合并的 buddy，直接插入到链表头部
   InsertToFreeList(free_block_lists_[order], addr);
 
-  // 更新计数器
-  size_t freed_pages = 1 << order;
-  used_count_ -= freed_pages;
-  free_count_ += freed_pages;
+  // 只有在需要更新计数器时才更新(即初始调用时)
+  if (update_counter) {
+    size_t freed_pages = 1 << order;
+    used_count_ -= freed_pages;
+    free_count_ += freed_pages;
+  }
+}
+
+void Buddy::InsertToFreeList(FreeBlockNode*& list_head, void* addr) {
+  auto* node = static_cast<FreeBlockNode*>(addr);
+  node->next = list_head;
+  list_head = node;
+}
+
+bool Buddy::RemoveFromFreeList(FreeBlockNode*& list_head,
+                               FreeBlockNode* target) {
+  // 如果要移除的是头节点
+  if (list_head == target) {
+    list_head = target->next;
+    return true;
+  }
+
+  // 遍历链表查找目标节点
+  for (auto* curr = list_head; curr->next != nullptr; curr = curr->next) {
+    if (curr->next == target) {
+      curr->next = target->next;
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool Buddy::IsValidBlockAddress(const void* addr, size_t block_pages) const {
+  // 计算地址相对于起始地址的字节偏移
+  auto addr_offset =
+      static_cast<const char*>(addr) - static_cast<const char*>(start_addr_);
+
+  // 计算地址相对于起始地址的页偏移
+  auto page_offset = addr_offset / kPageSize;
+
+  // 检查地址对齐：块的起始地址必须是块大小的整数倍
+  if (page_offset % block_pages != 0) {
+    return false;
+  }
+
+  // 检查边界：确保块不超出管理的内存范围
+  size_t max_pages = 1 << (length_ - 1);
+  return page_offset + block_pages <= max_pages;
 }
 
 }  // namespace bmalloc

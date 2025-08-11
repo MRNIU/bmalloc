@@ -87,15 +87,19 @@ class Buddy : public AllocatorBase {
   };
 
   /**
+   * @brief 内部释放函数，用于递归合并
+   * @param addr 要释放的内存起始地址
+   * @param order 阶数，实际释放 2^order 个页面
+   * @param update_counter 是否更新计数器(只有初始调用时为true)
+   */
+  void Free(void* addr, size_t order, bool update_counter);
+
+  /**
    * @brief 将节点插入到链表头部
    * @param list_head 链表头部的引用
    * @param addr 要插入的内存地址
    */
-  void InsertToFreeList(FreeBlockNode*& list_head, void* addr) {
-    auto* node = static_cast<FreeBlockNode*>(addr);
-    node->next = list_head;
-    list_head = node;
-  }
+  void InsertToFreeList(FreeBlockNode*& list_head, void* addr);
 
   /**
    * @brief 从链表中移除节点
@@ -104,23 +108,7 @@ class Buddy : public AllocatorBase {
    * @return true 如果成功移除
    * @return false 如果节点不在链表中
    */
-  bool RemoveFromFreeList(FreeBlockNode*& list_head, FreeBlockNode* target) {
-    // 如果要移除的是头节点
-    if (list_head == target) {
-      list_head = target->next;
-      return true;
-    }
-
-    // 遍历链表查找目标节点
-    for (auto* curr = list_head; curr->next != nullptr; curr = curr->next) {
-      if (curr->next == target) {
-        curr->next = target->next;
-        return true;
-      }
-    }
-
-    return false;
-  }
+  bool RemoveFromFreeList(FreeBlockNode*& list_head, FreeBlockNode* target);
 
   /**
    * @brief 检查给定地址是否为指定大小块的有效起始地址
@@ -129,23 +117,7 @@ class Buddy : public AllocatorBase {
    * @return true 如果地址有效
    * @return false 如果地址无效
    */
-  bool IsValidBlockAddress(const void* addr, size_t block_pages) const {
-    // 计算地址相对于起始地址的字节偏移
-    auto addr_offset =
-        static_cast<const char*>(addr) - static_cast<const char*>(start_addr_);
-
-    // 计算地址相对于起始地址的页偏移
-    auto page_offset = addr_offset / kPageSize;
-
-    // 检查地址对齐：块的起始地址必须是块大小的整数倍
-    if (page_offset % block_pages != 0) {
-      return false;
-    }
-
-    // 检查边界：确保块不超出管理的内存范围
-    size_t max_pages = 1 << (length_ - 1);
-    return page_offset + block_pages <= max_pages;
-  }
+  bool IsValidBlockAddress(const void* addr, size_t block_pages) const;
 
   // 空闲块链表数组，free_block_lists_[i] 管理大小为 2^i 页的空闲块链表
   std::array<FreeBlockNode*, kMaxFreeListEntries> free_block_lists_{};
