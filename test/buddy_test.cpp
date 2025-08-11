@@ -172,6 +172,7 @@ TEST_F(BuddyTest, BasicAllocAndFree) {
   ASSERT_NE(ptr1, nullptr) << "分配1页失败";
   EXPECT_TRUE(IsInManagedRange(ptr1)) << "分配的地址不在管理范围内";
   EXPECT_TRUE(IsAligned(ptr1, 0)) << "分配的地址未正确对齐";
+  std::cout << "✓ 分配成功: ptr1 = " << ptr1 << " (1页)" << std::endl;
 
   // 填充随机数据并保存
   FillRandomData(ptr1, 0, gen);
@@ -184,6 +185,7 @@ TEST_F(BuddyTest, BasicAllocAndFree) {
   ASSERT_NE(ptr2, nullptr) << "分配2页失败";
   EXPECT_TRUE(IsInManagedRange(ptr2)) << "分配的地址不在管理范围内";
   EXPECT_TRUE(IsAligned(ptr2, 1)) << "分配的地址未正确对齐";
+  std::cout << "✓ 分配成功: ptr2 = " << ptr2 << " (2页)" << std::endl;
 
   // 填充随机数据并保存
   FillRandomData(ptr2, 1, gen);
@@ -196,6 +198,7 @@ TEST_F(BuddyTest, BasicAllocAndFree) {
   ASSERT_NE(ptr3, nullptr) << "分配4页失败";
   EXPECT_TRUE(IsInManagedRange(ptr3)) << "分配的地址不在管理范围内";
   EXPECT_TRUE(IsAligned(ptr3, 2)) << "分配的地址未正确对齐";
+  std::cout << "✓ 分配成功: ptr3 = " << ptr3 << " (4页)" << std::endl;
 
   // 填充随机数据并保存
   FillRandomData(ptr3, 2, gen);
@@ -208,6 +211,21 @@ TEST_F(BuddyTest, BasicAllocAndFree) {
   EXPECT_NE(ptr1, ptr3) << "分配的地址重叠";
   EXPECT_NE(ptr2, ptr3) << "分配的地址重叠";
 
+  // 打印地址信息用于调试
+  std::cout << "\n分配的地址信息:" << std::endl;
+  std::cout << "  ptr1 (1页): " << ptr1 << std::endl;
+  std::cout << "  ptr2 (2页): " << ptr2 << std::endl;
+  std::cout << "  ptr3 (4页): " << ptr3 << std::endl;
+  
+  // 计算相对偏移
+  auto offset1 = static_cast<char*>(ptr1) - static_cast<char*>(test_memory_);
+  auto offset2 = static_cast<char*>(ptr2) - static_cast<char*>(test_memory_);
+  auto offset3 = static_cast<char*>(ptr3) - static_cast<char*>(test_memory_);
+  std::cout << "  相对偏移:" << std::endl;
+  std::cout << "    ptr1: " << offset1 << " 字节 (页" << offset1/AllocatorBase::kPageSize << ")" << std::endl;
+  std::cout << "    ptr2: " << offset2 << " 字节 (页" << offset2/AllocatorBase::kPageSize << ")" << std::endl;
+  std::cout << "    ptr3: " << offset3 << " 字节 (页" << offset3/AllocatorBase::kPageSize << ")" << std::endl;
+
   // 验证数据完整性
   std::cout << "\n验证数据完整性..." << std::endl;
   EXPECT_TRUE(VerifyData(ptr1, 0, data1)) << "1页内存数据完整性验证失败";
@@ -217,14 +235,17 @@ TEST_F(BuddyTest, BasicAllocAndFree) {
 
   // 测试释放
   std::cout << "\n释放1页..." << std::endl;
+  std::cout << "释放地址: " << ptr1 << std::endl;
   buddy_->Free(ptr1, 0);
   buddy_->print();
 
   std::cout << "\n释放2页..." << std::endl;
+  std::cout << "释放地址: " << ptr2 << std::endl;
   buddy_->Free(ptr2, 1);
   buddy_->print();
 
   std::cout << "\n释放4页..." << std::endl;
+  std::cout << "释放地址: " << ptr3 << std::endl;
   buddy_->Free(ptr3, 2);
   buddy_->print();
 
@@ -236,17 +257,32 @@ TEST_F(BuddyTest, BasicAllocAndFree) {
  */
 TEST_F(BuddyTest, BoundaryConditions) {
   // 测试分配0页（最小单位）
+  std::cout << "\n测试分配最小单位 (order=0)..." << std::endl;
   void* ptr = buddy_->Alloc(0);
   ASSERT_NE(ptr, nullptr) << "分配最小单位失败";
+  std::cout << "✓ 分配成功: " << ptr << " (1页)" << std::endl;
   buddy_->Free(ptr, 0);
+  std::cout << "✓ 释放成功: " << ptr << std::endl;
 
   // 测试分配超大块（应该失败）
+  std::cout << "\n测试分配超大块 (order=20)..." << std::endl;
   void* large_ptr = buddy_->Alloc(20);  // 2^20 = 1M页，远超测试内存
   EXPECT_EQ(large_ptr, nullptr) << "应该无法分配超大内存块";
+  if (large_ptr == nullptr) {
+    std::cout << "✓ 预期失败: 超大块分配返回 nullptr" << std::endl;
+  } else {
+    std::cout << "✗ 意外成功: " << large_ptr << std::endl;
+  }
 
   // 测试无效order
+  std::cout << "\n测试无效order (order=100)..." << std::endl;
   void* invalid_ptr = buddy_->Alloc(100);
   EXPECT_EQ(invalid_ptr, nullptr) << "应该无法分配无效order的内存";
+  if (invalid_ptr == nullptr) {
+    std::cout << "✓ 预期失败: 无效order分配返回 nullptr" << std::endl;
+  } else {
+    std::cout << "✗ 意外成功: " << invalid_ptr << std::endl;
+  }
 }
 
 /**
@@ -262,6 +298,7 @@ TEST_F(BuddyTest, MemoryExhaustion) {
   std::vector<std::pair<void*, std::vector<uint8_t>>> allocated_blocks;
 
   // 持续分配直到内存耗尽
+  std::cout << "\n开始持续分配1页内存块，直到耗尽..." << std::endl;
   for (int i = 0; i < 1000; ++i) {  // 防止无限循环
     void* ptr = buddy_->Alloc(0);   // 分配1页
     if (ptr == nullptr) {
@@ -275,6 +312,14 @@ TEST_F(BuddyTest, MemoryExhaustion) {
     FillRandomData(ptr, 0, gen);
     auto data = SaveData(ptr, 0);
     allocated_blocks.emplace_back(ptr, std::move(data));
+    
+    // 每50个分配打印一次地址信息
+    if (i < 10 || (i + 1) % 50 == 0) {
+      auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
+      size_t page_num = offset / AllocatorBase::kPageSize;
+      std::cout << "第" << (i + 1) << "个分配: " << ptr 
+                << " (页" << page_num << ")" << std::endl;
+    }
   }
 
   EXPECT_GT(allocated_blocks.size(), 0) << "应该能分配至少一些内存";
@@ -313,11 +358,16 @@ TEST_F(BuddyTest, MemoryExhaustion) {
   ptr = buddy_->Alloc(0);
   EXPECT_NE(ptr, nullptr) << "释放内存后应该能重新分配";
   if (ptr) {
+    auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
+    size_t page_num = offset / AllocatorBase::kPageSize;
+    std::cout << "重新分配成功: " << ptr << " (页" << page_num << ")" << std::endl;
+    
     // 测试新分配的内存可以正常使用
     FillRandomData(ptr, 0, gen);
     auto new_data = SaveData(ptr, 0);
     EXPECT_TRUE(VerifyData(ptr, 0, new_data)) << "新分配的内存应该可以正常读写";
     buddy_->Free(ptr, 0);
+    std::cout << "释放重新分配的内存: " << ptr << std::endl;
   }
 
   std::cout << "=== MemoryExhaustion 测试结束 ===\n" << std::endl;
@@ -335,30 +385,55 @@ TEST_F(BuddyTest, BuddyMerging) {
   std::cout << "\n分配第一个1页块..." << std::endl;
   void* ptr1 = buddy_->Alloc(0);
   ASSERT_NE(ptr1, nullptr);
+  auto offset1 = static_cast<char*>(ptr1) - static_cast<char*>(test_memory_);
+  size_t page1 = offset1 / AllocatorBase::kPageSize;
+  std::cout << "✓ 分配成功: ptr1 = " << ptr1 << " (页" << page1 << ")" << std::endl;
   buddy_->print();
 
   std::cout << "\n分配第二个1页块..." << std::endl;
   void* ptr2 = buddy_->Alloc(0);
   ASSERT_NE(ptr2, nullptr);
+  auto offset2 = static_cast<char*>(ptr2) - static_cast<char*>(test_memory_);
+  size_t page2 = offset2 / AllocatorBase::kPageSize;
+  std::cout << "✓ 分配成功: ptr2 = " << ptr2 << " (页" << page2 << ")" << std::endl;
+  
+  // 检查是否相邻
+  if (abs(static_cast<long>(page1) - static_cast<long>(page2)) == 1) {
+    std::cout << "ℹ 两个块相邻，适合测试buddy合并" << std::endl;
+  } else {
+    std::cout << "ℹ 两个块不相邻 (页间距: " 
+              << abs(static_cast<long>(page1) - static_cast<long>(page2)) << ")" << std::endl;
+  }
   buddy_->print();
 
   // 释放这两个块
   std::cout << "\n释放第一个1页块..." << std::endl;
+  std::cout << "释放地址: " << ptr1 << " (页" << page1 << ")" << std::endl;
   buddy_->Free(ptr1, 0);
   buddy_->print();
 
   std::cout << "\n释放第二个1页块（应该触发合并）..." << std::endl;
+  std::cout << "释放地址: " << ptr2 << " (页" << page2 << ")" << std::endl;
   buddy_->Free(ptr2, 0);
   buddy_->print();
 
   // 现在应该能分配一个2页的块（如果buddy合并正常工作）
   std::cout << "\n尝试分配2页块（验证合并是否成功）..." << std::endl;
   void* large_ptr = buddy_->Alloc(1);
-  EXPECT_NE(large_ptr, nullptr) << "buddy合并后应该能分配更大的块";
+  if (large_ptr != nullptr) {
+    auto large_offset = static_cast<char*>(large_ptr) - static_cast<char*>(test_memory_);
+    size_t large_page = large_offset / AllocatorBase::kPageSize;
+    std::cout << "✓ 分配成功: " << large_ptr << " (页" << large_page 
+              << "~" << (large_page + 1) << ")" << std::endl;
+    EXPECT_NE(large_ptr, nullptr) << "buddy合并后应该能分配更大的块";
+  } else {
+    std::cout << "✗ 分配失败: 可能buddy合并未成功" << std::endl;
+  }
   buddy_->print();
 
   if (large_ptr) {
     std::cout << "\n释放2页块..." << std::endl;
+    std::cout << "释放地址: " << large_ptr << std::endl;
     buddy_->Free(large_ptr, 1);
     buddy_->print();
   }
@@ -541,10 +616,20 @@ TEST_F(BuddyTest, DifferentOrderSizes) {
 
   // 分配不同order的内存块
   for (size_t order = 0; order <= 5; ++order) {
-    std::cout << "\n分配 order=" << order << " (" << (1 << order) << " 页)..."
+    size_t pages = 1 << order;
+    std::cout << "\n分配 order=" << order << " (" << pages << " 页)..."
               << std::endl;
     void* ptr = buddy_->Alloc(order);
     if (ptr != nullptr) {
+      auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
+      size_t start_page = offset / AllocatorBase::kPageSize;
+      size_t end_page = start_page + pages - 1;
+      std::cout << "✓ 分配成功: " << ptr << " (页" << start_page;
+      if (pages > 1) {
+        std::cout << "~" << end_page;
+      }
+      std::cout << ", " << pages << "页)" << std::endl;
+      
       // 填充随机数据
       FillRandomData(ptr, order, gen);
       auto data = SaveData(ptr, order);
@@ -555,10 +640,9 @@ TEST_F(BuddyTest, DifferentOrderSizes) {
       EXPECT_TRUE(VerifyData(ptr, order, std::get<2>(ptrs.back())))
           << "分配后立即验证数据失败，order=" << order;
 
-      std::cout << "已填充并验证 " << (1 << order) << " 页的随机数据"
-                << std::endl;
+      std::cout << "已填充并验证 " << pages << " 页的随机数据" << std::endl;
     } else {
-      std::cout << "分配 order=" << order << " 失败（内存不足）" << std::endl;
+      std::cout << "✗ 分配 order=" << order << " 失败（内存不足）" << std::endl;
     }
   }
 
@@ -583,6 +667,9 @@ TEST_F(BuddyTest, DifferentOrderSizes) {
   // 验证数据完整性并释放
   for (const auto& [ptr, order, expected_data] : ptrs) {
     size_t pages = 1 << order;
+    auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
+    size_t start_page = offset / AllocatorBase::kPageSize;
+    size_t end_page = start_page + pages - 1;
 
     // 验证随机数据完整性
     bool integrity_ok = VerifyData(ptr, order, expected_data);
@@ -597,8 +684,12 @@ TEST_F(BuddyTest, DifferentOrderSizes) {
                 << " 页) 数据完整性验证失败" << std::endl;
     }
 
-    std::cout << "释放 order=" << order << " (" << pages << " 页)..."
-              << std::endl;
+    std::cout << "释放 order=" << order << " (" << pages << " 页): " << ptr 
+              << " (页" << start_page;
+    if (pages > 1) {
+      std::cout << "~" << end_page;
+    }
+    std::cout << ")" << std::endl;
     buddy_->Free(ptr, order);
     buddy_->print();
   }
@@ -703,27 +794,45 @@ TEST_F(BuddyTest, ConstructorValidation) {
   std::cout << "\n在小内存池中分配1页..." << std::endl;
   void* ptr1 = small_buddy->Alloc(0);  // 1页
   EXPECT_NE(ptr1, nullptr);
+  if (ptr1) {
+    auto offset = static_cast<char*>(ptr1) - static_cast<char*>(small_memory);
+    size_t page = offset / AllocatorBase::kPageSize;
+    std::cout << "✓ 分配成功: " << ptr1 << " (页" << page << ")" << std::endl;
+  }
   small_buddy->print();
 
   std::cout << "\n在小内存池中分配2页..." << std::endl;
   void* ptr2 = small_buddy->Alloc(1);  // 2页
   EXPECT_NE(ptr2, nullptr);
+  if (ptr2) {
+    auto offset = static_cast<char*>(ptr2) - static_cast<char*>(small_memory);
+    size_t start_page = offset / AllocatorBase::kPageSize;
+    std::cout << "✓ 分配成功: " << ptr2 << " (页" << start_page 
+              << "~" << (start_page + 1) << ")" << std::endl;
+  }
   small_buddy->print();
 
   // 现在应该没有更多空间了
   std::cout << "\n尝试再分配2页（应该失败）..." << std::endl;
   void* ptr3 = small_buddy->Alloc(1);  // 再分配2页
   EXPECT_EQ(ptr3, nullptr) << "小内存池应该已经耗尽";
+  if (ptr3 == nullptr) {
+    std::cout << "✓ 预期失败: 返回 nullptr" << std::endl;
+  } else {
+    std::cout << "✗ 意外成功: " << ptr3 << std::endl;
+  }
   small_buddy->print();
 
   // 清理
   std::cout << "\n清理小内存池..." << std::endl;
   if (ptr1) {
+    std::cout << "释放1页: " << ptr1 << std::endl;
     small_buddy->Free(ptr1, 0);
     std::cout << "释放1页后:" << std::endl;
     small_buddy->print();
   }
   if (ptr2) {
+    std::cout << "释放2页: " << ptr2 << std::endl;
     small_buddy->Free(ptr2, 1);
     std::cout << "释放2页后:" << std::endl;
     small_buddy->print();
@@ -753,13 +862,21 @@ TEST_F(BuddyTest, BuddyPrintDemo) {
   ASSERT_NE(ptr2, nullptr);
   ASSERT_NE(ptr3, nullptr);
 
+  std::cout << "分配的地址:" << std::endl;
+  std::cout << "  ptr1 (1页): " << ptr1 << std::endl;
+  std::cout << "  ptr2 (2页): " << ptr2 << std::endl;
+  std::cout << "  ptr3 (4页): " << ptr3 << std::endl;
+
   buddy_->print();
 
   std::cout << "\n3. 释放部分内存后:" << std::endl;
+  std::cout << "释放 ptr1: " << ptr1 << std::endl;
   buddy_->Free(ptr1, 0);  // 释放1页
   buddy_->print();
 
   std::cout << "\n4. 释放所有内存后:" << std::endl;
+  std::cout << "释放 ptr2: " << ptr2 << std::endl;
+  std::cout << "释放 ptr3: " << ptr3 << std::endl;
   buddy_->Free(ptr2, 1);
   buddy_->Free(ptr3, 2);
   buddy_->print();
@@ -786,6 +903,15 @@ TEST_F(BuddyTest, RandomDataIntegrityTest) {
       std::cout << "跳过 order=" << order << "（内存不足）" << std::endl;
       continue;
     }
+
+    auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
+    size_t start_page = offset / AllocatorBase::kPageSize;
+    size_t end_page = start_page + (1 << order) - 1;
+    std::cout << "✓ 分配成功: " << ptr << " (页" << start_page;
+    if ((1 << order) > 1) {
+      std::cout << "~" << end_page;
+    }
+    std::cout << ")" << std::endl;
 
     // 填充随机数据
     FillRandomData(ptr, order, gen);
@@ -827,6 +953,7 @@ TEST_F(BuddyTest, RandomDataIntegrityTest) {
 
     std::cout << "✓ order=" << order << " 随机数据完整性测试通过" << std::endl;
 
+    std::cout << "释放内存: " << ptr << std::endl;
     buddy_->Free(ptr, order);
   }
 
