@@ -23,7 +23,7 @@ namespace bmalloc {
  * 4. 释放时：尝试与相邻的 buddy 块合并成更大的块
  *
  * 数据结构：
- * - free_block_lists_[i]: 管理大小为 2^i 个页面的空闲块链表（静态数组）
+ * - free_block_lists_[i]: 管理大小为 2^i 个页面的空闲块链表(静态数组)
  * - 每个空闲块的开头存储指向下一个空闲块的指针
  * - 使用静态数组存储 free_block_lists_，所有管理的内存都可用于分配
  *
@@ -66,7 +66,7 @@ class Buddy : public AllocatorBase {
    * @brief 分配2的幂次方页数的内存
    * @param order 阶数，实际分配 2^order 个页面
    * @return void* 分配的内存起始地址，失败时返回 nullptr
-   * @note 例如：order=0分配1页，order=1分配2页，order=2分配4页
+   * @note 例如：order=0 分配 1 页，order=1 分配 2 页，order=2 分配 4 页
    */
   [[nodiscard]] auto Alloc(size_t order) -> void* override;
 
@@ -96,36 +96,27 @@ class Buddy : public AllocatorBase {
   [[nodiscard]] auto GetFreeCount() const -> size_t override;
 
  protected:
-  // 常量定义
-  // 最大支持2^31个页面，足够大部分应用
+  // 最大支持 2^31 个页面，足够大部分应用
   static constexpr size_t kMaxFreeListEntries = 32;
 
-  /**
-   * @brief 简化的空闲块节点结构
-   *
-   * 设计原则：保持简单，只包含必要的功能
-   * - 仅包含指向下一个节点的指针
-   * - 链表操作移到 Buddy 类中处理
-   * - 移除复杂的转换操作符和验证逻辑
-   */
   struct FreeBlockNode {
     FreeBlockNode* next;
 
     // 默认构造函数
     FreeBlockNode() : next(nullptr) {}
 
-    // 禁用拷贝和移动（这是一个链表节点，不应该被拷贝）
+    // 禁用拷贝和移动(这是一个链表节点，不应该被拷贝)
     FreeBlockNode(const FreeBlockNode&) = delete;
     FreeBlockNode& operator=(const FreeBlockNode&) = delete;
     FreeBlockNode(FreeBlockNode&&) = delete;
     FreeBlockNode& operator=(FreeBlockNode&&) = delete;
 
     /**
-     * @brief 静态工厂方法：从内存地址创建节点
+     * @brief 从内存地址创建节点
      * @param addr 内存地址
      * @return FreeBlockNode* 节点指针
      */
-    static FreeBlockNode* FromAddress(void* addr) {
+    static __always_inline FreeBlockNode* FromAddress(void* addr) {
       return static_cast<FreeBlockNode*>(addr);
     }
   };
@@ -168,7 +159,7 @@ class Buddy : public AllocatorBase {
   /**
    * @brief 检查给定地址是否为指定大小块的有效起始地址
    * @param addr 要检查的地址
-   * @param block_pages 块大小（页数）
+   * @param block_pages 块大小(页数)
    * @return true 如果地址有效
    * @return false 如果地址无效
    */
@@ -190,40 +181,10 @@ class Buddy : public AllocatorBase {
     return page_offset + block_pages <= max_pages;
   }
 
-  /**
-   * @brief 遍历所有空闲块链表，对每个空闲块执行给定的操作
-   * @param func 对每个空闲块执行的函数，参数为 (order, block_addr, block_count)
-   *             - order: 块的阶数 (0, 1, 2, ...)
-   *             - block_addr: 块的起始地址
-   *             - block_count: 当前阶数下的块数量
-   */
-  template <typename Func>
-  void ForEachFreeBlock(Func&& func) const {
-    // 遍历所有阶数的空闲链表
-    for (size_t order = 0; order < length_; order++) {
-      size_t block_count = 0;
-
-      // 遍历当前阶数的空闲链表
-      FreeBlockNode* current = free_block_lists_[order];
-      while (current != nullptr) {
-        // 对每个空闲块执行函数
-        func(order, static_cast<void*>(current), block_count);
-        block_count++;
-        current = current->next;
-      }
-    }
-  }
-
-  // 固定大小的数组，避免占用管理的内存空间
-  // 空闲块链表数组，free_block_lists_[i]管理大小为2^i页的空闲块链表
+  // 空闲块链表数组，free_block_lists_[i] 管理大小为 2^i 页的空闲块链表
   std::array<FreeBlockNode*, kMaxFreeListEntries> free_block_lists_{};
 };
 
 }  // namespace bmalloc
 
 #endif /* BMALLOC_SRC_INCLUDE_BUDDY_H_ */
-
-/// @todo 为遍历 free_block_lists_ 的操作添加一个接口，接受一个 lambda
-/// 函数作为参数 ✓ 已完成
-/// @todo FreeBlockNode 太复杂了，尝试简化 ✓ 已简化
-/// @todo 将 FreeBlockNode 的实现移动到 cpp

@@ -6,14 +6,11 @@
 
 #include <iterator>
 
-namespace bmalloc {
-
+namespace {
 /**
  * @brief 整数 log2 函数实现
- * @param value 输入值（必须 > 0）
- * @return size_t log2(value) 的结果
  */
-static inline size_t log2(size_t value) {
+static __always_inline size_t log2(size_t value) {
   if (value == 0) {
     return 0;
   }
@@ -24,6 +21,9 @@ static inline size_t log2(size_t value) {
   }
   return result;
 }
+}  // namespace
+
+namespace bmalloc {
 
 Buddy::Buddy(const char* name, void* start_addr, size_t total_pages)
     : AllocatorBase(name, start_addr, log2(total_pages) + 1) {
@@ -64,7 +64,7 @@ Buddy::Buddy(const char* name, void* start_addr, size_t total_pages)
 }
 
 auto Buddy::Alloc(size_t order) -> void* {
-  // 参数检查：order 必须在有效范围内
+  // 参数检查
   if (order >= length_) {
     return nullptr;
   }
@@ -74,7 +74,7 @@ auto Buddy::Alloc(size_t order) -> void* {
     if (free_block_lists_[current_order] != nullptr) {
       // 从空闲链表头部取出一个块
       auto* node = free_block_lists_[current_order];
-      void* block = static_cast<void*>(node);  // 显式转换
+      auto* block = static_cast<void*>(node);
       free_block_lists_[current_order] = node->next;
 
       // 如果找到的块正好是目标大小，直接返回
@@ -104,13 +104,12 @@ auto Buddy::Alloc(size_t order) -> void* {
 auto Buddy::Alloc(void*, size_t) -> bool { return false; }
 
 void Buddy::Free(void* addr, size_t order) {
-  // 参数检查：order 必须在有效范围内
+  // 参数检查
   if (order >= length_) {
     return;
   }
 
-  // 参数检查：地址必须在管理的内存范围内
-  // 计算实际管理的最大页数：2^(length_-1)
+  // 检查地址是否在管理的内存范围内
   size_t maxPages = 1 << (length_ - 1);
   if (addr < start_addr_ ||
       addr >= static_cast<const void*>(static_cast<const char*>(start_addr_) +
@@ -153,29 +152,11 @@ void Buddy::Free(void* addr, size_t order) {
   InsertToFreeList(free_block_lists_[order], node);
 }
 
-/**
- * @brief 获取已使用的页数
- * @return size_t 已使用的页数
- *
- * 实现说明：
- * 通过计算实际管理的总页数减去空闲页数来得到已使用页数
- * length_ 现在表示最大阶数级别，实际管理的最大页数为 2^(length_-1)
- */
 auto Buddy::GetUsedCount() const -> size_t {
-  // 计算实际管理的最大页数
   size_t maxPages = (length_ > 0) ? (1 << (length_ - 1)) : 0;
   return maxPages - GetFreeCount();
 }
 
-/**
- * @brief 获取空闲的页数
- * @return size_t 空闲的页数
- *
- * 实现说明：
- * 遍历所有空闲链表，统计空闲块的总页数
- * - free_block_lists_[i] 中的每个块包含 2^i 个页面
- * - 需要遍历每个链表，计算块数并乘以对应的页面数
- */
 auto Buddy::GetFreeCount() const -> size_t {
   size_t total_free_pages = 0;
 

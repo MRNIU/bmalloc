@@ -37,10 +37,10 @@ class BuddyDebugHelper : public Buddy {
 
       bool has_blocks = false;
       while (curr != nullptr) {
-        auto first =
-            static_cast<size_t>((static_cast<const char*>(static_cast<void*>(curr)) -
-                                 static_cast<const char*>(start_addr_)) /
-                                kPageSize);
+        auto first = static_cast<size_t>(
+            (static_cast<const char*>(static_cast<void*>(curr)) -
+             static_cast<const char*>(start_addr_)) /
+            kPageSize);
         printf("块[页%zu~%zu] -> ", first, first + size - 1);
         curr = curr->next;
         has_blocks = true;
@@ -102,6 +102,53 @@ class BuddyTest : public ::testing::Test {
     return (offset / AllocatorBase::kPageSize) % pages == 0;
   }
 
+  // 辅助函数：用随机数据填充内存块
+  void FillRandomData(void* ptr, size_t order, std::mt19937& gen) {
+    if (!ptr) return;
+
+    size_t pages = 1 << order;
+    size_t total_size = pages * AllocatorBase::kPageSize;
+    auto* data = static_cast<uint8_t*>(ptr);
+
+    std::uniform_int_distribution<uint8_t> byte_dist(0, 255);
+    for (size_t i = 0; i < total_size; ++i) {
+      data[i] = byte_dist(gen);
+    }
+  }
+
+  // 辅助函数：验证内存数据完整性
+  bool VerifyData(void* ptr, size_t order,
+                  const std::vector<uint8_t>& expected_data) {
+    if (!ptr) return false;
+
+    size_t pages = 1 << order;
+    size_t total_size = pages * AllocatorBase::kPageSize;
+    auto* data = static_cast<uint8_t*>(ptr);
+
+    if (expected_data.size() != total_size) return false;
+
+    for (size_t i = 0; i < total_size; ++i) {
+      if (data[i] != expected_data[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // 辅助函数：保存内存数据用于后续验证
+  std::vector<uint8_t> SaveData(void* ptr, size_t order) {
+    std::vector<uint8_t> data;
+    if (!ptr) return data;
+
+    size_t pages = 1 << order;
+    size_t total_size = pages * AllocatorBase::kPageSize;
+    auto* mem_data = static_cast<uint8_t*>(ptr);
+
+    data.resize(total_size);
+    std::memcpy(data.data(), mem_data, total_size);
+    return data;
+  }
+
   std::unique_ptr<BuddyDebugHelper> buddy_;
   void* test_memory_ = nullptr;
   size_t test_memory_size_ = 0;
@@ -116,12 +163,20 @@ TEST_F(BuddyTest, BasicAllocAndFree) {
   std::cout << "初始状态:" << std::endl;
   buddy_->print();
 
+  std::random_device rd;
+  std::mt19937 gen(rd());
+
   // 测试基本分配
   std::cout << "\n分配1页 (order=0)..." << std::endl;
   void* ptr1 = buddy_->Alloc(0);  // 分配1页 (2^0 = 1页)
   ASSERT_NE(ptr1, nullptr) << "分配1页失败";
   EXPECT_TRUE(IsInManagedRange(ptr1)) << "分配的地址不在管理范围内";
   EXPECT_TRUE(IsAligned(ptr1, 0)) << "分配的地址未正确对齐";
+
+  // 填充随机数据并保存
+  FillRandomData(ptr1, 0, gen);
+  auto data1 = SaveData(ptr1, 0);
+  std::cout << "已填充随机数据到1页内存" << std::endl;
   buddy_->print();
 
   std::cout << "\n分配2页 (order=1)..." << std::endl;
@@ -129,6 +184,11 @@ TEST_F(BuddyTest, BasicAllocAndFree) {
   ASSERT_NE(ptr2, nullptr) << "分配2页失败";
   EXPECT_TRUE(IsInManagedRange(ptr2)) << "分配的地址不在管理范围内";
   EXPECT_TRUE(IsAligned(ptr2, 1)) << "分配的地址未正确对齐";
+
+  // 填充随机数据并保存
+  FillRandomData(ptr2, 1, gen);
+  auto data2 = SaveData(ptr2, 1);
+  std::cout << "已填充随机数据到2页内存" << std::endl;
   buddy_->print();
 
   std::cout << "\n分配4页 (order=2)..." << std::endl;
@@ -136,12 +196,24 @@ TEST_F(BuddyTest, BasicAllocAndFree) {
   ASSERT_NE(ptr3, nullptr) << "分配4页失败";
   EXPECT_TRUE(IsInManagedRange(ptr3)) << "分配的地址不在管理范围内";
   EXPECT_TRUE(IsAligned(ptr3, 2)) << "分配的地址未正确对齐";
+
+  // 填充随机数据并保存
+  FillRandomData(ptr3, 2, gen);
+  auto data3 = SaveData(ptr3, 2);
+  std::cout << "已填充随机数据到4页内存" << std::endl;
   buddy_->print();
 
   // 检查分配的地址不重叠
   EXPECT_NE(ptr1, ptr2) << "分配的地址重叠";
   EXPECT_NE(ptr1, ptr3) << "分配的地址重叠";
   EXPECT_NE(ptr2, ptr3) << "分配的地址重叠";
+
+  // 验证数据完整性
+  std::cout << "\n验证数据完整性..." << std::endl;
+  EXPECT_TRUE(VerifyData(ptr1, 0, data1)) << "1页内存数据完整性验证失败";
+  EXPECT_TRUE(VerifyData(ptr2, 1, data2)) << "2页内存数据完整性验证失败";
+  EXPECT_TRUE(VerifyData(ptr3, 2, data3)) << "4页内存数据完整性验证失败";
+  std::cout << "所有内存数据完整性验证通过" << std::endl;
 
   // 测试释放
   std::cout << "\n释放1页..." << std::endl;
@@ -185,34 +257,53 @@ TEST_F(BuddyTest, MemoryExhaustion) {
   std::cout << "初始状态:" << std::endl;
   buddy_->print();
 
-  std::vector<void*> allocated_ptrs;
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::vector<std::pair<void*, std::vector<uint8_t>>> allocated_blocks;
 
   // 持续分配直到内存耗尽
   for (int i = 0; i < 1000; ++i) {  // 防止无限循环
     void* ptr = buddy_->Alloc(0);   // 分配1页
     if (ptr == nullptr) {
-      std::cout << "\n内存耗尽，共分配了 " << allocated_ptrs.size() << " 页"
+      std::cout << "\n内存耗尽，共分配了 " << allocated_blocks.size() << " 页"
                 << std::endl;
       buddy_->print();
       break;  // 内存耗尽
     }
-    allocated_ptrs.push_back(ptr);
+
+    // 填充随机数据并保存
+    FillRandomData(ptr, 0, gen);
+    auto data = SaveData(ptr, 0);
+    allocated_blocks.emplace_back(ptr, std::move(data));
   }
 
-  EXPECT_GT(allocated_ptrs.size(), 0) << "应该能分配至少一些内存";
-  EXPECT_LE(allocated_ptrs.size(), test_pages_) << "分配的页数不应超过总页数";
+  EXPECT_GT(allocated_blocks.size(), 0) << "应该能分配至少一些内存";
+  EXPECT_LE(allocated_blocks.size(), test_pages_) << "分配的页数不应超过总页数";
 
   // 记录实际分配的页数，用于调试
-  std::cout << "实际分配了 " << allocated_ptrs.size() << " 页，总共 "
+  std::cout << "实际分配了 " << allocated_blocks.size() << " 页，总共 "
             << test_pages_ << " 页" << std::endl;
 
   // 验证再次分配失败
   void* ptr = buddy_->Alloc(0);
   EXPECT_EQ(ptr, nullptr) << "内存耗尽后应该无法继续分配";
 
+  // 验证所有内存数据的完整性
+  std::cout << "\n验证所有分配的内存数据完整性..." << std::endl;
+  size_t verified_count = 0;
+  for (const auto& [allocated_ptr, expected_data] : allocated_blocks) {
+    if (VerifyData(allocated_ptr, 0, expected_data)) {
+      verified_count++;
+    }
+  }
+  EXPECT_EQ(verified_count, allocated_blocks.size())
+      << "所有内存块的数据完整性验证应该通过";
+  std::cout << "验证了 " << verified_count << " 个内存块的数据完整性"
+            << std::endl;
+
   // 释放所有内存
   std::cout << "\n开始释放所有内存..." << std::endl;
-  for (void* allocated_ptr : allocated_ptrs) {
+  for (const auto& [allocated_ptr, data] : allocated_blocks) {
     buddy_->Free(allocated_ptr, 0);
   }
   std::cout << "所有内存释放完成，当前状态:" << std::endl;
@@ -221,7 +312,13 @@ TEST_F(BuddyTest, MemoryExhaustion) {
   // 验证释放后可以重新分配
   ptr = buddy_->Alloc(0);
   EXPECT_NE(ptr, nullptr) << "释放内存后应该能重新分配";
-  buddy_->Free(ptr, 0);
+  if (ptr) {
+    // 测试新分配的内存可以正常使用
+    FillRandomData(ptr, 0, gen);
+    auto new_data = SaveData(ptr, 0);
+    EXPECT_TRUE(VerifyData(ptr, 0, new_data)) << "新分配的内存应该可以正常读写";
+    buddy_->Free(ptr, 0);
+  }
 
   std::cout << "=== MemoryExhaustion 测试结束 ===\n" << std::endl;
 }
@@ -295,17 +392,44 @@ TEST_F(BuddyTest, AllocFreePairMatching) {
  * @brief 测试内存写入和读取
  */
 TEST_F(BuddyTest, MemoryReadWrite) {
+  std::random_device rd;
+  std::mt19937 gen(rd());
+
   void* ptr = buddy_->Alloc(0);  // 分配1页
   ASSERT_NE(ptr, nullptr);
 
-  // 写入测试数据
+  // 填充整页随机数据并验证
+  FillRandomData(ptr, 0, gen);
+  auto full_page_data = SaveData(ptr, 0);
+  EXPECT_TRUE(VerifyData(ptr, 0, full_page_data)) << "整页随机数据读写测试失败";
+
+  // 测试特定的数据模式
   const char test_data[] = "Hello, Buddy Allocator!";
   std::memcpy(ptr, test_data, sizeof(test_data));
 
   // 读取并验证数据
   char read_buffer[sizeof(test_data)];
   std::memcpy(read_buffer, ptr, sizeof(test_data));
-  EXPECT_STREQ(read_buffer, test_data) << "内存读写测试失败";
+  EXPECT_STREQ(read_buffer, test_data) << "字符串读写测试失败";
+
+  // 测试数值数据
+  auto* int_ptr = static_cast<uint32_t*>(ptr);
+  std::uniform_int_distribution<uint32_t> int_dist;
+  std::vector<uint32_t> test_ints;
+
+  size_t int_count = AllocatorBase::kPageSize / sizeof(uint32_t);
+  for (size_t i = 0; i < int_count; ++i) {
+    uint32_t random_int = int_dist(gen);
+    int_ptr[i] = random_int;
+    test_ints.push_back(random_int);
+  }
+
+  // 验证数值数据
+  for (size_t i = 0; i < int_count; ++i) {
+    EXPECT_EQ(int_ptr[i], test_ints[i]) << "数值数据读写测试失败，位置=" << i;
+  }
+
+  std::cout << "验证了 " << int_count << " 个随机整数的读写" << std::endl;
 
   buddy_->Free(ptr, 0);
 }
@@ -314,15 +438,18 @@ TEST_F(BuddyTest, MemoryReadWrite) {
  * @brief 压力测试：随机分配和释放
  */
 TEST_F(BuddyTest, StressTest) {
-  std::vector<std::pair<void*, size_t>> allocated_blocks;
   std::random_device rd;
   std::mt19937 gen(rd());
   std::uniform_int_distribution<> order_dist(0, 3);  // order 0-3
   std::uniform_real_distribution<> action_dist(0.0, 1.0);
 
+  // 存储分配的块信息：指针、大小、数据
+  std::vector<std::tuple<void*, size_t, std::vector<uint8_t>>> allocated_blocks;
+
   const int operations = 500;  // 减少操作数以提高测试速度
   int alloc_count = 0;
   int free_count = 0;
+  int verify_count = 0;
 
   for (int i = 0; i < operations; ++i) {
     if (allocated_blocks.empty() || action_dist(gen) < 0.6) {
@@ -330,11 +457,16 @@ TEST_F(BuddyTest, StressTest) {
       size_t order = order_dist(gen);
       void* ptr = buddy_->Alloc(order);
       if (ptr != nullptr) {
-        allocated_blocks.emplace_back(ptr, order);
+        // 填充随机数据
+        FillRandomData(ptr, order, gen);
+        auto data = SaveData(ptr, order);
+        allocated_blocks.emplace_back(ptr, order, std::move(data));
         alloc_count++;
 
-        // 验证分配的内存可写
-        *static_cast<char*>(ptr) = static_cast<char>('A' + (i % 26));
+        // 立即验证数据正确性
+        if (VerifyData(ptr, order, std::get<2>(allocated_blocks.back()))) {
+          verify_count++;
+        }
       }
     } else {
       // 40%概率释放
@@ -343,22 +475,56 @@ TEST_F(BuddyTest, StressTest) {
                                                    allocated_blocks.size() - 1);
         size_t index = index_dist(gen);
 
-        auto [ptr, order] = allocated_blocks[index];
+        auto [ptr, order, expected_data] = allocated_blocks[index];
+
+        // 释放前验证数据完整性
+        EXPECT_TRUE(VerifyData(ptr, order, expected_data))
+            << "释放前数据完整性验证失败，order=" << order;
+
         buddy_->Free(ptr, order);
         allocated_blocks.erase(allocated_blocks.begin() + index);
         free_count++;
       }
     }
+
+    // 每100次操作验证一次所有分配块的数据完整性
+    if (i % 100 == 0 && !allocated_blocks.empty()) {
+      size_t integrity_check_count = 0;
+      for (const auto& [ptr, order, expected_data] : allocated_blocks) {
+        if (VerifyData(ptr, order, expected_data)) {
+          integrity_check_count++;
+        }
+      }
+      EXPECT_EQ(integrity_check_count, allocated_blocks.size())
+          << "第" << i << "次操作后数据完整性检查失败";
+    }
   }
 
+  // 最终验证所有剩余块的数据完整性
+  std::cout << "\n最终数据完整性验证..." << std::endl;
+  size_t final_verify_count = 0;
+  for (const auto& [ptr, order, expected_data] : allocated_blocks) {
+    if (VerifyData(ptr, order, expected_data)) {
+      final_verify_count++;
+    }
+  }
+  EXPECT_EQ(final_verify_count, allocated_blocks.size())
+      << "最终数据完整性验证失败";
+  std::cout << "验证了 " << final_verify_count << " 个内存块的数据完整性"
+            << std::endl;
+
   // 清理剩余的分配块
-  for (const auto& [ptr, order] : allocated_blocks) {
+  for (const auto& [ptr, order, data] : allocated_blocks) {
     buddy_->Free(ptr, order);
     free_count++;
   }
 
   EXPECT_GT(alloc_count, 0) << "压力测试应该进行了一些分配操作";
   EXPECT_GT(free_count, 0) << "压力测试应该进行了一些释放操作";
+  EXPECT_GT(verify_count, 0) << "压力测试应该进行了数据验证";
+
+  std::cout << "压力测试统计: 分配=" << alloc_count << ", 释放=" << free_count
+            << ", 验证=" << verify_count << std::endl;
 }
 
 /**
@@ -369,7 +535,9 @@ TEST_F(BuddyTest, DifferentOrderSizes) {
   std::cout << "初始状态:" << std::endl;
   buddy_->print();
 
-  std::vector<std::pair<void*, size_t>> ptrs;
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::vector<std::tuple<void*, size_t, std::vector<uint8_t>>> ptrs;
 
   // 分配不同order的内存块
   for (size_t order = 0; order <= 5; ++order) {
@@ -377,19 +545,18 @@ TEST_F(BuddyTest, DifferentOrderSizes) {
               << std::endl;
     void* ptr = buddy_->Alloc(order);
     if (ptr != nullptr) {
-      ptrs.emplace_back(ptr, order);
+      // 填充随机数据
+      FillRandomData(ptr, order, gen);
+      auto data = SaveData(ptr, order);
+      ptrs.emplace_back(ptr, order, std::move(data));
       buddy_->print();
 
-      // 验证能够写入相应大小的数据
-      size_t pages = 1 << order;
+      // 立即验证数据完整性
+      EXPECT_TRUE(VerifyData(ptr, order, std::get<2>(ptrs.back())))
+          << "分配后立即验证数据失败，order=" << order;
 
-      // 在每页的开头和结尾写入标记
-      for (size_t page = 0; page < pages; ++page) {
-        char* page_start =
-            static_cast<char*>(ptr) + page * AllocatorBase::kPageSize;
-        *page_start = 'S';                                   // Start marker
-        *(page_start + AllocatorBase::kPageSize - 1) = 'E';  // End marker
-      }
+      std::cout << "已填充并验证 " << (1 << order) << " 页的随机数据"
+                << std::endl;
     } else {
       std::cout << "分配 order=" << order << " 失败（内存不足）" << std::endl;
     }
@@ -397,19 +564,37 @@ TEST_F(BuddyTest, DifferentOrderSizes) {
 
   EXPECT_GT(ptrs.size(), 0) << "应该能分配一些不同大小的内存块";
 
+  // 中间验证：再次检查所有内存块的数据完整性
+  std::cout << "\n中间验证：检查所有内存块的数据完整性..." << std::endl;
+  size_t mid_verify_count = 0;
+  for (const auto& [ptr, order, expected_data] : ptrs) {
+    if (VerifyData(ptr, order, expected_data)) {
+      mid_verify_count++;
+    } else {
+      std::cout << "警告: order=" << order << " 的内存块数据完整性验证失败"
+                << std::endl;
+    }
+  }
+  EXPECT_EQ(mid_verify_count, ptrs.size()) << "中间验证失败";
+  std::cout << "中间验证通过：" << mid_verify_count << "/" << ptrs.size()
+            << " 个内存块" << std::endl;
+
   std::cout << "\n开始验证数据完整性并释放内存..." << std::endl;
   // 验证数据完整性并释放
-  for (const auto& [ptr, order] : ptrs) {
+  for (const auto& [ptr, order, expected_data] : ptrs) {
     size_t pages = 1 << order;
 
-    // 验证标记
-    for (size_t page = 0; page < pages; ++page) {
-      char* page_start =
-          static_cast<char*>(ptr) + page * AllocatorBase::kPageSize;
-      EXPECT_EQ(*page_start, 'S')
-          << "起始标记被破坏，order=" << order << ", page=" << page;
-      EXPECT_EQ(*(page_start + AllocatorBase::kPageSize - 1), 'E')
-          << "结束标记被破坏，order=" << order << ", page=" << page;
+    // 验证随机数据完整性
+    bool integrity_ok = VerifyData(ptr, order, expected_data);
+    EXPECT_TRUE(integrity_ok)
+        << "释放前数据完整性验证失败，order=" << order << ", pages=" << pages;
+
+    if (integrity_ok) {
+      std::cout << "✓ order=" << order << " (" << pages
+                << " 页) 数据完整性验证通过" << std::endl;
+    } else {
+      std::cout << "✗ order=" << order << " (" << pages
+                << " 页) 数据完整性验证失败" << std::endl;
     }
 
     std::cout << "释放 order=" << order << " (" << pages << " 页)..."
@@ -580,6 +765,72 @@ TEST_F(BuddyTest, BuddyPrintDemo) {
   buddy_->print();
 
   std::cout << "\n=== Demo 结束 ===" << std::endl;
+}
+
+/**
+ * @brief 专门测试随机数据完整性
+ */
+TEST_F(BuddyTest, RandomDataIntegrityTest) {
+  std::cout << "\n=== RandomDataIntegrityTest 测试开始 ===" << std::endl;
+
+  std::random_device rd;
+  std::mt19937 gen(rd());
+
+  // 测试不同大小的内存块
+  for (size_t order = 0; order <= 4; ++order) {
+    std::cout << "\n测试 order=" << order << " (" << (1 << order) << " 页)"
+              << std::endl;
+
+    void* ptr = buddy_->Alloc(order);
+    if (ptr == nullptr) {
+      std::cout << "跳过 order=" << order << "（内存不足）" << std::endl;
+      continue;
+    }
+
+    // 填充随机数据
+    FillRandomData(ptr, order, gen);
+    auto original_data = SaveData(ptr, order);
+
+    // 立即验证
+    EXPECT_TRUE(VerifyData(ptr, order, original_data))
+        << "立即验证失败，order=" << order;
+
+    // 多次读取验证数据稳定性
+    for (int i = 0; i < 10; ++i) {
+      EXPECT_TRUE(VerifyData(ptr, order, original_data))
+          << "第" << i << "次重复验证失败，order=" << order;
+    }
+
+    // 测试数据模式：边界数据
+    size_t pages = 1 << order;
+    auto* byte_ptr = static_cast<uint8_t*>(ptr);
+    size_t total_size = pages * AllocatorBase::kPageSize;
+
+    // 在内存的第一个和最后一个字节写入特殊值
+    uint8_t first_byte = byte_ptr[0];
+    uint8_t last_byte = byte_ptr[total_size - 1];
+
+    byte_ptr[0] = 0xAA;
+    byte_ptr[total_size - 1] = 0x55;
+
+    // 验证修改生效
+    EXPECT_EQ(byte_ptr[0], 0xAA) << "首字节修改失败";
+    EXPECT_EQ(byte_ptr[total_size - 1], 0x55) << "末字节修改失败";
+
+    // 恢复原始数据
+    byte_ptr[0] = first_byte;
+    byte_ptr[total_size - 1] = last_byte;
+
+    // 验证数据恢复
+    EXPECT_TRUE(VerifyData(ptr, order, original_data))
+        << "数据恢复后验证失败，order=" << order;
+
+    std::cout << "✓ order=" << order << " 随机数据完整性测试通过" << std::endl;
+
+    buddy_->Free(ptr, order);
+  }
+
+  std::cout << "\n=== RandomDataIntegrityTest 测试结束 ===" << std::endl;
 }
 
 }  // namespace bmalloc
