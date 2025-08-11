@@ -3,7 +3,8 @@
 add_library(${PROJECT_NAME} STATIC
         buddy.cpp
         first_fit.cpp
-        slab.cpp
+        # slab.cpp
+        slub.cpp
         bmalloc.cpp
 )
 
@@ -16,7 +17,7 @@ target_compile_options(${PROJECT_NAME} PRIVATE
         $<$<CONFIG:Release>:-O3;-Werror>
         -Wall
         -Wextra
-        # -ffreestanding
+        -ffreestanding
 )
 
 set_target_properties(${PROJECT_NAME} PROPERTIES PUBLIC_HEADER "include/bmalloc.h")
