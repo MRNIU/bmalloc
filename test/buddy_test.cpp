@@ -102,6 +102,201 @@ class BuddyTest : public ::testing::Test {
     return (offset / AllocatorBase::kPageSize) % pages == 0;
   }
 
+  // 辅助函数：全面检查分配地址的有效性
+  bool ValidateAllocatedAddress(void* ptr, size_t order,
+                                const char* test_name = "") const {
+    std::cout << "\n--- 地址有效性检查";
+    if (strlen(test_name) > 0) {
+      std::cout << " (" << test_name << ")";
+    }
+    std::cout << " ---" << std::endl;
+
+    // 检查1: 非空指针
+    EXPECT_NE(ptr, nullptr) << "指针不应该为空";
+    if (ptr == nullptr) {
+      std::cout << "✗ 检查失败: 指针为空" << std::endl;
+      return false;
+    }
+    std::cout << "✓ 指针非空: " << ptr << std::endl;
+
+    // 检查2: 在管理范围内
+    EXPECT_TRUE(IsInManagedRange(ptr)) << "地址应该在管理范围内";
+    if (!IsInManagedRange(ptr)) {
+      std::cout << "✗ 检查失败: 地址不在管理范围内" << std::endl;
+      std::cout << "  地址: " << ptr << std::endl;
+      std::cout << "  管理范围: " << test_memory_ << " - "
+                << (static_cast<char*>(test_memory_) + test_memory_size_)
+                << std::endl;
+      return false;
+    }
+    std::cout << "✓ 地址在管理范围内" << std::endl;
+
+    // 检查3: 按页对齐
+    auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
+    EXPECT_EQ(offset % AllocatorBase::kPageSize, 0) << "地址应该按页边界对齐";
+    if (offset % AllocatorBase::kPageSize != 0) {
+      std::cout << "✗ 检查失败: 地址未按页边界对齐" << std::endl;
+      std::cout << "  偏移: " << offset
+                << " 字节, 页大小: " << AllocatorBase::kPageSize << std::endl;
+      return false;
+    }
+    std::cout << "✓ 地址按页边界对齐" << std::endl;
+
+    // 检查4: 按order对齐
+    EXPECT_TRUE(IsAligned(ptr, order)) << "地址应该按order对齐";
+    if (!IsAligned(ptr, order)) {
+      std::cout << "✗ 检查失败: 地址未按order对齐" << std::endl;
+      size_t pages = 1 << order;
+      size_t page_num = offset / AllocatorBase::kPageSize;
+      std::cout << "  页号: " << page_num << ", 需要按 " << pages << " 页对齐"
+                << std::endl;
+      return false;
+    }
+    std::cout << "✓ 地址按order对齐" << std::endl;
+
+    // 检查5: 计算并显示详细信息
+    size_t page_num = offset / AllocatorBase::kPageSize;
+    size_t pages = 1 << order;
+    size_t end_page = page_num + pages - 1;
+
+    std::cout << "地址详细信息:" << std::endl;
+    std::cout << "  地址: " << ptr << std::endl;
+    std::cout << "  相对偏移: " << offset << " 字节" << std::endl;
+    std::cout << "  页号范围: " << page_num;
+    if (pages > 1) {
+      std::cout << " - " << end_page;
+    }
+    std::cout << " (共 " << pages << " 页)" << std::endl;
+    std::cout << "  总大小: " << (pages * AllocatorBase::kPageSize) << " 字节"
+              << std::endl;
+
+    // 检查6: 边界检查
+    char* end_addr =
+        static_cast<char*>(ptr) + (pages * AllocatorBase::kPageSize) - 1;
+    char* memory_end = static_cast<char*>(test_memory_) + test_memory_size_ - 1;
+    EXPECT_LE(end_addr, memory_end) << "分配的内存块不应该超出管理范围";
+    if (end_addr > memory_end) {
+      std::cout << "✗ 检查失败: 分配的内存块超出管理范围" << std::endl;
+      std::cout << "  块结束地址: " << static_cast<void*>(end_addr)
+                << std::endl;
+      std::cout << "  管理结束地址: " << static_cast<void*>(memory_end)
+                << std::endl;
+      return false;
+    }
+    std::cout << "✓ 内存块在管理范围内" << std::endl;
+
+    // 检查7: 地址可写性测试
+    try {
+      volatile char* test_ptr = static_cast<char*>(ptr);
+      char original = *test_ptr;  // 读取原始值
+      *test_ptr = 0xAA;           // 写入测试值
+      EXPECT_EQ(*test_ptr, 0xAA) << "地址应该可写";
+      if (*test_ptr != 0xAA) {
+        std::cout << "✗ 检查失败: 地址不可写" << std::endl;
+        return false;
+      } else {
+        *test_ptr = original;  // 恢复原始值
+        std::cout << "✓ 地址可读写" << std::endl;
+      }
+    } catch (...) {
+      ADD_FAILURE() << "访问地址时发生异常";
+      std::cout << "✗ 检查失败: 访问地址时发生异常" << std::endl;
+      return false;
+    }
+
+    // 检查8: 页号范围有效性
+    EXPECT_LT(page_num, test_pages_) << "起始页号应该在有效范围内";
+    EXPECT_LT(end_page, test_pages_) << "结束页号应该在有效范围内";
+
+    // 检查9: order合理性
+    EXPECT_GE(order, 0) << "order应该大于等于0";
+    EXPECT_LT(order, 32) << "order应该小于32（避免溢出）";
+
+    // 检查10: 页对齐验证
+    size_t page_alignment = 1 << order;
+    EXPECT_EQ(page_num % page_alignment, 0)
+        << "页号应该按 " << page_alignment << " 页对齐";
+
+    std::cout << "--- 检查结果: 全部通过 ---" << std::endl;
+    return true;
+  }
+
+  // 辅助函数：比较两个地址的相对位置
+  void CompareAddresses(void* ptr1, void* ptr2, const char* name1 = "ptr1",
+                        const char* name2 = "ptr2") const {
+    EXPECT_NE(ptr1, nullptr) << name1 << " 不应该为空";
+    EXPECT_NE(ptr2, nullptr) << name2 << " 不应该为空";
+
+    if (!ptr1 || !ptr2) return;
+
+    auto addr1 = static_cast<char*>(ptr1);
+    auto addr2 = static_cast<char*>(ptr2);
+    auto offset1 = addr1 - static_cast<char*>(test_memory_);
+    auto offset2 = addr2 - static_cast<char*>(test_memory_);
+
+    // 验证两个地址都在管理范围内
+    EXPECT_TRUE(IsInManagedRange(ptr1)) << name1 << " 应该在管理范围内";
+    EXPECT_TRUE(IsInManagedRange(ptr2)) << name2 << " 应该在管理范围内";
+
+    // 验证地址不相同（不重叠）
+    EXPECT_NE(ptr1, ptr2) << "两个地址不应该相同";
+
+    std::cout << "\n地址比较:" << std::endl;
+    std::cout << "  " << name1 << ": " << ptr1 << " (偏移 " << offset1 << ")"
+              << std::endl;
+    std::cout << "  " << name2 << ": " << ptr2 << " (偏移 " << offset2 << ")"
+              << std::endl;
+
+    if (addr1 == addr2) {
+      std::cout << "  关系: 地址相同 (重叠!)" << std::endl;
+      ADD_FAILURE() << "地址重叠: " << name1 << " 和 " << name2;
+    } else if (addr1 < addr2) {
+      size_t distance = addr2 - addr1;
+      std::cout << "  关系: " << name1 << " 在前, 间距 " << distance << " 字节"
+                << std::endl;
+      EXPECT_GT(distance, 0) << "地址间距应该大于0";
+    } else {
+      size_t distance = addr1 - addr2;
+      std::cout << "  关系: " << name2 << " 在前, 间距 " << distance << " 字节"
+                << std::endl;
+      EXPECT_GT(distance, 0) << "地址间距应该大于0";
+    }
+  }
+
+  // 辅助函数：验证两个内存块不重叠
+  void ValidateNoOverlap(void* ptr1, size_t order1, void* ptr2, size_t order2,
+                         const char* name1 = "block1",
+                         const char* name2 = "block2") const {
+    EXPECT_NE(ptr1, nullptr) << name1 << " 不应该为空";
+    EXPECT_NE(ptr2, nullptr) << name2 << " 不应该为空";
+
+    if (!ptr1 || !ptr2) return;
+
+    auto addr1 = static_cast<char*>(ptr1);
+    auto addr2 = static_cast<char*>(ptr2);
+    size_t size1 = (1 << order1) * AllocatorBase::kPageSize;
+    size_t size2 = (1 << order2) * AllocatorBase::kPageSize;
+
+    // 检查地址不相同
+    EXPECT_NE(ptr1, ptr2) << name1 << " 和 " << name2 << " 的地址不应该相同";
+
+    // 检查内存块不重叠
+    bool no_overlap = (addr1 + size1 <= addr2) || (addr2 + size2 <= addr1);
+    EXPECT_TRUE(no_overlap) << name1 << " 和 " << name2 << " 的内存块不应该重叠"
+                            << "\n  " << name1 << ": " << ptr1 << " - "
+                            << static_cast<void*>(addr1 + size1 - 1)
+                            << " (大小: " << size1 << " 字节)"
+                            << "\n  " << name2 << ": " << ptr2 << " - "
+                            << static_cast<void*>(addr2 + size2 - 1)
+                            << " (大小: " << size2 << " 字节)";
+
+    if (no_overlap) {
+      size_t distance =
+          (addr1 < addr2) ? (addr2 - addr1 - size1) : (addr1 - addr2 - size2);
+      EXPECT_GE(distance, 0) << "内存块之间应该有非负的间距";
+    }
+  }
+
   // 辅助函数：用随机数据填充内存块
   void FillRandomData(void* ptr, size_t order, std::mt19937& gen) {
     if (!ptr) return;
@@ -170,8 +365,8 @@ TEST_F(BuddyTest, BasicAllocAndFree) {
   std::cout << "\n分配1页 (order=0)..." << std::endl;
   void* ptr1 = buddy_->Alloc(0);  // 分配1页 (2^0 = 1页)
   ASSERT_NE(ptr1, nullptr) << "分配1页失败";
-  EXPECT_TRUE(IsInManagedRange(ptr1)) << "分配的地址不在管理范围内";
-  EXPECT_TRUE(IsAligned(ptr1, 0)) << "分配的地址未正确对齐";
+  EXPECT_TRUE(ValidateAllocatedAddress(ptr1, 0, "1页分配"))
+      << "1页地址验证失败";
   std::cout << "✓ 分配成功: ptr1 = " << ptr1 << " (1页)" << std::endl;
 
   // 填充随机数据并保存
@@ -183,8 +378,8 @@ TEST_F(BuddyTest, BasicAllocAndFree) {
   std::cout << "\n分配2页 (order=1)..." << std::endl;
   void* ptr2 = buddy_->Alloc(1);  // 分配2页 (2^1 = 2页)
   ASSERT_NE(ptr2, nullptr) << "分配2页失败";
-  EXPECT_TRUE(IsInManagedRange(ptr2)) << "分配的地址不在管理范围内";
-  EXPECT_TRUE(IsAligned(ptr2, 1)) << "分配的地址未正确对齐";
+  EXPECT_TRUE(ValidateAllocatedAddress(ptr2, 1, "2页分配"))
+      << "2页地址验证失败";
   std::cout << "✓ 分配成功: ptr2 = " << ptr2 << " (2页)" << std::endl;
 
   // 填充随机数据并保存
@@ -196,8 +391,8 @@ TEST_F(BuddyTest, BasicAllocAndFree) {
   std::cout << "\n分配4页 (order=2)..." << std::endl;
   void* ptr3 = buddy_->Alloc(2);  // 分配4页 (2^2 = 4页)
   ASSERT_NE(ptr3, nullptr) << "分配4页失败";
-  EXPECT_TRUE(IsInManagedRange(ptr3)) << "分配的地址不在管理范围内";
-  EXPECT_TRUE(IsAligned(ptr3, 2)) << "分配的地址未正确对齐";
+  EXPECT_TRUE(ValidateAllocatedAddress(ptr3, 2, "4页分配"))
+      << "4页地址验证失败";
   std::cout << "✓ 分配成功: ptr3 = " << ptr3 << " (4页)" << std::endl;
 
   // 填充随机数据并保存
@@ -211,20 +406,28 @@ TEST_F(BuddyTest, BasicAllocAndFree) {
   EXPECT_NE(ptr1, ptr3) << "分配的地址重叠";
   EXPECT_NE(ptr2, ptr3) << "分配的地址重叠";
 
+  // 详细的地址比较
+  CompareAddresses(ptr1, ptr2, "ptr1(1页)", "ptr2(2页)");
+  CompareAddresses(ptr1, ptr3, "ptr1(1页)", "ptr3(4页)");
+  CompareAddresses(ptr2, ptr3, "ptr2(2页)", "ptr3(4页)");
+
   // 打印地址信息用于调试
   std::cout << "\n分配的地址信息:" << std::endl;
   std::cout << "  ptr1 (1页): " << ptr1 << std::endl;
   std::cout << "  ptr2 (2页): " << ptr2 << std::endl;
   std::cout << "  ptr3 (4页): " << ptr3 << std::endl;
-  
+
   // 计算相对偏移
   auto offset1 = static_cast<char*>(ptr1) - static_cast<char*>(test_memory_);
   auto offset2 = static_cast<char*>(ptr2) - static_cast<char*>(test_memory_);
   auto offset3 = static_cast<char*>(ptr3) - static_cast<char*>(test_memory_);
   std::cout << "  相对偏移:" << std::endl;
-  std::cout << "    ptr1: " << offset1 << " 字节 (页" << offset1/AllocatorBase::kPageSize << ")" << std::endl;
-  std::cout << "    ptr2: " << offset2 << " 字节 (页" << offset2/AllocatorBase::kPageSize << ")" << std::endl;
-  std::cout << "    ptr3: " << offset3 << " 字节 (页" << offset3/AllocatorBase::kPageSize << ")" << std::endl;
+  std::cout << "    ptr1: " << offset1 << " 字节 (页"
+            << offset1 / AllocatorBase::kPageSize << ")" << std::endl;
+  std::cout << "    ptr2: " << offset2 << " 字节 (页"
+            << offset2 / AllocatorBase::kPageSize << ")" << std::endl;
+  std::cout << "    ptr3: " << offset3 << " 字节 (页"
+            << offset3 / AllocatorBase::kPageSize << ")" << std::endl;
 
   // 验证数据完整性
   std::cout << "\n验证数据完整性..." << std::endl;
@@ -260,6 +463,8 @@ TEST_F(BuddyTest, BoundaryConditions) {
   std::cout << "\n测试分配最小单位 (order=0)..." << std::endl;
   void* ptr = buddy_->Alloc(0);
   ASSERT_NE(ptr, nullptr) << "分配最小单位失败";
+  EXPECT_TRUE(ValidateAllocatedAddress(ptr, 0, "最小单位分配"))
+      << "最小单位地址验证失败";
   std::cout << "✓ 分配成功: " << ptr << " (1页)" << std::endl;
   buddy_->Free(ptr, 0);
   std::cout << "✓ 释放成功: " << ptr << std::endl;
@@ -312,13 +517,13 @@ TEST_F(BuddyTest, MemoryExhaustion) {
     FillRandomData(ptr, 0, gen);
     auto data = SaveData(ptr, 0);
     allocated_blocks.emplace_back(ptr, std::move(data));
-    
+
     // 每50个分配打印一次地址信息
     if (i < 10 || (i + 1) % 50 == 0) {
       auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
       size_t page_num = offset / AllocatorBase::kPageSize;
-      std::cout << "第" << (i + 1) << "个分配: " << ptr 
-                << " (页" << page_num << ")" << std::endl;
+      std::cout << "第" << (i + 1) << "个分配: " << ptr << " (页" << page_num
+                << ")" << std::endl;
     }
   }
 
@@ -360,8 +565,9 @@ TEST_F(BuddyTest, MemoryExhaustion) {
   if (ptr) {
     auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
     size_t page_num = offset / AllocatorBase::kPageSize;
-    std::cout << "重新分配成功: " << ptr << " (页" << page_num << ")" << std::endl;
-    
+    std::cout << "重新分配成功: " << ptr << " (页" << page_num << ")"
+              << std::endl;
+
     // 测试新分配的内存可以正常使用
     FillRandomData(ptr, 0, gen);
     auto new_data = SaveData(ptr, 0);
@@ -387,7 +593,8 @@ TEST_F(BuddyTest, BuddyMerging) {
   ASSERT_NE(ptr1, nullptr);
   auto offset1 = static_cast<char*>(ptr1) - static_cast<char*>(test_memory_);
   size_t page1 = offset1 / AllocatorBase::kPageSize;
-  std::cout << "✓ 分配成功: ptr1 = " << ptr1 << " (页" << page1 << ")" << std::endl;
+  std::cout << "✓ 分配成功: ptr1 = " << ptr1 << " (页" << page1 << ")"
+            << std::endl;
   buddy_->print();
 
   std::cout << "\n分配第二个1页块..." << std::endl;
@@ -395,14 +602,16 @@ TEST_F(BuddyTest, BuddyMerging) {
   ASSERT_NE(ptr2, nullptr);
   auto offset2 = static_cast<char*>(ptr2) - static_cast<char*>(test_memory_);
   size_t page2 = offset2 / AllocatorBase::kPageSize;
-  std::cout << "✓ 分配成功: ptr2 = " << ptr2 << " (页" << page2 << ")" << std::endl;
-  
+  std::cout << "✓ 分配成功: ptr2 = " << ptr2 << " (页" << page2 << ")"
+            << std::endl;
+
   // 检查是否相邻
   if (abs(static_cast<long>(page1) - static_cast<long>(page2)) == 1) {
     std::cout << "ℹ 两个块相邻，适合测试buddy合并" << std::endl;
   } else {
-    std::cout << "ℹ 两个块不相邻 (页间距: " 
-              << abs(static_cast<long>(page1) - static_cast<long>(page2)) << ")" << std::endl;
+    std::cout << "ℹ 两个块不相邻 (页间距: "
+              << abs(static_cast<long>(page1) - static_cast<long>(page2)) << ")"
+              << std::endl;
   }
   buddy_->print();
 
@@ -421,10 +630,11 @@ TEST_F(BuddyTest, BuddyMerging) {
   std::cout << "\n尝试分配2页块（验证合并是否成功）..." << std::endl;
   void* large_ptr = buddy_->Alloc(1);
   if (large_ptr != nullptr) {
-    auto large_offset = static_cast<char*>(large_ptr) - static_cast<char*>(test_memory_);
+    auto large_offset =
+        static_cast<char*>(large_ptr) - static_cast<char*>(test_memory_);
     size_t large_page = large_offset / AllocatorBase::kPageSize;
-    std::cout << "✓ 分配成功: " << large_ptr << " (页" << large_page 
-              << "~" << (large_page + 1) << ")" << std::endl;
+    std::cout << "✓ 分配成功: " << large_ptr << " (页" << large_page << "~"
+              << (large_page + 1) << ")" << std::endl;
     EXPECT_NE(large_ptr, nullptr) << "buddy合并后应该能分配更大的块";
   } else {
     std::cout << "✗ 分配失败: 可能buddy合并未成功" << std::endl;
@@ -621,6 +831,11 @@ TEST_F(BuddyTest, DifferentOrderSizes) {
               << std::endl;
     void* ptr = buddy_->Alloc(order);
     if (ptr != nullptr) {
+      // 进行地址有效性检查
+      std::string test_name = "order=" + std::to_string(order) + "分配";
+      EXPECT_TRUE(ValidateAllocatedAddress(ptr, order, test_name.c_str()))
+          << "地址验证失败，order=" << order;
+
       auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
       size_t start_page = offset / AllocatorBase::kPageSize;
       size_t end_page = start_page + pages - 1;
@@ -629,7 +844,7 @@ TEST_F(BuddyTest, DifferentOrderSizes) {
         std::cout << "~" << end_page;
       }
       std::cout << ", " << pages << "页)" << std::endl;
-      
+
       // 填充随机数据
       FillRandomData(ptr, order, gen);
       auto data = SaveData(ptr, order);
@@ -684,7 +899,7 @@ TEST_F(BuddyTest, DifferentOrderSizes) {
                 << " 页) 数据完整性验证失败" << std::endl;
     }
 
-    std::cout << "释放 order=" << order << " (" << pages << " 页): " << ptr 
+    std::cout << "释放 order=" << order << " (" << pages << " 页): " << ptr
               << " (页" << start_page;
     if (pages > 1) {
       std::cout << "~" << end_page;
@@ -793,22 +1008,60 @@ TEST_F(BuddyTest, ConstructorValidation) {
   // 测试在小内存中的分配
   std::cout << "\n在小内存池中分配1页..." << std::endl;
   void* ptr1 = small_buddy->Alloc(0);  // 1页
-  EXPECT_NE(ptr1, nullptr);
+  EXPECT_NE(ptr1, nullptr) << "应该能在小内存池中分配1页";
   if (ptr1) {
+    // 对小内存池的地址进行验证 - 需要相对于小内存池的基地址
     auto offset = static_cast<char*>(ptr1) - static_cast<char*>(small_memory);
     size_t page = offset / AllocatorBase::kPageSize;
     std::cout << "✓ 分配成功: " << ptr1 << " (页" << page << ")" << std::endl;
+
+    // 基本有效性检查
+    EXPECT_GE(static_cast<char*>(ptr1), static_cast<char*>(small_memory))
+        << "地址应该在小内存池范围内";
+    EXPECT_LT(static_cast<char*>(ptr1),
+              static_cast<char*>(small_memory) + small_size)
+        << "地址应该在小内存池范围内";
+    EXPECT_EQ(offset % AllocatorBase::kPageSize, 0) << "地址应该按页对齐";
+    EXPECT_LT(page, 4) << "页号应该在0-3范围内";
+    EXPECT_GE(page, 0) << "页号应该非负";
+
+    std::cout << "✓ 小内存池地址验证通过" << std::endl;
   }
   small_buddy->print();
 
   std::cout << "\n在小内存池中分配2页..." << std::endl;
   void* ptr2 = small_buddy->Alloc(1);  // 2页
-  EXPECT_NE(ptr2, nullptr);
+  EXPECT_NE(ptr2, nullptr) << "应该能在小内存池中分配2页";
   if (ptr2) {
     auto offset = static_cast<char*>(ptr2) - static_cast<char*>(small_memory);
     size_t start_page = offset / AllocatorBase::kPageSize;
-    std::cout << "✓ 分配成功: " << ptr2 << " (页" << start_page 
-              << "~" << (start_page + 1) << ")" << std::endl;
+    std::cout << "✓ 分配成功: " << ptr2 << " (页" << start_page << "~"
+              << (start_page + 1) << ")" << std::endl;
+
+    // 基本有效性检查
+    EXPECT_GE(static_cast<char*>(ptr2), static_cast<char*>(small_memory))
+        << "地址应该在小内存池范围内";
+    EXPECT_LT(static_cast<char*>(ptr2),
+              static_cast<char*>(small_memory) + small_size)
+        << "地址应该在小内存池范围内";
+    EXPECT_EQ(offset % AllocatorBase::kPageSize, 0) << "地址应该按页对齐";
+    EXPECT_EQ(start_page % 2, 0) << "2页分配应该按2页边界对齐";
+    EXPECT_LT(start_page + 1, 4) << "结束页号应该在范围内";
+    EXPECT_GE(start_page, 0) << "起始页号应该非负";
+
+    std::cout << "✓ 小内存池2页分配验证通过" << std::endl;
+
+    // 检查两个分配的地址不重叠
+    if (ptr1 && ptr2) {
+      EXPECT_NE(ptr1, ptr2) << "两个分配的地址不应该相同";
+      auto offset1 =
+          static_cast<char*>(ptr1) - static_cast<char*>(small_memory);
+      auto offset2 =
+          static_cast<char*>(ptr2) - static_cast<char*>(small_memory);
+      auto distance = abs(static_cast<long>(offset2 - offset1));
+      EXPECT_GE(distance, AllocatorBase::kPageSize) << "地址间距应该至少一页";
+      std::cout << "地址间距: " << distance << " 字节" << std::endl;
+    }
   }
   small_buddy->print();
 
@@ -904,6 +1157,11 @@ TEST_F(BuddyTest, RandomDataIntegrityTest) {
       continue;
     }
 
+    // 地址有效性验证
+    std::string test_name = "随机数据测试order=" + std::to_string(order);
+    EXPECT_TRUE(ValidateAllocatedAddress(ptr, order, test_name.c_str()))
+        << "随机数据测试地址验证失败，order=" << order;
+
     auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
     size_t start_page = offset / AllocatorBase::kPageSize;
     size_t end_page = start_page + (1 << order) - 1;
@@ -958,6 +1216,105 @@ TEST_F(BuddyTest, RandomDataIntegrityTest) {
   }
 
   std::cout << "\n=== RandomDataIntegrityTest 测试结束 ===" << std::endl;
+}
+
+/**
+ * @brief 专门测试地址有效性检查
+ */
+TEST_F(BuddyTest, AddressValidationTest) {
+  std::cout << "\n=== AddressValidationTest 测试开始 ===" << std::endl;
+
+  // 测试各种order的地址验证
+  std::vector<std::pair<void*, size_t>> allocated_ptrs;
+
+  for (size_t order = 0; order <= 4; ++order) {
+    std::cout << "\n--- 测试 order=" << order << " 的地址验证 ---" << std::endl;
+    void* ptr = buddy_->Alloc(order);
+
+    if (ptr != nullptr) {
+      allocated_ptrs.emplace_back(ptr, order);
+
+      // 执行详细的地址验证
+      std::string test_name = "地址验证测试order=" + std::to_string(order);
+      bool validation_result =
+          ValidateAllocatedAddress(ptr, order, test_name.c_str());
+      EXPECT_TRUE(validation_result) << "order=" << order << " 地址验证失败";
+
+      // 额外的边界测试
+      std::cout << "\n额外边界检查:" << std::endl;
+      size_t pages = 1 << order;
+      size_t block_size = pages * AllocatorBase::kPageSize;
+
+      // 测试内存块的第一个和最后一个字节
+      auto* byte_ptr = static_cast<uint8_t*>(ptr);
+
+      // 写入测试模式
+      uint8_t test_pattern_start = 0xA5;
+      uint8_t test_pattern_end = 0x5A;
+
+      byte_ptr[0] = test_pattern_start;
+      byte_ptr[block_size - 1] = test_pattern_end;
+
+      // 验证写入成功
+      EXPECT_EQ(byte_ptr[0], test_pattern_start) << "内存块起始位置写入失败";
+      EXPECT_EQ(byte_ptr[block_size - 1], test_pattern_end)
+          << "内存块结束位置写入失败";
+
+      std::cout << "✓ 内存块边界读写测试通过" << std::endl;
+
+      // 测试对齐要求
+      auto addr_value = reinterpret_cast<uintptr_t>(ptr);
+      auto base_addr = reinterpret_cast<uintptr_t>(test_memory_);
+
+      EXPECT_EQ(addr_value % AllocatorBase::kPageSize, 0)
+          << "地址未按页大小对齐";
+      EXPECT_EQ((addr_value - base_addr) % (pages * AllocatorBase::kPageSize),
+                0)
+          << "地址未按order要求对齐";
+
+      // 验证地址范围
+      EXPECT_GE(addr_value, base_addr) << "地址应该大于等于基地址";
+      EXPECT_LT(addr_value, base_addr + test_memory_size_)
+          << "地址应该小于结束地址";
+
+      // 验证内存块不超出边界
+      EXPECT_LE(addr_value + block_size, base_addr + test_memory_size_)
+          << "内存块结束地址不应该超出管理范围";
+
+      std::cout << "✓ 对齐要求检查通过" << std::endl;
+
+    } else {
+      std::cout << "无法分配 order=" << order << " 的内存块" << std::endl;
+    }
+  }
+
+  // 交叉验证所有分配的地址
+  std::cout << "\n--- 交叉验证所有分配地址 ---" << std::endl;
+  for (size_t i = 0; i < allocated_ptrs.size(); ++i) {
+    for (size_t j = i + 1; j < allocated_ptrs.size(); ++j) {
+      auto [ptr1, order1] = allocated_ptrs[i];
+      auto [ptr2, order2] = allocated_ptrs[j];
+
+      std::string name1 = "order" + std::to_string(order1);
+      std::string name2 = "order" + std::to_string(order2);
+
+      // 使用新的验证函数
+      ValidateNoOverlap(ptr1, order1, ptr2, order2, name1.c_str(),
+                        name2.c_str());
+
+      // 比较地址位置
+      CompareAddresses(ptr1, ptr2, name1.c_str(), name2.c_str());
+    }
+  }
+
+  // 清理
+  std::cout << "\n--- 清理所有分配 ---" << std::endl;
+  for (auto [ptr, order] : allocated_ptrs) {
+    std::cout << "释放 order=" << order << " 地址: " << ptr << std::endl;
+    buddy_->Free(ptr, order);
+  }
+
+  std::cout << "\n=== AddressValidationTest 测试结束 ===" << std::endl;
 }
 
 }  // namespace bmalloc
