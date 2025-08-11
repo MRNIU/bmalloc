@@ -1,22 +1,13 @@
 /**
- * @copyright Copyright The SimpleKernel Contributors
- * @brief First Fit 内存分配器实现
+ * Copyright The bmalloc Contributors
  */
 
 #include "first_fit.h"
-
-#include <cstdint>
 
 namespace bmalloc {
 
 FirstFit::FirstFit(const char* name, void* start_addr, size_t page_count)
     : AllocatorBase(name, start_addr, page_count) {
-  // 检查页数是否超过最大支持数
-  if (page_count > kMaxPages) {
-    // 在基类构造函数中length_已经设置，这里无法修改
-    // 可以考虑在基类设计中处理这种情况
-  }
-
   // 初始化位图为全0 (所有页面空闲)
   bitmap_.reset();
 

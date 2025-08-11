@@ -61,7 +61,7 @@ class FirstFit : public AllocatorBase {
   void Free(void* addr, size_t page_count) override;
 
  protected:
-  // 最大支持 1024 个页面，对于测试来说足够了
+  /// @todo 用 bitset 表示太浪费空间了
   static constexpr size_t kMaxPages = 1024;
   /// 位图，每一位表示一页内存，1 表示已使用，0 表示未使用
   std::bitset<kMaxPages> bitmap_;
