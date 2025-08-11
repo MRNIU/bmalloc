@@ -102,7 +102,7 @@ class Buddy : public AllocatorBase {
 
   /**
    * @brief 简化的空闲块节点结构
-   * 
+   *
    * 设计原则：保持简单，只包含必要的功能
    * - 仅包含指向下一个节点的指针
    * - 链表操作移到 Buddy 类中处理
@@ -110,16 +110,16 @@ class Buddy : public AllocatorBase {
    */
   struct FreeBlockNode {
     FreeBlockNode* next;
-    
+
     // 默认构造函数
     FreeBlockNode() : next(nullptr) {}
-    
+
     // 禁用拷贝和移动（这是一个链表节点，不应该被拷贝）
     FreeBlockNode(const FreeBlockNode&) = delete;
     FreeBlockNode& operator=(const FreeBlockNode&) = delete;
     FreeBlockNode(FreeBlockNode&&) = delete;
     FreeBlockNode& operator=(FreeBlockNode&&) = delete;
-    
+
     /**
      * @brief 静态工厂方法：从内存地址创建节点
      * @param addr 内存地址
@@ -148,10 +148,6 @@ class Buddy : public AllocatorBase {
    * @return false 如果节点不在链表中
    */
   bool RemoveFromFreeList(FreeBlockNode*& list_head, FreeBlockNode* target) {
-    if (list_head == nullptr || target == nullptr) {
-      return false;
-    }
-
     // 如果要移除的是头节点
     if (list_head == target) {
       list_head = target->next;
@@ -170,19 +166,16 @@ class Buddy : public AllocatorBase {
   }
 
   /**
-   * @brief 检查给定地址是否为大小为 2^order 的块的有效起始地址
+   * @brief 检查给定地址是否为指定大小块的有效起始地址
    * @param addr 要检查的地址
-   * @param order 块大小的指数（块大小为 2^order）
+   * @param block_pages 块大小（页数）
    * @return true 如果地址有效
    * @return false 如果地址无效
    */
-  bool IsValidBlockAddress(const void* addr, size_t order) const {
-    // 计算块大小（页数）
-    size_t block_pages = 1 << order;
-
+  bool IsValidBlockAddress(const void* addr, size_t block_pages) const {
     // 计算地址相对于起始地址的字节偏移
-    auto addr_offset = static_cast<const char*>(addr) - 
-                       static_cast<const char*>(start_addr_);
+    auto addr_offset =
+        static_cast<const char*>(addr) - static_cast<const char*>(start_addr_);
 
     // 计算地址相对于起始地址的页偏移
     auto page_offset = addr_offset / kPageSize;
@@ -230,9 +223,7 @@ class Buddy : public AllocatorBase {
 
 #endif /* BMALLOC_SRC_INCLUDE_BUDDY_H_ */
 
-/// @todo 为遍历 free_block_lists_ 的操作添加一个接口，接受一个 lambda 函数作为参数 ✓ 已完成
+/// @todo 为遍历 free_block_lists_ 的操作添加一个接口，接受一个 lambda
+/// 函数作为参数 ✓ 已完成
 /// @todo FreeBlockNode 太复杂了，尝试简化 ✓ 已简化
 /// @todo 将 FreeBlockNode 的实现移动到 cpp
-
-
-

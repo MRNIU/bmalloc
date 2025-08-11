@@ -126,11 +126,11 @@ void Buddy::Free(void* addr, size_t order) {
   // 遍历同大小的空闲链表，寻找 buddy 块
   for (auto* curr = free_block_lists_[order]; curr != nullptr;
        curr = curr->next) {
-    void* curr_addr = static_cast<void*>(curr);  // 显式转换
+    void* curr_addr = static_cast<void*>(curr);
 
     // 检查是否为右 buddy（当前要释放的块的右边相邻块）
     if (curr_addr == right_buddy) {
-      if (IsValidBlockAddress(addr, order + 1)) {
+      if (IsValidBlockAddress(addr, block_size)) {
         // 从链表中移除找到的 buddy 块并递归合并
         RemoveFromFreeList(free_block_lists_[order], curr);
         Free(addr, order + 1);
@@ -138,12 +138,13 @@ void Buddy::Free(void* addr, size_t order) {
       }
     }
     // 检查是否为左 buddy（当前要释放的块的左边相邻块）
-    else if (curr_addr == left_buddy_start &&
-             IsValidBlockAddress(curr_addr, order + 1)) {
-      // 从链表中移除找到的 buddy 块并递归合并（使用左 buddy 的地址）
-      RemoveFromFreeList(free_block_lists_[order], curr);
-      Free(curr_addr, order + 1);
-      return;
+    else if (curr_addr == left_buddy_start) {
+      if (IsValidBlockAddress(curr_addr, block_size)) {
+        // 从链表中移除找到的 buddy 块并递归合并（使用左 buddy 的地址）
+        RemoveFromFreeList(free_block_lists_[order], curr);
+        Free(curr_addr, order + 1);
+        return;
+      }
     }
   }
 
