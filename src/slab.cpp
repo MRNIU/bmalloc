@@ -8,8 +8,9 @@
 #include <iostream>
 #include <mutex>
 
-#include "buddy.h"
+#include "include/buddy.h"
 using namespace std;
+using namespace bmalloc;
 
 #define CACHE_NAMELEN (20)     // maximum length of cache name
 #define CACHE_CACHE_ORDER (0)  // cache_cache order
@@ -63,6 +64,8 @@ ERROR CODES: (error_cod value)
 mutex buddy_mutex;  // guarding buddy alocator
 mutex cout_mutex;   // guarding cout
 
+static Buddy* global_buddy = nullptr;
+
 static kmem_cache_t cache_cache;
 
 static kmem_cache_t* allCaches = nullptr;
@@ -77,9 +80,9 @@ void kmem_cache_allInfo() {
 }
 
 void kmem_init(void* space, int block_num) {
-  buddy_init(space, block_num);
+  global_buddy = new Buddy("slab_buddy", space, block_num);
 
-  void* ptr = buddy_alloc(CACHE_CACHE_ORDER);
+  void* ptr = global_buddy->Alloc(CACHE_CACHE_ORDER);
   if (ptr == nullptr) exit(1);
   slab_t* slab = (slab_t*)ptr;
 
@@ -87,7 +90,7 @@ void kmem_init(void* space, int block_num) {
   cache_cache.slabs_full = nullptr;
   cache_cache.slabs_partial = nullptr;
 
-  strcpy_s(cache_cache.name, "kmem_cache");
+  strcpy(cache_cache.name, "kmem_cache");
   cache_cache.objectSize = sizeof(kmem_cache_t);
   cache_cache.order = CACHE_CACHE_ORDER;
 
@@ -202,7 +205,7 @@ kmem_cache_t* kmem_cache_create(const char* name, size_t size,
                      // for cache_cache
   {
     lock_guard<mutex> guard(buddy_mutex);
-    void* ptr = buddy_alloc(CACHE_CACHE_ORDER);
+    void* ptr = global_buddy->Alloc(CACHE_CACHE_ORDER);
     if (ptr == nullptr) {
       cache_cache.error_code = 2;
       return nullptr;
@@ -227,7 +230,7 @@ kmem_cache_t* kmem_cache_create(const char* name, size_t size,
                          CACHE_L1_LINE_SIZE * s->colouroff);
     kmem_cache_t* list = (kmem_cache_t*)s->objects;
 
-    for (int i = 0; i < cache_cache.objectsInSlab; i++) {
+    for (size_t i = 0; i < cache_cache.objectsInSlab; i++) {
       *list[i].name = '\0';
       // memcpy(&list[i].cache_mutex, &mutex(), sizeof(mutex));
       new (&list[i].cache_mutex) mutex;
@@ -277,7 +280,7 @@ kmem_cache_t* kmem_cache_create(const char* name, size_t size,
   }
 
   // initialise new cache
-  strcpy_s(ret->name, name);
+  strcpy(ret->name, name);
 
   ret->slabs_full = nullptr;
   ret->slabs_partial = nullptr;
@@ -339,7 +342,7 @@ int kmem_cache_shrink(kmem_cache_t* cachep)  // Shrink cache
     while (cachep->slabs_free != nullptr) {
       s = cachep->slabs_free;
       cachep->slabs_free = s->next;
-      buddy_free(s, cachep->order);
+      global_buddy->Free(s, cachep->order);
       blocksFreed += n;
       cachep->num_allocations -= cachep->objectsInSlab;
     }
@@ -363,7 +366,7 @@ void* kmem_cache_alloc(kmem_cache_t* cachep)  // Allocate one object from cache
   {
     lock_guard<mutex> guard(buddy_mutex);
 
-    void* ptr = buddy_alloc(cachep->order);
+    void* ptr = global_buddy->Alloc(cachep->order);
     if (ptr == nullptr) {
       cachep->error_code = 2;
       return nullptr;
@@ -388,7 +391,7 @@ void* kmem_cache_alloc(kmem_cache_t* cachep)  // Allocate one object from cache
                          CACHE_L1_LINE_SIZE * s->colouroff);
     void* obj = s->objects;
 
-    for (int i = 0; i < cachep->objectsInSlab; i++) {
+    for (size_t i = 0; i < cachep->objectsInSlab; i++) {
       if (cachep->ctor) cachep->ctor(obj);
       obj = (void*)((char*)obj + cachep->objectSize);
       s->freeList[i] = i + 1;
@@ -546,16 +549,16 @@ void* kmalloc(size_t size)  // Alloacate one small memory buffer
   if (size < 32 || size > 131072) return nullptr;
 
   // int j = 1 << (int)(ceil(log2(size)));
-  int j = 32;
+  size_t j = 32;
   while (j < size) j <<= 1;
 
   char num[7];
   void* buff = nullptr;
 
   char name[20];
-  strcpy_s(name, "size-");
-  sprintf_s(num, "%d", j);
-  strcat_s(name, num);
+  strcpy(name, "size-");
+  sprintf(num, "%ld", j);
+  strcat(name, num);
 
   kmem_cache_t* buffCachep = kmem_cache_create(name, j, nullptr, nullptr);
 
@@ -695,21 +698,21 @@ void kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
   while (freeTemp != nullptr) {
     ptr = freeTemp;
     freeTemp = freeTemp->next;
-    buddy_free(ptr, cachep->order);
+    global_buddy->Free(ptr, cachep->order);
   }
 
   freeTemp = cachep->slabs_partial;
   while (freeTemp != nullptr) {
     ptr = freeTemp;
     freeTemp = freeTemp->next;
-    buddy_free(ptr, cachep->order);
+    global_buddy->Free(ptr, cachep->order);
   }
 
   freeTemp = cachep->slabs_free;
   while (freeTemp != nullptr) {
     ptr = freeTemp;
     freeTemp = freeTemp->next;
-    buddy_free(ptr, cachep->order);
+    global_buddy->Free(ptr, cachep->order);
   }
 
   // check if slab is now free or partial used (s is slab in cache_cache)
@@ -778,7 +781,7 @@ void kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
       cache_cache.slabs_free = cache_cache.slabs_free->next;
       s->next = nullptr;
       cache_cache.slabs_free->prev = nullptr;
-      buddy_free(s, cache_cache.order);
+      global_buddy->Free(s, cache_cache.order);
       cache_cache.num_allocations -= cache_cache.objectsInSlab;
     }
   }
