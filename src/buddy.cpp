@@ -130,6 +130,13 @@ void Buddy::Free(void* addr, size_t order) {
 }
 
 void Buddy::Free(void* addr, size_t order, bool update_counter) {
+  // 只有在需要更新计数器时才更新(即初始调用时)
+  if (update_counter) {
+    size_t freed_pages = 1 << order;
+    used_count_ -= freed_pages;
+    free_count_ += freed_pages;
+  }
+
   // 尝试查找并合并 buddy 块
   size_t block_size = 1 << order;
   void* right_buddy = static_cast<char*>(addr) + kPageSize * block_size;
@@ -162,13 +169,6 @@ void Buddy::Free(void* addr, size_t order, bool update_counter) {
 
   // 没有找到可合并的 buddy，直接插入到链表头部
   InsertToFreeList(free_block_lists_[order], addr);
-
-  // 只有在需要更新计数器时才更新(即初始调用时)
-  if (update_counter) {
-    size_t freed_pages = 1 << order;
-    used_count_ -= freed_pages;
-    free_count_ += freed_pages;
-  }
 }
 
 void Buddy::InsertToFreeList(FreeBlockNode*& list_head, void* addr) {
