@@ -1,5 +1,21 @@
 /**
  * Copyright The bmalloc Contributors
+ *
+ * Slab分配器实现
+ *
+ * Slab分配器是一种高效的内存管理算法，特别适用于频繁分配和释放相同大小对象的场景。
+ *
+ * 核心概念：
+ * - Cache: 管理特定大小对象的高级结构，包含多个slab
+ * - Slab: 实际的内存块，包含多个相同大小的对象
+ * - Object: 实际分配给用户的内存单元
+ *
+ * 主要特性：
+ * 1. 减少内存碎片
+ * 2. 快速分配/释放（O(1)时间复杂度）
+ * 3. 支持对象构造器和析构器
+ * 4. 缓存行对齐优化
+ * 5. 线程安全
  */
 
 #include "slab.h"
@@ -12,42 +28,72 @@
 using namespace std;
 using namespace bmalloc;
 
-#define CACHE_NAMELEN (20)     // maximum length of cache name
+// 缓存名称的最大长度
+#define CACHE_NAMELEN (20)  // maximum length of cache name
+// cache_cache的order值，表示管理kmem_cache_t结构体的cache使用的内存块大小
 #define CACHE_CACHE_ORDER (0)  // cache_cache order
 
+/**
+ * Slab结构体 - 表示一个内存slab
+ *
+ * 每个slab包含多个相同大小的对象，通过链表管理空闲对象
+ */
 typedef struct slab_s {
-  unsigned int colouroff;  // offset for this slab
-  void* objects;           // starting adress of objects
-  int* freeList;           // list of free objects
-  int nextFreeObj;         // next free object
-  unsigned int inuse;      // number of active objects in this slab
-  slab_s* next;            // next slab in chain
-  slab_s* prev;            // previous slab in chain
-  kmem_cache_t* myCache;   // cache - owner
+  unsigned int colouroff;  // offset for this slab - 用于缓存行对齐的偏移量
+  void* objects;           // starting adress of objects - 对象数组的起始地址
+  int* freeList;           // list of free objects - 空闲对象索引列表
+  int nextFreeObj;         // next free object - 下一个空闲对象的索引
+  unsigned int
+      inuse;     // number of active objects in this slab - 当前使用的对象数量
+  slab_s* next;  // next slab in chain - 链表中的下一个slab
+  slab_s* prev;  // previous slab in chain - 链表中的前一个slab
+  kmem_cache_t* myCache;  // cache - owner - 拥有此slab的cache
 } slab_t;
 
+/**
+ * Cache结构体 - 管理特定大小对象的高级结构
+ *
+ * 每个cache管理一种特定大小的对象，内部包含三种状态的slab链表：
+ * - slabs_full: 完全使用的slab
+ * - slabs_partial: 部分使用的slab
+ * - slabs_free: 完全空闲的slab
+ */
 struct kmem_cache_s {
-  slab_t* slabs_full;             // list of full slabs
-  slab_t* slabs_partial;          // list of partial slabs
-  slab_t* slabs_free;             // list of free slabs
-  char name[CACHE_NAMELEN];       // cache name
-  unsigned int objectSize;        // size of one object
-  unsigned int objectsInSlab;     // num of objects in one slab
-  unsigned long num_active;       // num of active objects in cache
-  unsigned long num_allocations;  // num of total objects in cache
-  mutex cache_mutex;              // mutex (uses to lock the cache)
-  unsigned int order;  // order of one slab (one slab has 2^order blocks)
+  slab_t* slabs_full;        // list of full slabs - 满slab链表
+  slab_t* slabs_partial;     // list of partial slabs - 部分使用slab链表
+  slab_t* slabs_free;        // list of free slabs - 空闲slab链表
+  char name[CACHE_NAMELEN];  // cache name - 缓存名称
+  unsigned int objectSize;   // size of one object - 单个对象大小
   unsigned int
-      colour_max;  // maximum multiplier for offset of first object in slab
-  unsigned int colour_next;  // multiplier for next slab offset
-  bool growing;  // false - cache is not growing / true - cache is growing
-  void (*ctor)(void*);  // objects constructor
-  void (*dtor)(void*);  // objects destructor
-  int error_code;       // last error that happened while working with cache
-  kmem_cache_s* next;   // next cache in chain
+      objectsInSlab;  // num of objects in one slab - 每个slab中的对象数量
+  unsigned long num_active;  // num of active objects in cache - 活跃对象数量
+  unsigned long num_allocations;  // num of total objects in cache - 总对象数量
+  mutex cache_mutex;              // mutex (uses to lock the cache) - 缓存互斥锁
+  unsigned int
+      order;  // order of one slab (one slab has 2^order blocks) - slab的order值
+  unsigned int colour_max;  // maximum multiplier for offset of first object in
+                            // slab - 最大颜色偏移乘数
+  unsigned int
+      colour_next;  // multiplier for next slab offset - 下一个slab的颜色偏移
+  bool growing;     // false - cache is not growing / true - cache is growing -
+                    // 是否正在增长
+  void (*ctor)(void*);  // objects constructor - 对象构造函数
+  void (*dtor)(void*);  // objects destructor - 对象析构函数
+  int error_code;       // last error that happened while working with cache -
+                        // 最后的错误码
+  kmem_cache_s* next;   // next cache in chain - 下一个cache
 };
 
 /*
+错误码定义 (error_code值的含义):
+0 - 无错误
+1 - kmem_cache_create函数中传入了无效参数
+2 - 分配新slab时空间不足
+3 - 用户无权访问cache_cache
+4 - kmem_cache_error函数传入了空指针参数
+5 - kmem_cache_destroy传入的cache在cache_cache中不存在
+6 - kmem_cache_free传入的对象在cache_cache中不存在
+7 - 对象释放时传入了无效指针
 
 ERROR CODES: (error_cod value)
 0 - no error
@@ -61,15 +107,23 @@ ERROR CODES: (error_cod value)
 
 */
 
-mutex buddy_mutex;  // guarding buddy alocator
-mutex cout_mutex;   // guarding cout
+// 全局互斥锁和变量
+mutex buddy_mutex;  // guarding buddy alocator - 保护buddy分配器的互斥锁
+mutex cout_mutex;   // guarding cout - 保护输出的互斥锁
 
+// 全局Buddy分配器实例，用于底层内存管理
 static Buddy* global_buddy = nullptr;
 
+// cache_cache: 管理kmem_cache_t结构体的特殊cache
 static kmem_cache_t cache_cache;
 
+// 所有cache的链表头
 static kmem_cache_t* allCaches = nullptr;
 
+/**
+ * 打印所有cache的信息
+ * 遍历allCaches链表，调用kmem_cache_info打印每个cache的详细信息
+ */
 void kmem_cache_allInfo() {
   kmem_cache_t* curr = allCaches;
   while (curr != nullptr) {
@@ -79,17 +133,33 @@ void kmem_cache_allInfo() {
   }
 }
 
+/**
+ * 初始化内存管理系统
+ *
+ * @param space 可用内存空间的起始地址
+ * @param block_num 内存块数量
+ *
+ * 功能：
+ * 1. 初始化底层buddy分配器
+ * 2. 创建并初始化cache_cache（管理kmem_cache_t结构的特殊cache）
+ * 3. 分配第一个slab用于cache_cache
+ * 4. 设置缓存行对齐参数
+ */
 void kmem_init(void* space, int block_num) {
+  // 初始化底层buddy分配器
   global_buddy = new Buddy("slab_buddy", space, block_num);
 
+  // 为cache_cache分配第一个slab
   void* ptr = global_buddy->Alloc(CACHE_CACHE_ORDER);
   if (ptr == nullptr) exit(1);
   slab_t* slab = (slab_t*)ptr;
 
+  // 初始化cache_cache的slab链表
   cache_cache.slabs_free = slab;
   cache_cache.slabs_full = nullptr;
   cache_cache.slabs_partial = nullptr;
 
+  // 设置cache_cache的基本属性
   strcpy(cache_cache.name, "kmem_cache");
   cache_cache.objectSize = sizeof(kmem_cache_t);
   cache_cache.order = CACHE_CACHE_ORDER;
@@ -100,6 +170,7 @@ void kmem_init(void* space, int block_num) {
   cache_cache.error_code = 0;
   cache_cache.next = nullptr;
 
+  // 初始化slab结构
   slab->colouroff = 0;
   slab->freeList = (int*)((char*)ptr + sizeof(slab_t));
   slab->nextFreeObj = 0;
@@ -108,6 +179,7 @@ void kmem_init(void* space, int block_num) {
   slab->prev = nullptr;
   slab->myCache = &cache_cache;
 
+  // 计算每个slab能容纳的对象数量
   long memory = (1 << cache_cache.order) * BLOCK_SIZE;
   memory -= sizeof(slab_t);
   int n = 0;
@@ -116,40 +188,64 @@ void kmem_init(void* space, int block_num) {
     memory -= sizeof(unsigned int) + cache_cache.objectSize;
   }
 
+  // 设置对象数组起始位置
   slab->objects =
       (void*)((char*)ptr + sizeof(slab_t) + sizeof(unsigned int) * n);
   kmem_cache_t* list = (kmem_cache_t*)slab->objects;
 
+  // 初始化空闲对象链表
   for (int i = 0; i < n; i++) {
     *list[i].name = '\0';
     // memcpy(&list[i].cache_mutex, &mutex(), sizeof(mutex));
-    new (&list[i].cache_mutex) mutex;
+    new (&list[i].cache_mutex) mutex;  // 就地构造mutex
     slab->freeList[i] = i + 1;
   }
   // slab->freeList[n - 1] = -1;
 
+  // 设置cache_cache的对象统计信息
   cache_cache.objectsInSlab = n;
   cache_cache.num_active = 0;
   cache_cache.num_allocations = n;
 
+  // 设置缓存行对齐参数
   cache_cache.colour_max = memory / CACHE_L1_LINE_SIZE;
   if (cache_cache.colour_max > 0)
     cache_cache.colour_next = 1;
   else
     cache_cache.colour_next = 0;
 
+  // 将cache_cache加入全局cache链表
   allCaches = &cache_cache;
 }
 
+/**
+ * 创建一个新的cache
+ *
+ * @param name cache的名称
+ * @param size 每个对象的大小（字节）
+ * @param ctor 对象构造函数（可选）
+ * @param dtor 对象析构函数（可选）
+ * @return 成功返回cache指针，失败返回nullptr
+ *
+ * 功能：
+ * 1. 参数验证
+ * 2. 检查是否已存在相同的cache
+ * 3. 从cache_cache中分配kmem_cache_t结构
+ * 4. 计算最优的slab大小（order值）
+ * 5. 计算每个slab能容纳的对象数量
+ * 6. 设置缓存行对齐参数
+ */
 kmem_cache_t* kmem_cache_create(const char* name, size_t size,
                                 void (*ctor)(void*),
                                 void (*dtor)(void*))  // Allocate cache
 {
+  // 参数验证
   if (name == nullptr || *name == '\0' || (long)size <= 0) {
     cache_cache.error_code = 1;
     return nullptr;
   }
 
+  // 禁止创建与cache_cache同名的cache
   if (strcmp(name, cache_cache.name) == 0) {
     cache_cache.error_code = 3;
     return nullptr;
@@ -162,14 +258,14 @@ kmem_cache_t* kmem_cache_create(const char* name, size_t size,
 
   slab_t* s;
 
-  // prvi nacin
+  // 第一种方法：在全局cache链表中查找是否已存在相同的cache
   ret = allCaches;
   while (ret != nullptr) {
     if (strcmp(ret->name, name) == 0 && ret->objectSize == size) return ret;
     ret = ret->next;
   }
 
-  // drugi nacin
+  // 第二种方法（已注释）：在cache_cache的slab中查找
   /*
   s = cache_cache.slabs_full;
   while (s != nullptr)	// check if cache already exists in slabs_full list
@@ -196,13 +292,13 @@ kmem_cache_t* kmem_cache_create(const char* name, size_t size,
   }
   */
 
-  // cache does not exists
+  // cache不存在，需要创建新的
 
+  // 寻找可用的slab来分配kmem_cache_t结构
   s = cache_cache.slabs_partial;
   if (s == nullptr) s = cache_cache.slabs_free;
 
-  if (s == nullptr)  // there is not enough space, try to allocate more space
-                     // for cache_cache
+  if (s == nullptr)  // 没有足够空间，需要为cache_cache分配更多空间
   {
     lock_guard<mutex> guard(buddy_mutex);
     void* ptr = global_buddy->Alloc(CACHE_CACHE_ORDER);
@@ -214,10 +310,12 @@ kmem_cache_t* kmem_cache_create(const char* name, size_t size,
 
     cache_cache.slabs_partial = s;
 
+    // 设置缓存行对齐偏移
     s->colouroff = cache_cache.colour_next;
     cache_cache.colour_next =
         (cache_cache.colour_next + 1) % (cache_cache.colour_max + 1);
 
+    // 初始化新slab
     s->freeList = (int*)((char*)ptr + sizeof(slab_t));
     s->nextFreeObj = 0;
     s->inuse = 0;
@@ -230,6 +328,7 @@ kmem_cache_t* kmem_cache_create(const char* name, size_t size,
                          CACHE_L1_LINE_SIZE * s->colouroff);
     kmem_cache_t* list = (kmem_cache_t*)s->objects;
 
+    // 初始化对象数组
     for (size_t i = 0; i < cache_cache.objectsInSlab; i++) {
       *list[i].name = '\0';
       // memcpy(&list[i].cache_mutex, &mutex(), sizeof(mutex));
@@ -243,12 +342,14 @@ kmem_cache_t* kmem_cache_create(const char* name, size_t size,
     cache_cache.growing = true;
   }
 
+  // 从slab中分配一个kmem_cache_t对象
   kmem_cache_t* list = (kmem_cache_t*)s->objects;
   ret = &list[s->nextFreeObj];
   s->nextFreeObj = s->freeList[s->nextFreeObj];
   s->inuse++;
   cache_cache.num_active++;
 
+  // 更新slab链表状态
   if (s == cache_cache.slabs_free) {
     cache_cache.slabs_free = s->next;
     if (cache_cache.slabs_free != nullptr)
@@ -279,7 +380,7 @@ kmem_cache_t* kmem_cache_create(const char* name, size_t size,
     }
   }
 
-  // initialise new cache
+  // 初始化新cache
   strcpy(ret->name, name);
 
   ret->slabs_full = nullptr;
@@ -293,8 +394,7 @@ kmem_cache_t* kmem_cache_create(const char* name, size_t size,
   ret->next = allCaches;
   allCaches = ret;
 
-  // finding new cache order
-
+  // 计算新cache的order值（使一个slab能容纳至少一个对象）
   long memory = BLOCK_SIZE;
   int order = 0;
   while ((long)(memory - sizeof(slab_t) - sizeof(unsigned int) - size) < 0) {
@@ -305,8 +405,7 @@ kmem_cache_t* kmem_cache_create(const char* name, size_t size,
   ret->objectSize = size;
   ret->order = order;
 
-  // finding number of objects in slab
-
+  // 计算每个slab中的对象数量
   memory -= sizeof(slab_t);
   int n = 0;
   while ((long)(memory - sizeof(unsigned int) - size) >= 0) {
@@ -318,12 +417,24 @@ kmem_cache_t* kmem_cache_create(const char* name, size_t size,
   ret->num_active = 0;
   ret->num_allocations = 0;
 
+  // 设置缓存行对齐参数
   ret->colour_max = memory / CACHE_L1_LINE_SIZE;
   ret->colour_next = 0;
 
   return ret;
 }
 
+/**
+ * 收缩cache - 释放空闲的slab以节省内存
+ *
+ * @param cachep 要收缩的cache指针
+ * @return 释放的内存块数量
+ *
+ * 功能：
+ * 1. 释放cache中所有完全空闲的slab
+ * 2. 只在cache不处于增长状态时执行
+ * 3. 返回释放的内存块总数
+ */
 int kmem_cache_shrink(kmem_cache_t* cachep)  // Shrink cache
 {
   if (cachep == nullptr) return 0;
@@ -333,24 +444,36 @@ int kmem_cache_shrink(kmem_cache_t* cachep)  // Shrink cache
   int blocksFreed = 0;
   cachep->error_code = 0;
   if (cachep->slabs_free != nullptr &&
-      cachep->growing ==
-          false)  // if there is any slab in slab_free list and growing==false
+      cachep->growing == false)  // 只有当存在空闲slab且cache不在增长时才收缩
   {
     lock_guard<mutex> guard(buddy_mutex);
-    int n = 1 << cachep->order;
+    int n = 1 << cachep->order;  // 每个slab包含的内存块数
     slab_t* s;
     while (cachep->slabs_free != nullptr) {
       s = cachep->slabs_free;
       cachep->slabs_free = s->next;
-      global_buddy->Free(s, cachep->order);
+      global_buddy->Free(s, cachep->order);  // 释放slab到buddy分配器
       blocksFreed += n;
       cachep->num_allocations -= cachep->objectsInSlab;
     }
   }
-  cachep->growing = false;  // reset growing flag
+  cachep->growing = false;  // 重置增长标志
   return blocksFreed;
 }
 
+/**
+ * 从cache分配一个对象
+ *
+ * @param cachep cache指针
+ * @return 成功返回对象指针，失败返回nullptr
+ *
+ * 功能：
+ * 1. 查找可用的slab（优先从partial，然后free）
+ * 2. 如果没有可用slab，分配新的slab
+ * 3. 从slab中分配一个对象
+ * 4. 更新slab链表状态（free->partial->full）
+ * 5. 调用对象构造函数（如果存在）
+ */
 void* kmem_cache_alloc(kmem_cache_t* cachep)  // Allocate one object from cache
 {
   if (cachep == nullptr || *cachep->name == '\0') return nullptr;
@@ -360,9 +483,11 @@ void* kmem_cache_alloc(kmem_cache_t* cachep)  // Allocate one object from cache
   void* retObject = nullptr;
   cachep->error_code = 0;
 
+  // 查找可用的slab：优先使用部分使用的slab，然后是空闲slab
   slab_t* s = cachep->slabs_partial;
   if (s == nullptr) s = cachep->slabs_free;
-  if (s == nullptr)  // alloc new slab
+
+  if (s == nullptr)  // 需要分配新slab
   {
     lock_guard<mutex> guard(buddy_mutex);
 
@@ -373,12 +498,14 @@ void* kmem_cache_alloc(kmem_cache_t* cachep)  // Allocate one object from cache
     }
     s = (slab_t*)ptr;
 
-    cachep->slabs_partial = s;  // object will be allocated from this slab =>
-                                // slab will be in partial used list
+    // 新分配的slab将被放入partial链表（因为即将从中分配对象）
+    cachep->slabs_partial = s;
 
+    // 设置缓存行对齐偏移
     s->colouroff = cachep->colour_next;
     cachep->colour_next = (cachep->colour_next + 1) % (cachep->colour_max + 1);
 
+    // 初始化slab结构
     s->freeList = (int*)((char*)ptr + sizeof(slab_t));
     s->nextFreeObj = 0;
     s->inuse = 0;
@@ -386,47 +513,49 @@ void* kmem_cache_alloc(kmem_cache_t* cachep)  // Allocate one object from cache
     s->prev = nullptr;
     s->myCache = cachep;
 
+    // 设置对象数组位置（考虑缓存行对齐）
     s->objects = (void*)((char*)ptr + sizeof(slab_t) +
                          sizeof(unsigned int) * cachep->objectsInSlab +
                          CACHE_L1_LINE_SIZE * s->colouroff);
     void* obj = s->objects;
 
+    // 初始化所有对象（调用构造函数）并设置空闲链表
     for (size_t i = 0; i < cachep->objectsInSlab; i++) {
-      if (cachep->ctor) cachep->ctor(obj);
+      if (cachep->ctor) cachep->ctor(obj);  // 调用对象构造函数
       obj = (void*)((char*)obj + cachep->objectSize);
       s->freeList[i] = i + 1;
     }
     // s->freeList[cachep->objectsInSlab - 1] = -1;
 
     cachep->num_allocations += cachep->objectsInSlab;
-
     cachep->growing = true;
   }
 
-  // slab found
-
+  // 从slab中分配对象
   retObject = (void*)((char*)s->objects + s->nextFreeObj * cachep->objectSize);
   s->nextFreeObj = s->freeList[s->nextFreeObj];
   s->inuse++;
   cachep->num_active++;
 
+  // 更新slab链表状态
   if (s == cachep->slabs_free) {
+    // 从free链表中移除
     cachep->slabs_free = s->next;
     if (cachep->slabs_free != nullptr) cachep->slabs_free->prev = nullptr;
 
-    if (s->inuse != cachep->objectsInSlab)  // from free to partial
+    if (s->inuse != cachep->objectsInSlab)  // 移动到partial链表
     {
       s->next = cachep->slabs_partial;
       if (cachep->slabs_partial != nullptr) cachep->slabs_partial->prev = s;
       cachep->slabs_partial = s;
-    } else  // from free to full
+    } else  // 移动到full链表
     {
       s->next = cachep->slabs_full;
       if (cachep->slabs_full != nullptr) cachep->slabs_full->prev = s;
       cachep->slabs_full = s;
     }
   } else {
-    if (s->inuse == cachep->objectsInSlab)  // from partial to full
+    if (s->inuse == cachep->objectsInSlab)  // 从partial移动到full
     {
       cachep->slabs_partial = s->next;
       if (cachep->slabs_partial != nullptr)
@@ -441,6 +570,19 @@ void* kmem_cache_alloc(kmem_cache_t* cachep)  // Allocate one object from cache
   return retObject;
 }
 
+/**
+ * 释放cache中的一个对象
+ *
+ * @param cachep cache指针
+ * @param objp 要释放的对象指针
+ *
+ * 功能：
+ * 1. 查找对象所属的slab
+ * 2. 验证对象地址的有效性
+ * 3. 将对象返回到slab的空闲链表
+ * 4. 调用对象析构函数（如果存在）
+ * 5. 更新slab链表状态（full->partial->free）
+ */
 void kmem_cache_free(kmem_cache_t* cachep,
                      void* objp)  // Deallocate one object from cache
 {
@@ -451,10 +593,11 @@ void kmem_cache_free(kmem_cache_t* cachep,
   cachep->error_code = 0;
   slab_t* s;
 
-  // find owner slab
-
+  // 查找对象所属的slab
   int slabSize = BLOCK_SIZE * (1 << cachep->order);
-  bool inFullList = true;  // slab s is in slabs_full list
+  bool inFullList = true;  // 标记slab是否在full链表中
+
+  // 首先在full链表中查找
   s = cachep->slabs_full;
   while (s != nullptr) {
     if ((void*)objp > (void*)s && (void*)objp < (void*)((char*)s + slabSize))
@@ -462,8 +605,9 @@ void kmem_cache_free(kmem_cache_t* cachep,
     s = s->next;
   }
 
+  // 如果在full链表中没找到，在partial链表中查找
   if (s == nullptr) {
-    inFullList = false;  // slab s is in slabs_partial list
+    inFullList = false;
     s = cachep->slabs_partial;
     while (s != nullptr) {
       if ((void*)objp > (void*)s && (void*)objp < (void*)((char*)s + slabSize))
@@ -472,35 +616,41 @@ void kmem_cache_free(kmem_cache_t* cachep,
     }
   }
 
+  // 没找到对应的slab
   if (s == nullptr) {
     cachep->error_code = 6;
     return;
   }
 
-  // slab found, return object to slab
-
+  // 找到slab，将对象返回到slab中
   s->inuse--;
   cachep->num_active--;
+
+  // 计算对象在数组中的索引
   int i = ((char*)objp - (char*)s->objects) / cachep->objectSize;
+
+  // 验证对象地址是否对齐
   if (objp != (void*)((char*)s->objects + i * cachep->objectSize)) {
     cachep->error_code = 7;
     return;
   }
+
+  // 将对象加入空闲链表
   s->freeList[i] = s->nextFreeObj;
   s->nextFreeObj = i;
 
+  // 调用析构函数
   if (cachep->dtor != nullptr) cachep->dtor(objp);
 
-  // if (cachep->ctor != nullptr)		destructor is responsible for
-  // returning object to initialised state 	cachep->ctor(objp);
+  // 注释：析构函数负责将对象恢复到初始化状态
+  // if (cachep->ctor != nullptr) cachep->ctor(objp);
 
-  // check if slab is now free or partial used
-
-  if (inFullList)  // s is in full list
+  // 检查slab现在是否为空闲或部分使用状态，并更新链表
+  if (inFullList)  // slab原本在full链表中
   {
     slab_t *prev, *next;
 
-    // delete slab from full list
+    // 从full链表中删除slab
     prev = s->prev;
     next = s->next;
     s->prev = nullptr;
@@ -509,24 +659,23 @@ void kmem_cache_free(kmem_cache_t* cachep,
     if (next != nullptr) next->prev = prev;
     if (cachep->slabs_full == s) cachep->slabs_full = next;
 
-    if (s->inuse != 0)  // insert slab to partial used list
+    if (s->inuse != 0)  // 插入到partial链表
     {
       s->next = cachep->slabs_partial;
       if (cachep->slabs_partial != nullptr) cachep->slabs_partial->prev = s;
       cachep->slabs_partial = s;
-    } else  // insert slab to free list
+    } else  // 插入到free链表
     {
       s->next = cachep->slabs_free;
       if (cachep->slabs_free != nullptr) cachep->slabs_free->prev = s;
       cachep->slabs_free = s;
     }
-  } else  // s is in partial list
+  } else  // slab原本在partial链表中
   {
-    if (s->inuse == 0) {
+    if (s->inuse == 0) {  // 现在变成完全空闲
       slab_t *prev, *next;
 
-      // delete slab from partial list
-
+      // 从partial链表中删除slab
       prev = s->prev;
       next = s->next;
       s->prev = nullptr;
@@ -535,8 +684,7 @@ void kmem_cache_free(kmem_cache_t* cachep,
       if (next != nullptr) next->prev = prev;
       if (cachep->slabs_partial == s) cachep->slabs_partial = next;
 
-      // insert slab to free list
-
+      // 插入到free链表
       s->next = cachep->slabs_free;
       if (cachep->slabs_free != nullptr) cachep->slabs_free->prev = s;
       cachep->slabs_free = s;
@@ -544,10 +692,24 @@ void kmem_cache_free(kmem_cache_t* cachep,
   }
 }
 
+/**
+ * 分配小内存缓冲区 - 通用分配接口
+ *
+ * @param size 请求的内存大小（字节）
+ * @return 成功返回内存指针，失败返回nullptr
+ *
+ * 功能：
+ * 1. 将请求大小向上舍入到2的幂次方
+ * 2. 创建或查找对应大小的cache（命名为"size-XXX"）
+ * 3. 从cache中分配对象
+ *
+ * 支持的大小范围：32字节到131072字节
+ */
 void* kmalloc(size_t size)  // Alloacate one small memory buffer
 {
   if (size < 32 || size > 131072) return nullptr;
 
+  // 将size向上舍入到最近的2的幂次方
   // int j = 1 << (int)(ceil(log2(size)));
   size_t j = 32;
   while (j < size) j <<= 1;
@@ -555,18 +717,32 @@ void* kmalloc(size_t size)  // Alloacate one small memory buffer
   char num[7];
   void* buff = nullptr;
 
+  // 生成cache名称，格式为"size-XXX"
   char name[20];
   strcpy(name, "size-");
   sprintf(num, "%ld", j);
   strcat(name, num);
 
+  // 创建或获取对应大小的cache
   kmem_cache_t* buffCachep = kmem_cache_create(name, j, nullptr, nullptr);
 
+  // 从cache中分配对象
   buff = kmem_cache_alloc(buffCachep);
 
   return buff;
 }
 
+/**
+ * 查找包含指定对象的小内存缓冲区cache
+ *
+ * @param objp 对象指针
+ * @return 成功返回cache指针，失败返回nullptr
+ *
+ * 功能：
+ * 1. 遍历所有cache，查找名称以"size-"开头的cache
+ * 2. 在每个小内存cache的slab中查找指定对象
+ * 3. 检查对象地址是否在slab的地址范围内
+ */
 kmem_cache_t* find_buffers_cache(const void* objp) {
   lock_guard<mutex> guard(cache_cache.cache_mutex);
 
@@ -574,24 +750,24 @@ kmem_cache_t* find_buffers_cache(const void* objp) {
   slab_t* s;
 
   while (curr != nullptr) {
-    if (strstr(curr->name, "size-") != nullptr)  // found small buffer-s cache
+    if (strstr(curr->name, "size-") != nullptr)  // 找到小内存缓冲区cache
     {
+      // 在full slab中查找
       s = curr->slabs_full;
       int slabSize = BLOCK_SIZE * (1 << curr->order);
-      while (s != nullptr)  // check if cache exists in slabs_full list or
-      {
+      while (s != nullptr) {
         if ((void*)objp > (void*)s &&
-            (void*)objp < (void*)((char*)s + slabSize))  // cache found
+            (void*)objp < (void*)((char*)s + slabSize))  // 找到包含对象的cache
           return curr;
 
         s = s->next;
       }
 
+      // 在partial slab中查找
       s = curr->slabs_partial;
-      while (s != nullptr)  // check if cache exists in slabs_partial list
-      {
+      while (s != nullptr) {
         if ((void*)objp > (void*)s &&
-            (void*)objp < (void*)((char*)s + slabSize))  // cache found
+            (void*)objp < (void*)((char*)s + slabSize))  // 找到包含对象的cache
           return curr;
 
         s = s->next;
@@ -603,25 +779,49 @@ kmem_cache_t* find_buffers_cache(const void* objp) {
   return nullptr;
 }
 
+/**
+ * 释放小内存缓冲区 - 通用释放接口
+ *
+ * @param objp 要释放的对象指针
+ *
+ * 功能：
+ * 1. 查找包含该对象的小内存cache
+ * 2. 释放对象到对应的cache
+ * 3. 尝试收缩cache以节省内存
+ */
 void kfree(const void* objp)  // Deallocate one small memory buffer
 {
   if (objp == nullptr) return;
 
+  // 查找包含该对象的cache
   kmem_cache_t* buffCachep = find_buffers_cache(objp);
 
   if (buffCachep == nullptr) return;
 
+  // 释放对象
   kmem_cache_free(buffCachep, (void*)objp);
 
-  if (buffCachep->slabs_free !=
-      nullptr)  // shrink buffer-s cache (save memory if usage is low)
-    kmem_cache_shrink(buffCachep);
+  // 如果cache有空闲slab，尝试收缩以节省内存
+  if (buffCachep->slabs_free != nullptr) kmem_cache_shrink(buffCachep);
 }
 
+/**
+ * 销毁cache - 释放cache及其所有slab
+ *
+ * @param cachep 要销毁的cache指针
+ *
+ * 功能：
+ * 1. 从全局cache链表中移除cache
+ * 2. 在cache_cache中查找并释放该cache对象
+ * 3. 释放cache中的所有slab（full、partial、free）
+ * 4. 更新cache_cache的链表状态
+ * 5. 清理cache_cache中多余的空闲slab
+ */
 void kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
 {
   if (cachep == nullptr || *cachep->name == '\0') return;
 
+  // 获取三个互斥锁：cache锁、cache_cache锁、buddy锁
   lock_guard<mutex> guard1(cachep->cache_mutex);
   lock_guard<mutex> guard2(cache_cache.cache_mutex);
   lock_guard<mutex> guard3(buddy_mutex);
@@ -630,16 +830,14 @@ void kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
   void* ptr;
   cache_cache.error_code = 0;
 
-  // delete cache from allCaches list
-
+  // 从allCaches链表中删除cache
   kmem_cache_t *prev = nullptr, *curr = allCaches;
   while (curr != cachep) {
     prev = curr;
     curr = curr->next;
   }
 
-  if (curr == nullptr)  // cache is not in cache chain (that means that object
-                        // is not in cache_cache too)
+  if (curr == nullptr)  // cache不在cache链中（意味着对象也不在cache_cache中）
   {
     cache_cache.error_code = 5;
     return;
@@ -651,10 +849,9 @@ void kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
     prev->next = curr->next;
   curr->next = nullptr;
 
-  // find owner slab in cache_cache
-
+  // 在cache_cache中查找拥有该cache对象的slab
   int slabSize = BLOCK_SIZE * (1 << cache_cache.order);
-  bool inFullList = true;  // slab s is in slabs_full list
+  bool inFullList = true;  // 标记slab是否在full链表中
   s = cache_cache.slabs_full;
   while (s != nullptr) {
     if ((void*)cachep > (void*)s &&
@@ -664,7 +861,7 @@ void kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
   }
 
   if (s == nullptr) {
-    inFullList = false;  // slab s is in slabs_partial list
+    inFullList = false;  // slab在partial链表中
     s = cache_cache.slabs_partial;
     while (s != nullptr) {
       if ((void*)cachep > (void*)s &&
@@ -674,26 +871,26 @@ void kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
     }
   }
 
-  if (s == nullptr)  // owner slab not found in cache_cache
+  if (s == nullptr)  // 在cache_cache中没找到拥有该cache的slab
   {
     cache_cache.error_code = 5;
     return;
   }
 
-  // owner slab found
+  // 找到拥有该cache的slab
 
-  // reset cache fields and update cache_cache fields
-
+  // 重置cache字段并更新cache_cache字段
   s->inuse--;
   cache_cache.num_active--;
   int i = cachep - (kmem_cache_t*)s->objects;
   s->freeList[i] = s->nextFreeObj;
   s->nextFreeObj = i;
-  *cachep->name = '\0';
+  *cachep->name = '\0';  // 清空cache名称
   cachep->objectSize = 0;
 
-  // free used slabs
+  // 释放cache中使用的所有slab
 
+  // 释放full slab链表
   slab_t* freeTemp = cachep->slabs_full;
   while (freeTemp != nullptr) {
     ptr = freeTemp;
@@ -701,6 +898,7 @@ void kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
     global_buddy->Free(ptr, cachep->order);
   }
 
+  // 释放partial slab链表
   freeTemp = cachep->slabs_partial;
   while (freeTemp != nullptr) {
     ptr = freeTemp;
@@ -708,6 +906,7 @@ void kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
     global_buddy->Free(ptr, cachep->order);
   }
 
+  // 释放free slab链表
   freeTemp = cachep->slabs_free;
   while (freeTemp != nullptr) {
     ptr = freeTemp;
@@ -715,13 +914,12 @@ void kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
     global_buddy->Free(ptr, cachep->order);
   }
 
-  // check if slab is now free or partial used (s is slab in cache_cache)
-  if (inFullList)  // s is in full list
+  // 检查cache_cache中的slab现在是否为空闲或部分使用状态
+  if (inFullList)  // slab原本在full链表中
   {
     slab_t *prev, *next;
 
-    // delete slab from full list
-
+    // 从full链表中删除slab
     prev = s->prev;
     next = s->next;
     s->prev = nullptr;
@@ -730,25 +928,24 @@ void kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
     if (next != nullptr) next->prev = prev;
     if (cache_cache.slabs_full == s) cache_cache.slabs_full = next;
 
-    if (s->inuse != 0)  // insert slab to partial used list
+    if (s->inuse != 0)  // 插入到partial链表
     {
       s->next = cache_cache.slabs_partial;
       if (cache_cache.slabs_partial != nullptr)
         cache_cache.slabs_partial->prev = s;
       cache_cache.slabs_partial = s;
-    } else  // insert slab to free list
+    } else  // 插入到free链表
     {
       s->next = cache_cache.slabs_free;
       if (cache_cache.slabs_free != nullptr) cache_cache.slabs_free->prev = s;
       cache_cache.slabs_free = s;
     }
-  } else  // s is in partial list
+  } else  // slab原本在partial链表中
   {
     if (s->inuse == 0) {
       slab_t *prev, *next;
 
-      // delete slab from partial list
-
+      // 从partial链表中删除slab
       prev = s->prev;
       next = s->next;
       s->prev = nullptr;
@@ -757,16 +954,14 @@ void kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
       if (next != nullptr) next->prev = prev;
       if (cache_cache.slabs_partial == s) cache_cache.slabs_partial = next;
 
-      // insert slab to free list
-
+      // 插入到free链表
       s->next = cache_cache.slabs_free;
       if (cache_cache.slabs_free != nullptr) cache_cache.slabs_free->prev = s;
       cache_cache.slabs_free = s;
     }
   }
 
-  // if there is more than one slab in slab_free, free them
-
+  // 如果free链表中有多个slab，释放多余的slab以节省内存
   if (cache_cache.slabs_free != nullptr) {
     s = cache_cache.slabs_free;
     i = 0;
@@ -775,6 +970,7 @@ void kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
       s = s->next;
     }
 
+    // 保留一个空闲slab，释放其余的
     while (i > 1) {
       i--;
       s = cache_cache.slabs_free;
@@ -787,6 +983,16 @@ void kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
   }
 }
 
+/**
+ * 打印cache的详细信息
+ *
+ * @param cachep cache指针
+ *
+ * 功能：
+ * 1. 统计cache中所有slab的数量
+ * 2. 计算cache的总大小和使用率
+ * 3. 打印cache的各项统计信息
+ */
 void kmem_cache_info(kmem_cache_t* cachep)  // Print cache info
 {
   lock_guard<mutex> guard1(cout_mutex);
@@ -800,30 +1006,36 @@ void kmem_cache_info(kmem_cache_t* cachep)  // Print cache info
 
   int i = 0;
 
+  // 统计free slab数量
   slab_t* s = cachep->slabs_free;
   while (s != nullptr) {
     i++;
     s = s->next;
   }
 
+  // 统计partial slab数量
   s = cachep->slabs_partial;
   while (s != nullptr) {
     i++;
     s = s->next;
   }
 
+  // 统计full slab数量
   s = cachep->slabs_full;
   while (s != nullptr) {
     i++;
     s = s->next;
   }
 
+  // 计算cache总大小（以内存块为单位）
   unsigned int cacheSize = i * (1 << cachep->order);
 
+  // 计算使用率百分比
   double perc = 0;
   if (cachep->num_allocations > 0)
     perc = 100 * (double)cachep->num_active / cachep->num_allocations;
 
+  // 打印cache信息
   cout << "*** CACHE INFO: ***" << endl
        << "Name:\t\t\t\t" << cachep->name << endl
        << "Size of one object (in bytes):\t" << cachep->objectSize << endl
@@ -833,6 +1045,17 @@ void kmem_cache_info(kmem_cache_t* cachep)  // Print cache info
        << "Percentage occupancy of cache:\t" << perc << " %" << endl;
 }
 
+/**
+ * 打印cache的错误信息
+ *
+ * @param cachep cache指针
+ * @return 错误码
+ *
+ * 功能：
+ * 1. 获取cache的错误码
+ * 2. 根据错误码打印相应的错误信息
+ * 3. 返回错误码供调用者使用
+ */
 int kmem_cache_error(kmem_cache_t* cachep)  // Print error message
 {
   lock_guard<mutex> guard1(cout_mutex);
