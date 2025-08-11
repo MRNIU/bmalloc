@@ -3,7 +3,7 @@
 add_library(${PROJECT_NAME} STATIC
         buddy.cpp
         first_fit.cpp
-        # slab.cpp
+        slab.cpp
         bmalloc.cpp
 )
 
