@@ -9,6 +9,8 @@
 #include <mutex>
 
 #include "allocator_base.h"
+#include "buddy.h"
+
 namespace bmalloc {
 using namespace std;
 
@@ -90,29 +92,51 @@ struct kmem_cache_t {
   kmem_cache_t *next;
 };
 
-void kmem_init(void *space, int block_num);
+class AAA {
+ public:
+  AAA(void *space, int block_num);
 
-kmem_cache_t *kmem_cache_create(const char *name, size_t size,
-                                void (*ctor)(void *),
-                                void (*dtor)(void *));  // Allocate cache
+  kmem_cache_t *kmem_cache_create(const char *name, size_t size,
+                                  void (*ctor)(void *),
+                                  void (*dtor)(void *));  // Allocate cache
 
-int kmem_cache_shrink(kmem_cache_t *cachep);  // Shrink cache
+  int kmem_cache_shrink(kmem_cache_t *cachep);  // Shrink cache
 
-void *kmem_cache_alloc(kmem_cache_t *cachep);  // Allocate one object from cache
+  void *kmem_cache_alloc(
+      kmem_cache_t *cachep);  // Allocate one object from cache
 
-void kmem_cache_free(kmem_cache_t *cachep,
-                     void *objp);  // Deallocate one object from cache
+  void kmem_cache_free(kmem_cache_t *cachep,
+                       void *objp);  // Deallocate one object from cache
 
-void *kmalloc(size_t size);  // Alloacate one small memory buffer
+  void *kmalloc(size_t size);  // Alloacate one small memory buffer
 
-void kfree(const void *objp);  // Deallocate one small memory buffer
+  void kfree(const void *objp);  // Deallocate one small memory buffer
 
-void kmem_cache_destroy(kmem_cache_t *cachep);  // Deallocate cache
+  void kmem_cache_destroy(kmem_cache_t *cachep);  // Deallocate cache
 
-void kmem_cache_info(kmem_cache_t *cachep);  // Print cache info
+  void kmem_cache_info(kmem_cache_t *cachep);  // Print cache info
 
-int kmem_cache_error(kmem_cache_t *cachep);  // Print error message
-void kmem_cache_allInfo();
+  int kmem_cache_error(kmem_cache_t *cachep);  // Print error message
+  void kmem_cache_allInfo();
+
+ private:
+  // guarding buddy alocator - 保护buddy分配器的互斥锁
+  mutex buddy_mutex;
+  // guarding cout - 保护输出的互斥锁
+  mutex cout_mutex;
+
+  // 全局Buddy分配器实例，用于底层内存管理
+  Buddy global_buddy;
+
+  // cache_cache: 管理kmem_cache_t结构体的特殊cache
+  kmem_cache_t cache_cache;
+
+  // 所有cache的链表头
+  kmem_cache_t *allCaches = nullptr;
+
+  kmem_cache_t *find_buffers_cache(const void *objp);
+};
+
 }  // namespace bmalloc
 
 #endif /* BMALLOC_SRC_INCLUDE_SLAB_H_ */

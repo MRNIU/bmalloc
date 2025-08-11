@@ -23,8 +23,6 @@
 #include <cstring>
 #include <iostream>
 
-#include "include/buddy.h"
-
 namespace bmalloc {
 
 using namespace std;
@@ -51,33 +49,6 @@ ERROR CODES: (error_cod value)
 
 */
 
-// guarding buddy alocator - 保护buddy分配器的互斥锁
-mutex buddy_mutex;
-// guarding cout - 保护输出的互斥锁
-mutex cout_mutex;
-
-// 全局Buddy分配器实例，用于底层内存管理
-static Buddy* global_buddy = nullptr;
-
-// cache_cache: 管理kmem_cache_t结构体的特殊cache
-static kmem_cache_t cache_cache;
-
-// 所有cache的链表头
-static kmem_cache_t* allCaches = nullptr;
-
-/**
- * 打印所有cache的信息
- * 遍历allCaches链表，调用kmem_cache_info打印每个cache的详细信息
- */
-void kmem_cache_allInfo() {
-  kmem_cache_t* curr = allCaches;
-  while (curr != nullptr) {
-    kmem_cache_info(curr);
-    cout << endl;
-    curr = curr->next;
-  }
-}
-
 /**
  * 初始化内存管理系统
  *
@@ -90,12 +61,10 @@ void kmem_cache_allInfo() {
  * 3. 分配第一个slab用于cache_cache
  * 4. 设置缓存行对齐参数
  */
-void kmem_init(void* space, int block_num) {
-  // 初始化底层buddy分配器
-  global_buddy = new Buddy("slab_buddy", space, block_num);
-
+AAA::AAA(void* space, int block_num)
+    : global_buddy(Buddy("slab_buddy", space, block_num)) {
   // 为cache_cache分配第一个slab
-  void* ptr = global_buddy->Alloc(CACHE_CACHE_ORDER);
+  void* ptr = global_buddy.Alloc(CACHE_CACHE_ORDER);
   if (ptr == nullptr) exit(1);
   slab_t* slab = (slab_t*)ptr;
 
@@ -180,9 +149,9 @@ void kmem_init(void* space, int block_num) {
  * 5. 计算每个slab能容纳的对象数量
  * 6. 设置缓存行对齐参数
  */
-kmem_cache_t* kmem_cache_create(const char* name, size_t size,
-                                void (*ctor)(void*),
-                                void (*dtor)(void*))  // Allocate cache
+kmem_cache_t* AAA::kmem_cache_create(const char* name, size_t size,
+                                     void (*ctor)(void*),
+                                     void (*dtor)(void*))  // Allocate cache
 {
   // 参数验证
   if (name == nullptr || *name == '\0' || (long)size <= 0) {
@@ -246,7 +215,7 @@ kmem_cache_t* kmem_cache_create(const char* name, size_t size,
   if (s == nullptr)  // 没有足够空间，需要为cache_cache分配更多空间
   {
     lock_guard<mutex> guard(buddy_mutex);
-    void* ptr = global_buddy->Alloc(CACHE_CACHE_ORDER);
+    void* ptr = global_buddy.Alloc(CACHE_CACHE_ORDER);
     if (ptr == nullptr) {
       cache_cache.error_code = 2;
       return nullptr;
@@ -380,7 +349,7 @@ kmem_cache_t* kmem_cache_create(const char* name, size_t size,
  * 2. 只在cache不处于增长状态时执行
  * 3. 返回释放的内存块总数
  */
-int kmem_cache_shrink(kmem_cache_t* cachep)  // Shrink cache
+int AAA::kmem_cache_shrink(kmem_cache_t* cachep)  // Shrink cache
 {
   if (cachep == nullptr) return 0;
 
@@ -397,7 +366,7 @@ int kmem_cache_shrink(kmem_cache_t* cachep)  // Shrink cache
     while (cachep->slabs_free != nullptr) {
       s = cachep->slabs_free;
       cachep->slabs_free = s->next;
-      global_buddy->Free(s, cachep->order);  // 释放slab到buddy分配器
+      global_buddy.Free(s, cachep->order);  // 释放slab到buddy分配器
       blocksFreed += n;
       cachep->num_allocations -= cachep->objectsInSlab;
     }
@@ -419,7 +388,8 @@ int kmem_cache_shrink(kmem_cache_t* cachep)  // Shrink cache
  * 4. 更新slab链表状态（free->partial->full）
  * 5. 调用对象构造函数（如果存在）
  */
-void* kmem_cache_alloc(kmem_cache_t* cachep)  // Allocate one object from cache
+void* AAA::kmem_cache_alloc(
+    kmem_cache_t* cachep)  // Allocate one object from cache
 {
   if (cachep == nullptr || *cachep->name == '\0') return nullptr;
 
@@ -436,7 +406,7 @@ void* kmem_cache_alloc(kmem_cache_t* cachep)  // Allocate one object from cache
   {
     lock_guard<mutex> guard(buddy_mutex);
 
-    void* ptr = global_buddy->Alloc(cachep->order);
+    void* ptr = global_buddy.Alloc(cachep->order);
     if (ptr == nullptr) {
       cachep->error_code = 2;
       return nullptr;
@@ -528,8 +498,8 @@ void* kmem_cache_alloc(kmem_cache_t* cachep)  // Allocate one object from cache
  * 4. 调用对象析构函数（如果存在）
  * 5. 更新slab链表状态（full->partial->free）
  */
-void kmem_cache_free(kmem_cache_t* cachep,
-                     void* objp)  // Deallocate one object from cache
+void AAA::kmem_cache_free(kmem_cache_t* cachep,
+                          void* objp)  // Deallocate one object from cache
 {
   if (cachep == nullptr || *cachep->name == '\0' || objp == nullptr) return;
 
@@ -650,7 +620,7 @@ void kmem_cache_free(kmem_cache_t* cachep,
  *
  * 支持的大小范围：32字节到131072字节
  */
-void* kmalloc(size_t size)  // Alloacate one small memory buffer
+void* AAA::kmalloc(size_t size)  // Alloacate one small memory buffer
 {
   if (size < 32 || size > 131072) return nullptr;
 
@@ -688,7 +658,7 @@ void* kmalloc(size_t size)  // Alloacate one small memory buffer
  * 2. 在每个小内存cache的slab中查找指定对象
  * 3. 检查对象地址是否在slab的地址范围内
  */
-kmem_cache_t* find_buffers_cache(const void* objp) {
+kmem_cache_t* AAA::find_buffers_cache(const void* objp) {
   lock_guard<mutex> guard(cache_cache.cache_mutex);
 
   kmem_cache_t* curr = allCaches;
@@ -734,7 +704,7 @@ kmem_cache_t* find_buffers_cache(const void* objp) {
  * 2. 释放对象到对应的cache
  * 3. 尝试收缩cache以节省内存
  */
-void kfree(const void* objp)  // Deallocate one small memory buffer
+void AAA::kfree(const void* objp)  // Deallocate one small memory buffer
 {
   if (objp == nullptr) return;
 
@@ -762,7 +732,7 @@ void kfree(const void* objp)  // Deallocate one small memory buffer
  * 4. 更新cache_cache的链表状态
  * 5. 清理cache_cache中多余的空闲slab
  */
-void kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
+void AAA::kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
 {
   if (cachep == nullptr || *cachep->name == '\0') return;
 
@@ -840,7 +810,7 @@ void kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
   while (freeTemp != nullptr) {
     ptr = freeTemp;
     freeTemp = freeTemp->next;
-    global_buddy->Free(ptr, cachep->order);
+    global_buddy.Free(ptr, cachep->order);
   }
 
   // 释放partial slab链表
@@ -848,7 +818,7 @@ void kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
   while (freeTemp != nullptr) {
     ptr = freeTemp;
     freeTemp = freeTemp->next;
-    global_buddy->Free(ptr, cachep->order);
+    global_buddy.Free(ptr, cachep->order);
   }
 
   // 释放free slab链表
@@ -856,7 +826,7 @@ void kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
   while (freeTemp != nullptr) {
     ptr = freeTemp;
     freeTemp = freeTemp->next;
-    global_buddy->Free(ptr, cachep->order);
+    global_buddy.Free(ptr, cachep->order);
   }
 
   // 检查cache_cache中的slab现在是否为空闲或部分使用状态
@@ -922,7 +892,7 @@ void kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
       cache_cache.slabs_free = cache_cache.slabs_free->next;
       s->next = nullptr;
       cache_cache.slabs_free->prev = nullptr;
-      global_buddy->Free(s, cache_cache.order);
+      global_buddy.Free(s, cache_cache.order);
       cache_cache.num_allocations -= cache_cache.objectsInSlab;
     }
   }
@@ -938,7 +908,7 @@ void kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
  * 2. 计算cache的总大小和使用率
  * 3. 打印cache的各项统计信息
  */
-void kmem_cache_info(kmem_cache_t* cachep)  // Print cache info
+void AAA::kmem_cache_info(kmem_cache_t* cachep)  // Print cache info
 {
   lock_guard<mutex> guard1(cout_mutex);
 
@@ -1001,7 +971,7 @@ void kmem_cache_info(kmem_cache_t* cachep)  // Print cache info
  * 2. 根据错误码打印相应的错误信息
  * 3. 返回错误码供调用者使用
  */
-int kmem_cache_error(kmem_cache_t* cachep)  // Print error message
+int AAA::kmem_cache_error(kmem_cache_t* cachep)  // Print error message
 {
   lock_guard<mutex> guard1(cout_mutex);
 
@@ -1052,6 +1022,19 @@ int kmem_cache_error(kmem_cache_t* cachep)  // Print error message
   }
 
   return error_code;
+}
+
+/**
+ * 打印所有cache的信息
+ * 遍历allCaches链表，调用kmem_cache_info打印每个cache的详细信息
+ */
+void AAA::kmem_cache_allInfo() {
+  kmem_cache_t* curr = allCaches;
+  while (curr != nullptr) {
+    kmem_cache_info(curr);
+    cout << endl;
+    curr = curr->next;
+  }
 }
 
 /*
