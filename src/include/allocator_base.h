@@ -53,7 +53,10 @@ class AllocatorBase {
    * @return true            成功
    * @return false           失败
    */
-  virtual auto Alloc(void* addr, size_t length) -> bool = 0;
+  virtual auto Alloc([[maybe_unused]] void* addr,
+                     [[maybe_unused]] size_t length) -> bool {
+    return false;
+  }
 
   /**
    * @brief 释放指定地址和长度的内存
@@ -66,13 +69,17 @@ class AllocatorBase {
    * @brief 获取已使用的内存数量
    * @return size_t          已使用的数量
    */
-  [[nodiscard]] virtual auto GetUsedCount() const -> size_t = 0;
+  [[nodiscard]] virtual auto GetUsedCount() const -> size_t {
+    return used_count_;
+  }
 
   /**
    * @brief 获取空闲的内存数量
    * @return size_t          空闲的数量
    */
-  [[nodiscard]] virtual auto GetFreeCount() const -> size_t = 0;
+  [[nodiscard]] virtual auto GetFreeCount() const -> size_t {
+    return free_count_;
+  }
 
  protected:
   /// 分配器名称

@@ -71,29 +71,12 @@ class Buddy : public AllocatorBase {
   [[nodiscard]] auto Alloc(size_t order) -> void* override;
 
   /**
-   * 不支持指定地址分配
-   */
-  auto Alloc(void*, size_t) -> bool override;
-
-  /**
    * @brief 释放2的幂次方页数的内存
    * @param addr 要释放的内存起始地址
    * @param order 阶数，实际释放 2^order 个页面
    * @note 必须与分配时使用的order值相同
    */
   void Free(void* addr, size_t order) override;
-
-  /**
-   * @brief 获取已使用的页数
-   * @return size_t 已使用的页数
-   */
-  [[nodiscard]] auto GetUsedCount() const -> size_t override;
-
-  /**
-   * @brief 获取空闲的页数
-   * @return size_t 空闲的页数
-   */
-  [[nodiscard]] auto GetFreeCount() const -> size_t override;
 
  protected:
   // 最大支持 2^31 个页面，足够大部分应用

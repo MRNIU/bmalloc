@@ -36,9 +36,13 @@ Buddy::Buddy(const char* name, void* start_addr, size_t total_pages)
     return;
   }
 
+  // 初始化计数器：所有页面开始时都是空闲的
+  used_count_ = 0;
+  free_count_ = total_pages;
+
   // 将 total_pages 按二进制位分解，每个位对应一个大小的块
   auto remaining_pages = total_pages;
-  // 当前地址偏移（以页为单位）
+  // 当前地址偏移(以页为单位)
   size_t current_addr_offset = 0;
 
   for (size_t order = 0; order < length_ && remaining_pages > 0; order++) {
@@ -68,7 +72,7 @@ auto Buddy::Alloc(size_t order) -> void* {
     return nullptr;
   }
 
-  // 寻找第一个可用的块（从目标大小开始向上查找）
+  // 寻找第一个可用的块(从目标大小开始向上查找)
   for (auto current_order = order; current_order < length_; current_order++) {
     if (free_block_lists_[current_order] != nullptr) {
       // 从空闲链表头部取出一个块
@@ -78,13 +82,17 @@ auto Buddy::Alloc(size_t order) -> void* {
 
       // 如果找到的块正好是目标大小，直接返回
       if (current_order == order) {
+        // 更新计数器
+        size_t allocated_pages = 1 << order;
+        used_count_ += allocated_pages;
+        free_count_ -= allocated_pages;
         return block;
       }
 
       // 否则需要分割成目标大小，将多余的块放回对应的空闲链表
       while (current_order > order) {
         current_order--;
-        // 计算 buddy 块地址（分割后的第二个块）
+        // 计算 buddy 块地址(分割后的第二个块)
         void* buddy_block =
             static_cast<char*>(block) + kPageSize * (1 << current_order);
 
@@ -92,14 +100,17 @@ auto Buddy::Alloc(size_t order) -> void* {
         InsertToFreeList(free_block_lists_[current_order], buddy_block);
       }
 
+      // 更新计数器
+      size_t allocated_pages = 1 << order;
+      used_count_ += allocated_pages;
+      free_count_ -= allocated_pages;
+
       return block;
     }
   }
 
   return nullptr;
 }
-
-auto Buddy::Alloc(void*, size_t) -> bool { return false; }
 
 void Buddy::Free(void* addr, size_t order) {
   // 参数检查
@@ -125,7 +136,7 @@ void Buddy::Free(void* addr, size_t order) {
        curr = curr->next) {
     void* curr_addr = static_cast<void*>(curr);
 
-    // 检查是否为右 buddy（当前要释放的块的右边相邻块）
+    // 检查是否为右 buddy(当前要释放的块的右边相邻块)
     if (curr_addr == right_buddy) {
       if (IsValidBlockAddress(addr, block_size)) {
         // 从链表中移除找到的 buddy 块并递归合并
@@ -134,10 +145,10 @@ void Buddy::Free(void* addr, size_t order) {
         return;
       }
     }
-    // 检查是否为左 buddy（当前要释放的块的左边相邻块）
+    // 检查是否为左 buddy(当前要释放的块的左边相邻块)
     else if (curr_addr == left_buddy_start) {
       if (IsValidBlockAddress(curr_addr, block_size)) {
-        // 从链表中移除找到的 buddy 块并递归合并（使用左 buddy 的地址）
+        // 从链表中移除找到的 buddy 块并递归合并(使用左 buddy 的地址)
         RemoveFromFreeList(free_block_lists_[order], curr);
         Free(curr_addr, order + 1);
         return;
@@ -147,35 +158,11 @@ void Buddy::Free(void* addr, size_t order) {
 
   // 没有找到可合并的 buddy，直接插入到链表头部
   InsertToFreeList(free_block_lists_[order], addr);
-}
 
-auto Buddy::GetUsedCount() const -> size_t {
-  size_t maxPages = (length_ > 0) ? (1 << (length_ - 1)) : 0;
-  return maxPages - GetFreeCount();
-}
-
-auto Buddy::GetFreeCount() const -> size_t {
-  size_t total_free_pages = 0;
-
-  // 遍历所有阶数的空闲链表
-  for (auto it = free_block_lists_.begin();
-       it != free_block_lists_.begin() + length_; ++it) {
-    size_t order = std::distance(free_block_lists_.begin(), it);
-    size_t pages_per_block = 1 << order;
-    size_t block_count = 0;
-
-    // 遍历当前阶数的空闲链表，统计块数
-    FreeBlockNode* current = *it;
-    while (current != nullptr) {
-      block_count++;
-      current = current->next;
-    }
-
-    // 累加当前阶数的空闲页数
-    total_free_pages += block_count * pages_per_block;
-  }
-
-  return total_free_pages;
+  // 更新计数器
+  size_t freed_pages = 1 << order;
+  used_count_ -= freed_pages;
+  free_count_ += freed_pages;
 }
 
 }  // namespace bmalloc
