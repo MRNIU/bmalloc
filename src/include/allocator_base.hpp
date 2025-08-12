@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
+#include <utility>
 
 namespace bmalloc {
 
@@ -95,12 +96,12 @@ class AllocatorBase {
   /**
    * @brief 记录日志信息
    * @param  format          格式化字符串
-   * @param  ...             可变参数
+   * @param  args            可变参数（使用完美转发）
    */
   template <typename... Args>
-  void Log(const char* format, Args... args) const {
+  void Log(const char* format, Args&&... args) const {
     if (log_func_) {
-      log_func_(format, args...);
+      log_func_(format, std::forward<Args>(args)...);
     }
   }
 

@@ -24,8 +24,10 @@ class FirstFit : public AllocatorBase {
    * @param name 分配器名称
    * @param start_addr 管理的内存起始地址
    * @param page_count 管理的页数
+   * @param log_func printf 风格的日志函数指针（可选）
    */
-  explicit FirstFit(const char* name, void* start_addr, size_t page_count);
+  explicit FirstFit(const char* name, void* start_addr, size_t page_count,
+                    int (*log_func)(const char*, ...) = nullptr);
 
   /// @name 构造/析构函数
   /// @{

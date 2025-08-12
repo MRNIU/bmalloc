@@ -48,9 +48,11 @@ class Buddy : public AllocatorBase {
    * @param name 分配器名称
    * @param start_addr 管理的内存起始地址
    * @param total_pages 管理的总页数
+   * @param log_func printf 风格的日志函数指针（可选）
    * @note 内部会将length_设置为最大阶数级别(log2(total_pages)+1)，而不是页数
    */
-  explicit Buddy(const char* name, void* start_addr, size_t total_pages);
+  explicit Buddy(const char* name, void* start_addr, size_t total_pages,
+                 int (*log_func)(const char*, ...) = nullptr);
 
   /// @name 构造/析构函数
   /// @{

@@ -4,17 +4,29 @@
  * @brief FirstFit分配器的Google Test测试用例
  */
 
-#include "first_fit.h"
-
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstdarg>
 #include <cstring>
 #include <iostream>
 #include <random>
 #include <vector>
 
+#include "first_fit.h"
+
 namespace bmalloc {
+
+/**
+ * @brief 简单的日志函数实现
+ */
+int firstfit_printf(const char* format, ...) {
+  va_list args;
+  va_start(args, format);
+  int result = vprintf(format, args);
+  va_end(args);
+  return result;
+}
 
 /**
  * @brief 辅助函数：打印 FirstFit 分配器的当前状态
@@ -23,13 +35,13 @@ namespace bmalloc {
 class FirstFitDebugHelper : public FirstFit {
  public:
   FirstFitDebugHelper(const char* name, void* start_addr, size_t page_count)
-      : FirstFit(name, start_addr, page_count) {}
+      : FirstFit(name, start_addr, page_count, firstfit_printf) {}
 
   void print() const {
     printf("\n==========================================\n");
     printf("FirstFit 分配器状态详情\n");
-    printf("管理页数: %zu, 已使用: %zu, 空闲: %zu\n", 
-           length_, used_count_, free_count_);
+    printf("管理页数: %zu, 已使用: %zu, 空闲: %zu\n", length_, used_count_,
+           free_count_);
 
     printf("位图状态 (仅显示前64页):\n");
     size_t display_pages = std::min(length_, static_cast<size_t>(64));
@@ -47,9 +59,7 @@ class FirstFitDebugHelper : public FirstFit {
   }
 
   // 提供访问位图的方法用于测试
-  bool IsPageAllocated(size_t page_index) const {
-    return bitmap_[page_index];
-  }
+  bool IsPageAllocated(size_t page_index) const { return bitmap_[page_index]; }
 
   size_t GetLength() const { return length_; }
 };
@@ -73,8 +83,8 @@ class FirstFitTest : public ::testing::Test {
     std::memset(test_memory_, 0, test_memory_size_);
 
     // 创建firstfit分配器实例（使用带调试功能的版本）
-    firstfit_ = std::make_unique<FirstFitDebugHelper>("test_firstfit", test_memory_,
-                                                      test_pages_);
+    firstfit_ = std::make_unique<FirstFitDebugHelper>(
+        "test_firstfit", test_memory_, test_pages_);
   }
 
   void TearDown() override {
@@ -139,7 +149,8 @@ class FirstFitTest : public ::testing::Test {
       std::cout << " - " << (page_index + page_count - 1);
     }
     std::cout << " (共 " << page_count << " 页)" << std::endl;
-    std::cout << "  总大小: " << (page_count * AllocatorBase::kPageSize) << " 字节" << std::endl;
+    std::cout << "  总大小: " << (page_count * AllocatorBase::kPageSize)
+              << " 字节" << std::endl;
 
     // 检查内存块是否在管理范围内
     if (page_index + page_count > firstfit_->GetLength()) {
@@ -173,7 +184,7 @@ class FirstFitTest : public ::testing::Test {
     auto* data = static_cast<uint8_t*>(ptr);
     size_t size = page_count * AllocatorBase::kPageSize;
     std::uniform_int_distribution<uint8_t> dist(0, 255);
-    
+
     for (size_t i = 0; i < size; ++i) {
       data[i] = dist(gen);
     }
@@ -184,11 +195,11 @@ class FirstFitTest : public ::testing::Test {
                   const std::vector<uint8_t>& expected_data) {
     auto* data = static_cast<uint8_t*>(ptr);
     size_t size = page_count * AllocatorBase::kPageSize;
-    
+
     if (expected_data.size() != size) {
       return false;
     }
-    
+
     for (size_t i = 0; i < size; ++i) {
       if (data[i] != expected_data[i]) {
         return false;
@@ -326,7 +337,8 @@ TEST_F(FirstFitTest, MemoryExhaustion) {
   for (int i = 0; i < 1000; ++i) {
     void* ptr = firstfit_->Alloc(1);
     if (ptr == nullptr) {
-      std::cout << "\n内存耗尽，共分配了 " << allocated_blocks.size() << " 页" << std::endl;
+      std::cout << "\n内存耗尽，共分配了 " << allocated_blocks.size() << " 页"
+                << std::endl;
       break;
     }
 
@@ -338,8 +350,8 @@ TEST_F(FirstFitTest, MemoryExhaustion) {
     if ((i + 1) <= 10 || (i + 1) % 50 == 0) {
       auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
       size_t page_index = offset / AllocatorBase::kPageSize;
-      std::cout << "第" << (i + 1) << "个分配: " << ptr 
-                << " (页" << page_index << ")" << std::endl;
+      std::cout << "第" << (i + 1) << "个分配: " << ptr << " (页" << page_index
+                << ")" << std::endl;
     }
   }
 
@@ -361,7 +373,8 @@ TEST_F(FirstFitTest, MemoryExhaustion) {
   }
   EXPECT_EQ(verified_count, allocated_blocks.size())
       << "所有内存块的数据完整性验证应该通过";
-  std::cout << "验证了 " << verified_count << " 个内存块的数据完整性" << std::endl;
+  std::cout << "验证了 " << verified_count << " 个内存块的数据完整性"
+            << std::endl;
 
   // 释放所有内存
   std::cout << "\n开始释放所有内存..." << std::endl;
@@ -437,36 +450,42 @@ TEST_F(FirstFitTest, MemoryReadWrite) {
  */
 TEST_F(FirstFitTest, FixedAddressAllocation) {
   std::cout << "\n=== FixedAddressAllocation 测试开始 ===" << std::endl;
-  
+
   // 计算特定页的地址
   size_t target_page = 10;
-  void* target_addr = static_cast<char*>(test_memory_) + target_page * AllocatorBase::kPageSize;
-  
+  void* target_addr =
+      static_cast<char*>(test_memory_) + target_page * AllocatorBase::kPageSize;
+
   std::cout << "尝试在指定地址分配内存..." << std::endl;
-  std::cout << "目标地址: " << target_addr << " (页" << target_page << ")" << std::endl;
-  
+  std::cout << "目标地址: " << target_addr << " (页" << target_page << ")"
+            << std::endl;
+
   // 在指定地址分配2页
   bool success = firstfit_->Alloc(target_addr, 2);
   EXPECT_TRUE(success) << "指定地址分配应该成功";
-  
+
   if (success) {
     std::cout << "✓ 指定地址分配成功" << std::endl;
     firstfit_->print();
-    
+
     // 验证页面确实被标记为已分配
-    EXPECT_TRUE(firstfit_->IsPageAllocated(target_page)) << "目标页应该被标记为已分配";
-    EXPECT_TRUE(firstfit_->IsPageAllocated(target_page + 1)) << "目标页+1应该被标记为已分配";
-    
+    EXPECT_TRUE(firstfit_->IsPageAllocated(target_page))
+        << "目标页应该被标记为已分配";
+    EXPECT_TRUE(firstfit_->IsPageAllocated(target_page + 1))
+        << "目标页+1应该被标记为已分配";
+
     // 尝试在已分配的地址再次分配（应该失败）
     bool should_fail = firstfit_->Alloc(target_addr, 1);
     EXPECT_FALSE(should_fail) << "在已分配地址再次分配应该失败";
-    
+
     // 释放内存
     firstfit_->Free(target_addr, 2);
-    EXPECT_FALSE(firstfit_->IsPageAllocated(target_page)) << "释放后页面应该标记为空闲";
-    EXPECT_FALSE(firstfit_->IsPageAllocated(target_page + 1)) << "释放后页面应该标记为空闲";
+    EXPECT_FALSE(firstfit_->IsPageAllocated(target_page))
+        << "释放后页面应该标记为空闲";
+    EXPECT_FALSE(firstfit_->IsPageAllocated(target_page + 1))
+        << "释放后页面应该标记为空闲";
   }
-  
+
   std::cout << "=== FixedAddressAllocation 测试结束 ===\n" << std::endl;
 }
 
@@ -529,10 +548,11 @@ TEST_F(FirstFitTest, UsedAndFreeCount) {
 TEST_F(FirstFitTest, FreeInvalidAddress) {
   // 释放不在管理范围内的地址应该是安全的
   EXPECT_NO_FATAL_FAILURE(firstfit_->Free(nullptr, 1));
-  
+
   // 测试其他无效地址
   void* invalid_addr1 = (void*)0x1000000;  // 远超管理范围的地址
-  void* invalid_addr2 = static_cast<char*>(test_memory_) - 4096;  // 管理范围之前的地址
+  void* invalid_addr2 =
+      static_cast<char*>(test_memory_) - 4096;  // 管理范围之前的地址
 
   EXPECT_NO_FATAL_FAILURE(firstfit_->Free(invalid_addr1, 1));
   EXPECT_NO_FATAL_FAILURE(firstfit_->Free(invalid_addr2, 1));
@@ -556,13 +576,13 @@ TEST_F(FirstFitTest, StressTest) {
 
   for (int i = 0; i < operations; ++i) {
     double action = action_dist(gen);
-    
+
     // 70% 概率分配，30% 概率释放
     if (action < 0.7 || allocated_blocks.empty()) {
       // 分配
       size_t page_count = page_dist(gen);
       void* ptr = firstfit_->Alloc(page_count);
-      
+
       if (ptr != nullptr) {
         // 填充随机数据
         FillRandomData(ptr, page_count, gen);
@@ -573,15 +593,16 @@ TEST_F(FirstFitTest, StressTest) {
     } else {
       // 释放随机选择的块
       if (!allocated_blocks.empty()) {
-        std::uniform_int_distribution<> index_dist(0, allocated_blocks.size() - 1);
+        std::uniform_int_distribution<> index_dist(0,
+                                                   allocated_blocks.size() - 1);
         size_t index = index_dist(gen);
-        
+
         auto [ptr, page_count, expected_data] = allocated_blocks[index];
-        
+
         // 验证数据完整性
-        EXPECT_TRUE(VerifyData(ptr, page_count, expected_data)) 
+        EXPECT_TRUE(VerifyData(ptr, page_count, expected_data))
             << "释放前数据完整性验证失败";
-        
+
         firstfit_->Free(ptr, page_count);
         allocated_blocks.erase(allocated_blocks.begin() + index);
         free_count++;
@@ -595,7 +616,8 @@ TEST_F(FirstFitTest, StressTest) {
   }
 
   EXPECT_GT(alloc_count, 0) << "压力测试应该进行了一些分配操作";
-  std::cout << "压力测试统计: 分配=" << alloc_count << ", 释放=" << free_count << std::endl;
+  std::cout << "压力测试统计: 分配=" << alloc_count << ", 释放=" << free_count
+            << std::endl;
 }
 
 }  // namespace bmalloc
