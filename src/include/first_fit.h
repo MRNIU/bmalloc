@@ -9,7 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "allocator_base.h"
+#include "allocator_base.hpp"
 
 namespace bmalloc {
 
