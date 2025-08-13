@@ -209,7 +209,13 @@ class Buddy : public AllocatorBase<LogFunc, Lock> {
    * @note 必须与分配时使用的order值相同
    */
   void FreeImpl(void* addr, size_t order) override {
-    // 参数检查
+    // 参数检查：首先检查空指针
+    if (addr == nullptr) {
+      Log("Buddy allocator '%s' free failed: addr is nullptr\n", name_);
+      return;
+    }
+
+    // 参数检查：检查order范围
     if (order >= length_) {
       Log("Buddy allocator '%s' free failed: order %zu >= max_order %zu\n",
           name_, order, length_);

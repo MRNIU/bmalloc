@@ -22,6 +22,13 @@
 
 namespace bmalloc {
 
+// 测试常量定义
+constexpr size_t kSingleThreadMemoryMB = 1;   // 单线程测试使用1MB内存
+constexpr size_t kMultiThreadMemoryMB = 2;    // 多线程测试使用2MB内存
+constexpr int kStressTestThreads = 8;         // 压力测试线程数
+constexpr int kStressTestOpsPerThread = 200;  // 每线程操作数
+constexpr int kStressTestDurationSec = 5;     // 压力测试持续时间（秒）
+
 /**
  * @brief 测试用的互斥锁实现
  * @details 基于std::mutex实现的LockBase接口，用于多线程测试
@@ -45,8 +52,8 @@ class TestLogFunc {
   void operator()(const char* format, ...) const {
     va_list args;
     va_start(args, format);
-    printf("[BUDDY LOG] ");
-    vprintf(format, args);
+    // printf("[BUDDY LOG] ");
+    // vprintf(format, args);
     va_end(args);
   }
 };
@@ -63,27 +70,35 @@ class BuddyDebugHelper : public Buddy<TestLogFunc, TestMutexLock> {
   void print() const {
     printf("\n==========================================\n");
     printf("Buddy 分配器状态详情\n");
+    printf("总页数: %zu, 已用: %zu, 空闲: %zu\n",
+           this->GetFreeCount() + this->GetUsedCount(), this->GetUsedCount(),
+           this->GetFreeCount());
 
     printf("当前空闲块链表状态:\n");
     for (size_t i = 0; i < this->length_; i++) {
-      auto size = static_cast<size_t>(1 << i);
-      printf("entry[%zu](管理%zu页块) -> ", i, size);
-      typename Buddy<TestLogFunc, TestMutexLock>::FreeBlockNode* curr =
-          this->free_block_lists_[i];
+      auto block_size = static_cast<size_t>(1 << i);
+      printf("order[%zu](%zu页块) -> ", i, block_size);
 
-      bool has_blocks = false;
+      auto* curr = this->free_block_lists_[i];
+      size_t block_count = 0;
+
       while (curr != nullptr) {
-        auto first = static_cast<size_t>(
+        auto page_offset = static_cast<size_t>(
             (static_cast<const char*>(static_cast<void*>(curr)) -
              static_cast<const char*>(this->start_addr_)) /
             kPageSize);
-        printf("块[页%zu~%zu] -> ", first, first + size - 1);
+
+        if (block_count > 0) printf(" -> ");
+        printf("页[%zu-%zu]", page_offset, page_offset + block_size - 1);
+
         curr = curr->next;
-        has_blocks = true;
+        block_count++;
       }
-      printf("NULL");
-      if (!has_blocks) {
-        printf("  (此大小无空闲块)");
+
+      if (block_count == 0) {
+        printf("(无空闲块)");
+      } else {
+        printf(" -> NULL (%zu个块)", block_count);
       }
       printf("\n");
     }
@@ -92,25 +107,21 @@ class BuddyDebugHelper : public Buddy<TestLogFunc, TestMutexLock> {
 };
 
 /**
- * @brief Buddy分配器测试夹具类
- * 提供测试环境的初始化和清理
+ * @brief Buddy分配器测试基类
+ * 提供测试环境的通用初始化和清理功能
  */
-class BuddyTest : public ::testing::Test {
+class BuddyTestBase : public ::testing::Test {
  protected:
-  void SetUp() override {
-    // 分配测试用的内存池 (1MB = 256页)
-    test_memory_size_ = 1024 * 1024;              // 1MB
-    test_pages_ = test_memory_size_ / kPageSize;  // 256页
+  void SetUpWithSize(size_t memory_size_mb) {
+    // 分配测试用的内存池
+    test_memory_size_ = memory_size_mb * 1024 * 1024;
+    test_pages_ = test_memory_size_ / kPageSize;
     test_memory_ = std::aligned_alloc(kPageSize, test_memory_size_);
 
     ASSERT_NE(test_memory_, nullptr) << "无法分配测试内存";
 
     // 初始化为0，便于检测内存污染
     std::memset(test_memory_, 0, test_memory_size_);
-
-    // 创建buddy分配器实例（使用带调试功能的版本）
-    buddy_ = std::make_unique<BuddyDebugHelper>("test_buddy", test_memory_,
-                                                test_pages_);
   }
 
   void TearDown() override {
@@ -135,6 +146,55 @@ class BuddyTest : public ::testing::Test {
     auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
     size_t pages = 1 << order;
     return (offset / kPageSize) % pages == 0;
+  }
+
+  // 辅助函数：验证地址有效性（通用版本）
+  bool ValidateAddress(void* ptr, size_t order) const {
+    if (!ptr || !IsInManagedRange(ptr)) return false;
+
+    auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
+    if (offset % kPageSize != 0) return false;
+
+    size_t page_num = offset / kPageSize;
+    size_t pages = 1 << order;
+    return (page_num % pages == 0) && (page_num + pages <= test_pages_);
+  }
+
+  // 辅助函数：性能测量包装器
+  template <typename Func>
+  std::chrono::milliseconds MeasureTime(
+      Func&& func, const std::string& operation_name = "") {
+    auto start = std::chrono::steady_clock::now();
+    func();
+    auto end = std::chrono::steady_clock::now();
+    auto duration =
+        std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    if (!operation_name.empty()) {
+      std::cout << operation_name << " 耗时: " << duration.count() << "ms"
+                << std::endl;
+    }
+
+    return duration;
+  }
+
+  std::unique_ptr<BuddyDebugHelper> buddy_;
+  void* test_memory_ = nullptr;
+  size_t test_memory_size_ = 0;
+  size_t test_pages_ = 0;
+};
+
+/**
+ * @brief Buddy分配器单线程测试夹具类
+ * 提供单线程测试环境的初始化和清理
+ */
+class BuddyTest : public BuddyTestBase {
+ protected:
+  void SetUp() override {
+    SetUpWithSize(kSingleThreadMemoryMB);  // 1MB for single-thread tests
+    // 创建buddy分配器实例（使用带调试功能的版本）
+    buddy_ = std::make_unique<BuddyDebugHelper>("test_buddy", test_memory_,
+                                                test_pages_);
   }
 
   // 辅助函数：全面检查分配地址的有效性
@@ -387,19 +447,10 @@ class BuddyTest : public ::testing::Test {
  * @brief 多线程Buddy分配器测试夹具类
  * 使用线程安全的锁机制
  */
-class BuddyMultiThreadTest : public ::testing::Test {
+class BuddyMultiThreadTest : public BuddyTestBase {
  protected:
   void SetUp() override {
-    // 分配测试用的内存池 (2MB = 512页，更大的内存用于多线程测试)
-    test_memory_size_ = 2 * 1024 * 1024;          // 2MB
-    test_pages_ = test_memory_size_ / kPageSize;  // 512页
-    test_memory_ = std::aligned_alloc(kPageSize, test_memory_size_);
-
-    ASSERT_NE(test_memory_, nullptr) << "无法分配测试内存";
-
-    // 初始化为0，便于检测内存污染
-    std::memset(test_memory_, 0, test_memory_size_);
-
+    SetUpWithSize(kMultiThreadMemoryMB);  // 2MB for multi-thread tests
     // 创建测试用的锁
     lock_ = std::make_unique<TestMutexLock>();
 
@@ -409,39 +460,11 @@ class BuddyMultiThreadTest : public ::testing::Test {
   }
 
   void TearDown() override {
-    buddy_.reset();
     lock_.reset();
-    if (test_memory_) {
-      std::free(test_memory_);
-    }
+    BuddyTestBase::TearDown();  // 调用基类的清理方法
   }
 
-  // 辅助函数：检查内存是否在管理范围内
-  bool IsInManagedRange(void* ptr) const {
-    if (!ptr) return false;
-    auto start = static_cast<char*>(test_memory_);
-    auto end = start + test_memory_size_;
-    auto addr = static_cast<char*>(ptr);
-    return addr >= start && addr < end;
-  }
-
-  // 辅助函数：验证地址有效性（简化版本）
-  bool ValidateAddress(void* ptr, size_t order) const {
-    if (!ptr || !IsInManagedRange(ptr)) return false;
-
-    auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
-    if (offset % kPageSize != 0) return false;
-
-    size_t page_num = offset / kPageSize;
-    size_t pages = 1 << order;
-    return (page_num % pages == 0) && (page_num + pages <= test_pages_);
-  }
-
-  std::unique_ptr<BuddyDebugHelper> buddy_;
   std::unique_ptr<TestMutexLock> lock_;
-  void* test_memory_ = nullptr;
-  size_t test_memory_size_ = 0;
-  size_t test_pages_ = 0;
 };
 
 /**
