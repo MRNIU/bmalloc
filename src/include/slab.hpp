@@ -832,7 +832,36 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     return nullptr;
   }
 
-  void kfree(const void *objp);
+  /**
+   * 释放小内存缓冲区 - 通用释放接口
+   *
+   * @param objp 要释放的对象指针
+   *
+   * 功能：
+   * 1. 查找包含该对象的小内存cache
+   * 2. 释放对象到对应的cache
+   * 3. 尝试收缩cache以节省内存
+   */
+  void kfree(const void *objp) {
+    if (objp == nullptr) {
+      return;
+    }
+
+    // 查找包含该对象的cache
+    kmem_cache_t *buffCachep = find_buffers_cache(objp);
+
+    if (buffCachep == nullptr) {
+      return;
+    }
+
+    // 释放对象
+    kmem_cache_free(buffCachep, (void *)objp);
+
+    // 如果cache有空闲slab，尝试收缩以节省内存
+    if (buffCachep->slabs_free != nullptr) {
+      kmem_cache_shrink(buffCachep);
+    }
+  }
 
   void kmem_cache_destroy(kmem_cache_t *cachep);
 

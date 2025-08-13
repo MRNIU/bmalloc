@@ -942,3 +942,189 @@ TEST_F(SlabTest, FindBuffersCacheTest) {
 
   std::cout << "=== find_buffers_cache tests completed successfully! ===\n";
 }
+
+/**
+ * @brief 测试 kfree 功能
+ * 
+ * 测试内容：
+ * 1. 基本释放测试
+ * 2. 释放 nullptr 测试
+ * 3. 释放无效指针测试
+ * 4. 分配后立即释放测试
+ * 5. 多次分配和释放测试
+ * 6. 释放后的内存状态验证
+ */
+TEST_F(SlabTest, KfreeTest) {
+  std::cout << "\n=== Starting kfree tests ===\n";
+
+  using MyBuddy = Buddy<TestLogger>;
+  using MySlab = Slab<MyBuddy, TestLogger, TestLock>;
+
+  MySlab slab("slab_kfree_test", test_memory_, kTestPages);
+
+  // 1. 基本释放测试
+  std::cout << "1. Basic kfree test\n";
+  
+  void* ptr64 = slab.kmalloc(64);
+  ASSERT_NE(ptr64, nullptr) << "Failed to allocate 64 bytes";
+  
+  // 写入一些数据验证内存可用
+  memset(ptr64, 0xAA, 64);
+  
+  // 验证能找到对应的缓存
+  auto* cache_before = slab.find_buffers_cache(ptr64);
+  ASSERT_NE(cache_before, nullptr) << "Should find cache before kfree";
+  
+  // 记录释放前的状态
+  auto active_before = cache_before->num_active;
+  
+  // 释放内存
+  slab.kfree(ptr64);
+  
+  // 验证释放后缓存的活跃对象数量减少
+  EXPECT_LT(cache_before->num_active, active_before) 
+      << "Active count should decrease after kfree";
+  
+  std::cout << "Active objects before: " << active_before 
+            << ", after: " << cache_before->num_active << "\n";
+  std::cout << "Basic kfree test passed\n";
+
+  // 2. 释放 nullptr 测试
+  std::cout << "2. kfree nullptr test\n";
+  
+  // 这应该不会崩溃或产生错误
+  slab.kfree(nullptr);
+  
+  std::cout << "kfree nullptr test passed\n";
+
+  // 3. 释放无效指针测试
+  std::cout << "3. kfree invalid pointer test\n";
+  
+  // 测试无效指针（不会崩溃，但也不会释放任何内存）
+  void* invalid_ptr = reinterpret_cast<void*>(0x12345678);
+  slab.kfree(invalid_ptr);
+  
+  // 测试指向测试内存范围外的指针
+  char* out_of_range = static_cast<char*>(test_memory_) + kTestMemorySize + 1000;
+  slab.kfree(out_of_range);
+  
+  std::cout << "kfree invalid pointer test passed\n";
+
+  // 4. 分配后立即释放测试
+  std::cout << "4. Allocate and immediate free test\n";
+  
+  std::vector<size_t> test_sizes = {32, 64, 128, 256, 512, 1024};
+  
+  for (size_t size : test_sizes) {
+    void* ptr = slab.kmalloc(size);
+    if (ptr != nullptr) {
+      // 写入数据验证内存可用
+      memset(ptr, static_cast<int>(size & 0xFF), size);
+      
+      // 立即释放
+      slab.kfree(ptr);
+      
+      std::cout << "Successfully allocated and freed " << size << " bytes\n";
+    } else {
+      std::cout << "Warning: Failed to allocate " << size << " bytes\n";
+    }
+  }
+  
+  std::cout << "Allocate and immediate free test passed\n";
+
+  // 5. 多次分配和释放测试
+  std::cout << "5. Multiple allocate/free cycles test\n";
+  
+  std::vector<void*> ptrs;
+  const int num_cycles = 10;
+  const size_t alloc_size = 128;
+  
+  for (int cycle = 0; cycle < num_cycles; ++cycle) {
+    // 分配一些内存
+    for (int i = 0; i < 5; ++i) {
+      void* ptr = slab.kmalloc(alloc_size);
+      if (ptr != nullptr) {
+        ptrs.push_back(ptr);
+        // 写入数据
+        memset(ptr, cycle + i, alloc_size);
+      }
+    }
+    
+    // 释放一半内存
+    size_t to_free = ptrs.size() / 2;
+    for (size_t i = 0; i < to_free; ++i) {
+      slab.kfree(ptrs.back());
+      ptrs.pop_back();
+    }
+  }
+  
+  // 释放剩余的所有内存
+  for (void* ptr : ptrs) {
+    slab.kfree(ptr);
+  }
+  
+  std::cout << "Completed " << num_cycles << " allocation/free cycles\n";
+  std::cout << "Multiple allocate/free cycles test passed\n";
+
+  // 6. 释放后的内存状态验证
+  std::cout << "6. Memory state after free test\n";
+  
+  void* test_ptr = slab.kmalloc(256);
+  ASSERT_NE(test_ptr, nullptr) << "Failed to allocate test memory";
+  
+  auto* cache = slab.find_buffers_cache(test_ptr);
+  ASSERT_NE(cache, nullptr) << "Should find cache for test memory";
+  
+  auto active_before_final = cache->num_active;
+  
+  // 释放内存
+  slab.kfree(test_ptr);
+  
+  // 验证活跃对象数量减少
+  EXPECT_LT(cache->num_active, active_before_final) 
+      << "Active count should decrease after final kfree";
+  
+  // 尝试再次查找已释放的指针（应该仍然能找到缓存，但不应该再次释放）
+  auto* cache_after = slab.find_buffers_cache(test_ptr);
+  if (cache_after != nullptr) {
+    std::cout << "Cache still findable after kfree (expected)\n";
+  }
+  
+  // 双重释放测试（应该是安全的，不会崩溃）
+  slab.kfree(test_ptr);
+  
+  std::cout << "Memory state after free test passed\n";
+
+  // 7. 大量分配和释放测试
+  std::cout << "7. Bulk allocate and free test\n";
+  
+  std::vector<std::pair<void*, size_t>> bulk_ptrs;
+  std::vector<size_t> sizes = {32, 64, 96, 128, 160, 192, 224, 256};
+  
+  // 大量分配
+  for (int i = 0; i < 20; ++i) {
+    size_t size = sizes[i % sizes.size()];
+    void* ptr = slab.kmalloc(size);
+    if (ptr != nullptr) {
+      bulk_ptrs.push_back({ptr, size});
+      // 写入唯一标识
+      memset(ptr, i & 0xFF, size);
+    }
+  }
+  
+  std::cout << "Allocated " << bulk_ptrs.size() << " objects for bulk test\n";
+  
+  // 随机释放
+  std::random_device rd;
+  std::mt19937 g(rd());
+  std::shuffle(bulk_ptrs.begin(), bulk_ptrs.end(), g);
+  
+  for (const auto& [ptr, size] : bulk_ptrs) {
+    slab.kfree(ptr);
+  }
+  
+  std::cout << "Freed all " << bulk_ptrs.size() << " objects\n";
+  std::cout << "Bulk allocate and free test passed\n";
+
+  std::cout << "=== kfree tests completed successfully! ===\n";
+}

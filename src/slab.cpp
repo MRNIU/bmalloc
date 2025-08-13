@@ -703,21 +703,21 @@ ERROR CODES: (error_cod value)
  * 2. 释放对象到对应的cache
  * 3. 尝试收缩cache以节省内存
  */
-void AAA::kfree(const void* objp)  // Deallocate one small memory buffer
-{
-  if (objp == nullptr) return;
+// void AAA::kfree(const void* objp)  // Deallocate one small memory buffer
+// {
+//   if (objp == nullptr) return;
 
-  // 查找包含该对象的cache
-  kmem_cache_t* buffCachep = find_buffers_cache(objp);
+//   // 查找包含该对象的cache
+//   kmem_cache_t* buffCachep = find_buffers_cache(objp);
 
-  if (buffCachep == nullptr) return;
+//   if (buffCachep == nullptr) return;
 
-  // 释放对象
-  kmem_cache_free(buffCachep, (void*)objp);
+//   // 释放对象
+//   kmem_cache_free(buffCachep, (void*)objp);
 
-  // 如果cache有空闲slab，尝试收缩以节省内存
-  if (buffCachep->slabs_free != nullptr) kmem_cache_shrink(buffCachep);
-}
+//   // 如果cache有空闲slab，尝试收缩以节省内存
+//   if (buffCachep->slabs_free != nullptr) kmem_cache_shrink(buffCachep);
+// }
 
 /**
  * 销毁cache - 释放cache及其所有slab
