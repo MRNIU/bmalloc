@@ -87,22 +87,37 @@ TEST_F(BuddyTest, ConstructionWithZeroPages) {
 // 基本分配和释放测试
 TEST_F(BuddyTest, BasicAllocation) {
   Buddy<TestLogger> allocator("test_buddy", test_memory_, kTestPages);
+  std::cout << "\n=== Basic Allocation Test ===" << std::endl;
+  std::cout << "Initial state - Free: " << allocator.GetFreeCount()
+            << ", Used: " << allocator.GetUsedCount() << std::endl;
 
   // 分配1页 (order=0)
+  std::cout << "Allocating 1 page (order=0)..." << std::endl;
   void* ptr1 = allocator.Alloc(0);
   ASSERT_NE(ptr1, nullptr);
+  std::cout << "Allocated ptr1=" << ptr1
+            << ", Free: " << allocator.GetFreeCount()
+            << ", Used: " << allocator.GetUsedCount() << std::endl;
   EXPECT_EQ(allocator.GetUsedCount(), 1);
   EXPECT_EQ(allocator.GetFreeCount(), kTestPages - 1);
 
   // 分配2页 (order=1)
+  std::cout << "Allocating 2 pages (order=1)..." << std::endl;
   void* ptr2 = allocator.Alloc(1);
   ASSERT_NE(ptr2, nullptr);
+  std::cout << "Allocated ptr2=" << ptr2
+            << ", Free: " << allocator.GetFreeCount()
+            << ", Used: " << allocator.GetUsedCount() << std::endl;
   EXPECT_EQ(allocator.GetUsedCount(), 3);
   EXPECT_EQ(allocator.GetFreeCount(), kTestPages - 3);
 
   // 分配4页 (order=2)
+  std::cout << "Allocating 4 pages (order=2)..." << std::endl;
   void* ptr3 = allocator.Alloc(2);
   ASSERT_NE(ptr3, nullptr);
+  std::cout << "Allocated ptr3=" << ptr3
+            << ", Free: " << allocator.GetFreeCount()
+            << ", Used: " << allocator.GetUsedCount() << std::endl;
   EXPECT_EQ(allocator.GetUsedCount(), 7);
   EXPECT_EQ(allocator.GetFreeCount(), kTestPages - 7);
 
@@ -115,15 +130,25 @@ TEST_F(BuddyTest, BasicAllocation) {
   EXPECT_LT(ptr3, static_cast<char*>(test_memory_) + kTestMemorySize);
 
   // 释放内存
+  std::cout << "\n--- Memory Release Phase ---" << std::endl;
+  std::cout << "Freeing ptr1 (1 page)..." << std::endl;
   allocator.Free(ptr1, 0);
+  std::cout << "After freeing ptr1 - Free: " << allocator.GetFreeCount()
+            << ", Used: " << allocator.GetUsedCount() << std::endl;
   EXPECT_EQ(allocator.GetUsedCount(), 6);
   EXPECT_EQ(allocator.GetFreeCount(), kTestPages - 6);
 
+  std::cout << "Freeing ptr2 (2 pages)..." << std::endl;
   allocator.Free(ptr2, 1);
+  std::cout << "After freeing ptr2 - Free: " << allocator.GetFreeCount()
+            << ", Used: " << allocator.GetUsedCount() << std::endl;
   EXPECT_EQ(allocator.GetUsedCount(), 4);
   EXPECT_EQ(allocator.GetFreeCount(), kTestPages - 4);
 
+  std::cout << "Freeing ptr3 (4 pages)..." << std::endl;
   allocator.Free(ptr3, 2);
+  std::cout << "Final state - Free: " << allocator.GetFreeCount()
+            << ", Used: " << allocator.GetUsedCount() << std::endl;
   EXPECT_EQ(allocator.GetUsedCount(), 0);
   EXPECT_EQ(allocator.GetFreeCount(), kTestPages);
 }
@@ -131,6 +156,7 @@ TEST_F(BuddyTest, BasicAllocation) {
 // 内存数据完整性测试
 TEST_F(BuddyTest, MemoryDataIntegrityTest) {
   Buddy<TestLogger> allocator("test_buddy", test_memory_, kTestPages);
+  std::cout << "\n=== Memory Data Integrity Test ===" << std::endl;
 
   const size_t test_sizes[] = {1, 2, 4, 8};  // 不同order的测试
   std::random_device rd;
@@ -141,20 +167,30 @@ TEST_F(BuddyTest, MemoryDataIntegrityTest) {
     size_t pages = 1 << order;
     size_t bytes = pages * kPageSize;
 
+    std::cout << "Testing order " << order << " (" << pages << " pages, "
+              << bytes << " bytes)..." << std::endl;
+
     // 分配内存
     void* ptr = allocator.Alloc(order);
-    if (!ptr) continue;  // 如果内存不足，跳过这个测试
+    if (!ptr) {
+      std::cout << "  Allocation failed - insufficient memory" << std::endl;
+      continue;  // 如果内存不足，跳过这个测试
+    }
+
+    std::cout << "  Allocated at " << ptr << std::endl;
 
     uint8_t* data = static_cast<uint8_t*>(ptr);
     std::vector<uint8_t> expected_data(bytes);
 
     // 生成随机数据并写入
+    std::cout << "  Writing random data..." << std::endl;
     for (size_t i = 0; i < bytes; ++i) {
       expected_data[i] = byte_dist(gen);
       data[i] = expected_data[i];
     }
 
     // 验证数据完整性
+    std::cout << "  Verifying data integrity..." << std::endl;
     for (size_t i = 0; i < bytes; ++i) {
       ASSERT_EQ(data[i], expected_data[i])
           << "Data corruption at offset " << i << " in order " << order
@@ -162,6 +198,7 @@ TEST_F(BuddyTest, MemoryDataIntegrityTest) {
     }
 
     // 写入特殊模式测试
+    std::cout << "  Testing pattern write..." << std::endl;
     for (size_t i = 0; i < bytes; ++i) {
       data[i] = static_cast<uint8_t>(i & 0xFF);
     }
@@ -373,12 +410,15 @@ TEST_F(BuddyTest, MemoryLayoutAnalysisTest) {
 // 压力测试 - 快速分配释放
 TEST_F(BuddyTest, StressTestRapidAllocFree) {
   Buddy<TestLogger> allocator("test_buddy", test_memory_, kTestPages);
+  std::cout << "\n=== Rapid Allocation/Free Stress Test ===" << std::endl;
 
   const size_t iterations = 10000;
   std::random_device rd;
   std::mt19937 gen(rd());
   std::uniform_int_distribution<> order_dist(0, 3);
 
+  std::cout << "Starting " << iterations << " rapid alloc/free operations..."
+            << std::endl;
   auto start = std::chrono::high_resolution_clock::now();
 
   size_t successful_allocs = 0;
@@ -399,6 +439,12 @@ TEST_F(BuddyTest, StressTestRapidAllocFree) {
       allocator.Free(ptr, order);
     } else {
       failed_allocs++;
+    }
+
+    // 每1000次操作输出一次进度
+    if ((i + 1) % 1000 == 0) {
+      std::cout << "Progress: " << (i + 1) << "/" << iterations
+                << " operations completed" << std::endl;
     }
   }
 
@@ -422,6 +468,7 @@ TEST_F(BuddyTest, StressTestRapidAllocFree) {
 // 压力测试 - 内存碎片化
 TEST_F(BuddyTest, StressTestFragmentation) {
   Buddy<TestLogger> allocator("test_buddy", test_memory_, kTestPages);
+  std::cout << "\n=== Memory Fragmentation Stress Test ===" << std::endl;
 
   std::vector<std::pair<void*, size_t>> allocations;
   std::random_device rd;
@@ -431,24 +478,40 @@ TEST_F(BuddyTest, StressTestFragmentation) {
   auto start = std::chrono::high_resolution_clock::now();
 
   // 阶段1：创建碎片 - 分配大量小块
+  std::cout << "Phase 1: Creating fragmentation with small allocations..."
+            << std::endl;
   for (size_t i = 0; i < 100; ++i) {
     void* ptr = allocator.Alloc(0);  // 只分配1页
     if (ptr) {
       allocations.emplace_back(ptr, 0);
     }
   }
+  std::cout << "Allocated " << allocations.size() << " single pages"
+            << std::endl;
+  std::cout << "Memory state - Free: " << allocator.GetFreeCount()
+            << ", Used: " << allocator.GetUsedCount() << std::endl;
 
   // 阶段2：随机释放一半，创建更多碎片
+  std::cout
+      << "\nPhase 2: Randomly freeing half to create more fragmentation..."
+      << std::endl;
   std::shuffle(allocations.begin(), allocations.end(), gen);
   size_t half = allocations.size() / 2;
   for (size_t i = 0; i < half; ++i) {
     allocator.Free(allocations[i].first, allocations[i].second);
   }
   allocations.erase(allocations.begin(), allocations.begin() + half);
+  std::cout << "Freed " << half << " pages randomly" << std::endl;
+  std::cout << "Memory state - Free: " << allocator.GetFreeCount()
+            << ", Used: " << allocator.GetUsedCount() << std::endl;
 
   // 阶段3：尝试分配大块，测试合并能力
+  std::cout << "\nPhase 3: Attempting large allocations to test coalescing..."
+            << std::endl;
   size_t large_alloc_success = 0;
   for (size_t order = 1; order <= 4; ++order) {
+    std::cout << "Trying to allocate " << (1 << order) << " pages (order "
+              << order << ")..." << std::endl;
     for (size_t i = 0; i < 10; ++i) {
       void* ptr = allocator.Alloc(order);
       if (ptr) {
@@ -456,6 +519,8 @@ TEST_F(BuddyTest, StressTestFragmentation) {
         allocations.emplace_back(ptr, order);
       }
     }
+    std::cout << "  Successfully allocated " << large_alloc_success
+              << " large blocks so far" << std::endl;
   }
 
   auto end = std::chrono::high_resolution_clock::now();
@@ -492,15 +557,21 @@ TEST_F(BuddyTest, BenchmarkPerformanceTest) {
 
   // 测试1: 顺序分配相同大小
   {
+    std::cout << "Benchmark 1: Sequential same-size allocation/free..."
+              << std::endl;
     const size_t ops = 1000;
     auto start = std::chrono::high_resolution_clock::now();
 
     std::vector<void*> ptrs;
+    std::cout << "  Allocating " << ops << " single pages..." << std::endl;
     for (size_t i = 0; i < ops && ptrs.size() < kTestPages; ++i) {
       void* ptr = allocator.Alloc(0);
       if (ptr) ptrs.push_back(ptr);
     }
+    std::cout << "  Successfully allocated " << ptrs.size() << " pages"
+              << std::endl;
 
+    std::cout << "  Freeing all allocated pages..." << std::endl;
     for (void* ptr : ptrs) {
       allocator.Free(ptr, 0);
     }
@@ -516,6 +587,7 @@ TEST_F(BuddyTest, BenchmarkPerformanceTest) {
 
   // 测试2: 随机大小分配
   {
+    std::cout << "\nBenchmark 2: Random size allocation/free..." << std::endl;
     const size_t ops = 500;
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -524,12 +596,17 @@ TEST_F(BuddyTest, BenchmarkPerformanceTest) {
     auto start = std::chrono::high_resolution_clock::now();
 
     std::vector<std::pair<void*, size_t>> ptrs;
+    std::cout << "  Allocating " << ops << " blocks of random sizes..."
+              << std::endl;
     for (size_t i = 0; i < ops; ++i) {
       size_t order = order_dist(gen);
       void* ptr = allocator.Alloc(order);
       if (ptr) ptrs.emplace_back(ptr, order);
     }
+    std::cout << "  Successfully allocated " << ptrs.size() << " blocks"
+              << std::endl;
 
+    std::cout << "  Freeing all allocated blocks..." << std::endl;
     for (auto [ptr, order] : ptrs) {
       allocator.Free(ptr, order);
     }
@@ -544,6 +621,7 @@ TEST_F(BuddyTest, BenchmarkPerformanceTest) {
 
   // 测试3: 交错分配释放
   {
+    std::cout << "\nBenchmark 3: Interleaved allocation/free..." << std::endl;
     const size_t ops = 1000;
     std::vector<std::pair<void*, size_t>> active_allocs;
     std::random_device rd;
@@ -553,6 +631,11 @@ TEST_F(BuddyTest, BenchmarkPerformanceTest) {
     auto start = std::chrono::high_resolution_clock::now();
 
     size_t total_ops = 0;
+    size_t alloc_count = 0;
+    size_t free_count = 0;
+
+    std::cout << "  Running " << ops << " interleaved operations..."
+              << std::endl;
     for (size_t i = 0; i < ops; ++i) {
       if (active_allocs.empty() || (active_allocs.size() < 20 && gen() % 2)) {
         // 分配
@@ -561,6 +644,7 @@ TEST_F(BuddyTest, BenchmarkPerformanceTest) {
         if (ptr) {
           active_allocs.emplace_back(ptr, order);
           total_ops++;
+          alloc_count++;
         }
       } else {
         // 释放
@@ -569,14 +653,28 @@ TEST_F(BuddyTest, BenchmarkPerformanceTest) {
         allocator.Free(ptr, order);
         active_allocs.erase(active_allocs.begin() + idx);
         total_ops++;
+        free_count++;
+      }
+
+      // 每200次操作输出一次进度
+      if ((i + 1) % 200 == 0) {
+        std::cout << "    Progress: " << (i + 1) << "/" << ops
+                  << " ops, active blocks: " << active_allocs.size()
+                  << std::endl;
       }
     }
 
+    std::cout << "  Cleaning up " << active_allocs.size()
+              << " remaining blocks..." << std::endl;
     // 清理剩余
     for (auto [ptr, order] : active_allocs) {
       allocator.Free(ptr, order);
       total_ops++;
+      free_count++;
     }
+
+    std::cout << "  Total allocations: " << alloc_count
+              << ", Total frees: " << free_count << std::endl;
 
     auto end = std::chrono::high_resolution_clock::now();
     auto duration =
