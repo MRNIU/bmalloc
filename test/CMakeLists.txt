@@ -9,7 +9,7 @@ find_package(GTest REQUIRED)
 
 add_executable(${PROJECT_NAME}
         buddy_test.cpp
-        # firstfit_test.cpp
+        firstfit_test.cpp
         # slab_test.cpp
         # slub_test.cpp
 )
