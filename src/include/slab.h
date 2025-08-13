@@ -8,7 +8,7 @@
 #include <cstdlib>
 #include <mutex>
 
-#include "allocator_base.h"
+#include "allocator_base.hpp"
 #include "buddy.h"
 
 namespace bmalloc {

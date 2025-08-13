@@ -20,18 +20,8 @@ namespace bmalloc {
 class LockBase {
  public:
   virtual ~LockBase() = default;
-  virtual void Lock() = 0;
-  virtual void Unlock() = 0;
-};
-
-/**
- * @brief 默认的空锁实现（无操作）
- * @details 在单线程环境或不需要锁保护时使用
- */
-class NoOpLock : public LockBase {
- public:
-  void Lock() override {}
-  void Unlock() override {}
+  virtual void Lock() {}
+  virtual void Unlock() {}
 };
 
 /**
@@ -40,17 +30,9 @@ class NoOpLock : public LockBase {
  */
 class LockGuard {
  public:
-  explicit LockGuard(LockBase* lock) : lock_(lock) {
-    if (lock_) {
-      lock_->Lock();
-    }
-  }
+  explicit LockGuard(LockBase& lock) : lock_(lock) { lock_.Lock(); }
 
-  ~LockGuard() {
-    if (lock_) {
-      lock_->Unlock();
-    }
-  }
+  ~LockGuard() { lock_.Unlock(); }
 
   // 禁止复制和移动
   LockGuard(const LockGuard&) = delete;
@@ -59,13 +41,17 @@ class LockGuard {
   auto operator=(LockGuard&&) -> LockGuard& = delete;
 
  private:
-  LockBase* lock_;
+  LockBase& lock_;
 };
 
 /**
  * @brief 内存分配器抽象基类
  * @details 定义了所有内存分配器的通用接口
+ * @tparam LogFunc 日志函数类型
+ * @tparam Lock 锁类型
  */
+template <class LogFunc = std::nullptr_t, class Lock = LockBase>
+  requires std::derived_from<Lock, LockBase>
 class AllocatorBase {
  public:
   static constexpr size_t kPageSize = 4096;
@@ -75,19 +61,15 @@ class AllocatorBase {
    * @param  name            分配器名
    * @param  addr            要管理的内存开始地址
    * @param  length          要管理的内存长度，单位以具体实现为准
-   * @param  log_func        printf 风格的日志函数指针（可选）
-   * @param  lock            锁接口指针（可选，默认使用无操作锁）
+   * @param  log_func        日志函数对象（可选）
+   * @param  lock            锁对象（可选）
    */
-  explicit AllocatorBase(const char* name, void* addr, size_t length,
-                         int (*log_func)(const char*, ...) = nullptr,
-                         LockBase* lock = nullptr)
+  explicit AllocatorBase(const char* name, void* addr, size_t length)
       : name_(name),
         start_addr_(addr),
         length_(length),
         free_count_(length),
-        used_count_(0),
-        log_func_(log_func),
-        lock_(lock) {}
+        used_count_(0) {}
 
   /// @name 构造/析构函数
   /// @{
@@ -163,9 +145,7 @@ class AllocatorBase {
    */
   template <typename... Args>
   void Log(const char* format, Args&&... args) const {
-    if (log_func_) {
-      log_func_(format, std::forward<Args>(args)...);
-    }
+    log_func_(format, std::forward<Args>(args)...);
   }
 
   /// 分配器名称
@@ -178,10 +158,8 @@ class AllocatorBase {
   size_t free_count_;
   /// 当前管理的内存区域已使用数量
   size_t used_count_;
-  // printf 风格的日志函数指针，可以为 nullptr
-  int (*log_func_)(const char*, ...) = nullptr;
-  /// 用于线程安全的锁接口
-  LockBase* lock_;
+  /// 用于线程安全的锁对象
+  Lock lock_;
 };
 
 }  // namespace bmalloc
