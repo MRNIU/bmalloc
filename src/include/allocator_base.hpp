@@ -12,6 +12,8 @@
 #include <utility>
 
 namespace bmalloc {
+/// 分配器的页面大小
+static constexpr size_t kPageSize = 4096;
 
 /**
  * @brief 锁接口抽象基类
@@ -47,7 +49,7 @@ class LockGuard {
 /**
  * @brief 内存分配器抽象基类
  * @details 定义了所有内存分配器的通用接口
- * @tparam LogFunc 日志函数类型
+ * @tparam LogFunc printf 风格的日志函数类型
  * @tparam Lock 锁类型
  */
 
@@ -55,15 +57,11 @@ template <class LogFunc, class Lock>
   requires std::derived_from<Lock, LockBase> || std::is_same_v<Lock, LockBase>
 class AllocatorBase {
  public:
-  static constexpr size_t kPageSize = 4096;
-
   /**
    * @brief 构造内存分配器
    * @param  name            分配器名
    * @param  addr            要管理的内存开始地址
    * @param  length          要管理的内存长度，单位以具体实现为准
-   * @param  log_func        日志函数对象（可选）
-   * @param  lock            锁对象（可选）
    */
   explicit AllocatorBase(const char* name, void* addr, size_t length)
       : name_(name),
@@ -106,19 +104,13 @@ class AllocatorBase {
    * @brief 获取已使用的内存数量
    * @return size_t          已使用的数量
    */
-  [[nodiscard]] auto GetUsedCount() const -> size_t {
-    LockGuard guard(lock_);
-    return used_count_;
-  }
+  [[nodiscard]] auto GetUsedCount() const -> size_t { return used_count_; }
 
   /**
    * @brief 获取空闲的内存数量
    * @return size_t          空闲的数量
    */
-  [[nodiscard]] auto GetFreeCount() const -> size_t {
-    LockGuard guard(lock_);
-    return free_count_;
-  }
+  [[nodiscard]] auto GetFreeCount() const -> size_t { return free_count_; }
 
  protected:
   /**
@@ -142,11 +134,13 @@ class AllocatorBase {
   /**
    * @brief 记录日志信息
    * @param  format          格式化字符串
-   * @param  args            可变参数（使用完美转发）
+   * @param  args            可变参数
    */
   template <typename... Args>
   void Log(const char* format, Args&&... args) const {
-    LogFunc(format, std::forward<Args>(args)...);
+    if constexpr (!std::is_same_v<LogFunc, std::nullptr_t>) {
+      LogFunc(format, args...);
+    }
   }
 
   /// 分配器名称

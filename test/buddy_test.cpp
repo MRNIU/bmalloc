@@ -4,7 +4,7 @@
  * @brief Buddy分配器的Google Test测试用例
  */
 
-#include "buddy.h"
+#include "buddy.hpp"
 
 #include <gtest/gtest.h>
 
@@ -40,12 +40,10 @@ class TestMutexLock : public LockBase {
  * @brief 辅助函数：打印 Buddy 分配器的当前状态
  * 由于 Buddy 的成员现在是 protected，我们创建一个继承类来访问内部状态
  */
-class BuddyDebugHelper : public Buddy {
+class BuddyDebugHelper : public Buddy<> {
  public:
-  BuddyDebugHelper(const char* name, void* start_addr, size_t total_pages,
-                   int (*log_func)(const char*, ...) = nullptr,
-                   LockBase* lock = nullptr)
-      : Buddy(name, start_addr, total_pages, log_func, lock) {}
+  BuddyDebugHelper(const char* name, void* start_addr, size_t total_pages)
+      : Buddy<>(name, start_addr, total_pages) {}
 
   void print() const {
     printf("\n==========================================\n");
@@ -85,10 +83,9 @@ class BuddyTest : public ::testing::Test {
  protected:
   void SetUp() override {
     // 分配测试用的内存池 (1MB = 256页)
-    test_memory_size_ = 1024 * 1024;                             // 1MB
-    test_pages_ = test_memory_size_ / AllocatorBase::kPageSize;  // 256页
-    test_memory_ =
-        std::aligned_alloc(AllocatorBase::kPageSize, test_memory_size_);
+    test_memory_size_ = 1024 * 1024;              // 1MB
+    test_pages_ = test_memory_size_ / kPageSize;  // 256页
+    test_memory_ = std::aligned_alloc(kPageSize, test_memory_size_);
 
     ASSERT_NE(test_memory_, nullptr) << "无法分配测试内存";
 
@@ -121,7 +118,7 @@ class BuddyTest : public ::testing::Test {
     if (!ptr) return false;
     auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
     size_t pages = 1 << order;
-    return (offset / AllocatorBase::kPageSize) % pages == 0;
+    return (offset / kPageSize) % pages == 0;
   }
 
   // 辅助函数：全面检查分配地址的有效性
@@ -155,11 +152,11 @@ class BuddyTest : public ::testing::Test {
 
     // 检查3: 按页对齐
     auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
-    EXPECT_EQ(offset % AllocatorBase::kPageSize, 0) << "地址应该按页边界对齐";
-    if (offset % AllocatorBase::kPageSize != 0) {
+    EXPECT_EQ(offset % kPageSize, 0) << "地址应该按页边界对齐";
+    if (offset % kPageSize != 0) {
       std::cout << "✗ 检查失败: 地址未按页边界对齐" << std::endl;
-      std::cout << "  偏移: " << offset
-                << " 字节, 页大小: " << AllocatorBase::kPageSize << std::endl;
+      std::cout << "  偏移: " << offset << " 字节, 页大小: " << kPageSize
+                << std::endl;
       return false;
     }
     std::cout << "✓ 地址按页边界对齐" << std::endl;
@@ -169,7 +166,7 @@ class BuddyTest : public ::testing::Test {
     if (!IsAligned(ptr, order)) {
       std::cout << "✗ 检查失败: 地址未按order对齐" << std::endl;
       size_t pages = 1 << order;
-      size_t page_num = offset / AllocatorBase::kPageSize;
+      size_t page_num = offset / kPageSize;
       std::cout << "  页号: " << page_num << ", 需要按 " << pages << " 页对齐"
                 << std::endl;
       return false;
@@ -177,7 +174,7 @@ class BuddyTest : public ::testing::Test {
     std::cout << "✓ 地址按order对齐" << std::endl;
 
     // 检查5: 计算并显示详细信息
-    size_t page_num = offset / AllocatorBase::kPageSize;
+    size_t page_num = offset / kPageSize;
     size_t pages = 1 << order;
     size_t end_page = page_num + pages - 1;
 
@@ -189,12 +186,10 @@ class BuddyTest : public ::testing::Test {
       std::cout << " - " << end_page;
     }
     std::cout << " (共 " << pages << " 页)" << std::endl;
-    std::cout << "  总大小: " << (pages * AllocatorBase::kPageSize) << " 字节"
-              << std::endl;
+    std::cout << "  总大小: " << (pages * kPageSize) << " 字节" << std::endl;
 
     // 检查6: 边界检查
-    char* end_addr =
-        static_cast<char*>(ptr) + (pages * AllocatorBase::kPageSize) - 1;
+    char* end_addr = static_cast<char*>(ptr) + (pages * kPageSize) - 1;
     char* memory_end = static_cast<char*>(test_memory_) + test_memory_size_ - 1;
     EXPECT_LE(end_addr, memory_end) << "分配的内存块不应该超出管理范围";
     if (end_addr > memory_end) {
@@ -296,8 +291,8 @@ class BuddyTest : public ::testing::Test {
 
     auto addr1 = static_cast<char*>(ptr1);
     auto addr2 = static_cast<char*>(ptr2);
-    size_t size1 = (1 << order1) * AllocatorBase::kPageSize;
-    size_t size2 = (1 << order2) * AllocatorBase::kPageSize;
+    size_t size1 = (1 << order1) * kPageSize;
+    size_t size2 = (1 << order2) * kPageSize;
 
     // 检查地址不相同
     EXPECT_NE(ptr1, ptr2) << name1 << " 和 " << name2 << " 的地址不应该相同";
@@ -324,7 +319,7 @@ class BuddyTest : public ::testing::Test {
     if (!ptr) return;
 
     size_t pages = 1 << order;
-    size_t total_size = pages * AllocatorBase::kPageSize;
+    size_t total_size = pages * kPageSize;
     auto* data = static_cast<uint8_t*>(ptr);
 
     std::uniform_int_distribution<uint8_t> byte_dist(0, 255);
@@ -339,7 +334,7 @@ class BuddyTest : public ::testing::Test {
     if (!ptr) return false;
 
     size_t pages = 1 << order;
-    size_t total_size = pages * AllocatorBase::kPageSize;
+    size_t total_size = pages * kPageSize;
     auto* data = static_cast<uint8_t*>(ptr);
 
     if (expected_data.size() != total_size) return false;
@@ -358,7 +353,7 @@ class BuddyTest : public ::testing::Test {
     if (!ptr) return data;
 
     size_t pages = 1 << order;
-    size_t total_size = pages * AllocatorBase::kPageSize;
+    size_t total_size = pages * kPageSize;
     auto* mem_data = static_cast<uint8_t*>(ptr);
 
     data.resize(total_size);
@@ -380,10 +375,9 @@ class BuddyMultiThreadTest : public ::testing::Test {
  protected:
   void SetUp() override {
     // 分配测试用的内存池 (2MB = 512页，更大的内存用于多线程测试)
-    test_memory_size_ = 2 * 1024 * 1024;                         // 2MB
-    test_pages_ = test_memory_size_ / AllocatorBase::kPageSize;  // 512页
-    test_memory_ =
-        std::aligned_alloc(AllocatorBase::kPageSize, test_memory_size_);
+    test_memory_size_ = 2 * 1024 * 1024;          // 2MB
+    test_pages_ = test_memory_size_ / kPageSize;  // 512页
+    test_memory_ = std::aligned_alloc(kPageSize, test_memory_size_);
 
     ASSERT_NE(test_memory_, nullptr) << "无法分配测试内存";
 
@@ -394,8 +388,8 @@ class BuddyMultiThreadTest : public ::testing::Test {
     lock_ = std::make_unique<TestMutexLock>();
 
     // 创建thread-safe的buddy分配器实例
-    buddy_ = std::make_unique<BuddyDebugHelper>(
-        "test_buddy_mt", test_memory_, test_pages_, nullptr, lock_.get());
+    buddy_ = std::make_unique<BuddyDebugHelper>("test_buddy_mt", test_memory_,
+                                                test_pages_);
   }
 
   void TearDown() override {
@@ -420,9 +414,9 @@ class BuddyMultiThreadTest : public ::testing::Test {
     if (!ptr || !IsInManagedRange(ptr)) return false;
 
     auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
-    if (offset % AllocatorBase::kPageSize != 0) return false;
+    if (offset % kPageSize != 0) return false;
 
-    size_t page_num = offset / AllocatorBase::kPageSize;
+    size_t page_num = offset / kPageSize;
     size_t pages = 1 << order;
     return (page_num % pages == 0) && (page_num + pages <= test_pages_);
   }
@@ -506,12 +500,12 @@ TEST_F(BuddyTest, BasicAllocAndFree) {
   auto offset2 = static_cast<char*>(ptr2) - static_cast<char*>(test_memory_);
   auto offset3 = static_cast<char*>(ptr3) - static_cast<char*>(test_memory_);
   std::cout << "  相对偏移:" << std::endl;
-  std::cout << "    ptr1: " << offset1 << " 字节 (页"
-            << offset1 / AllocatorBase::kPageSize << ")" << std::endl;
-  std::cout << "    ptr2: " << offset2 << " 字节 (页"
-            << offset2 / AllocatorBase::kPageSize << ")" << std::endl;
-  std::cout << "    ptr3: " << offset3 << " 字节 (页"
-            << offset3 / AllocatorBase::kPageSize << ")" << std::endl;
+  std::cout << "    ptr1: " << offset1 << " 字节 (页" << offset1 / kPageSize
+            << ")" << std::endl;
+  std::cout << "    ptr2: " << offset2 << " 字节 (页" << offset2 / kPageSize
+            << ")" << std::endl;
+  std::cout << "    ptr3: " << offset3 << " 字节 (页" << offset3 / kPageSize
+            << ")" << std::endl;
 
   // 验证数据完整性
   std::cout << "\n验证数据完整性..." << std::endl;
@@ -605,7 +599,7 @@ TEST_F(BuddyTest, MemoryExhaustion) {
     // 每50个分配打印一次地址信息
     if (i < 10 || (i + 1) % 50 == 0) {
       auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
-      size_t page_num = offset / AllocatorBase::kPageSize;
+      size_t page_num = offset / kPageSize;
       std::cout << "第" << (i + 1) << "个分配: " << ptr << " (页" << page_num
                 << ")" << std::endl;
     }
@@ -648,7 +642,7 @@ TEST_F(BuddyTest, MemoryExhaustion) {
   EXPECT_NE(ptr, nullptr) << "释放内存后应该能重新分配";
   if (ptr) {
     auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
-    size_t page_num = offset / AllocatorBase::kPageSize;
+    size_t page_num = offset / kPageSize;
     std::cout << "重新分配成功: " << ptr << " (页" << page_num << ")"
               << std::endl;
 
@@ -676,7 +670,7 @@ TEST_F(BuddyTest, BuddyMerging) {
   void* ptr1 = buddy_->Alloc(0);
   ASSERT_NE(ptr1, nullptr);
   auto offset1 = static_cast<char*>(ptr1) - static_cast<char*>(test_memory_);
-  size_t page1 = offset1 / AllocatorBase::kPageSize;
+  size_t page1 = offset1 / kPageSize;
   std::cout << "✓ 分配成功: ptr1 = " << ptr1 << " (页" << page1 << ")"
             << std::endl;
   buddy_->print();
@@ -685,7 +679,7 @@ TEST_F(BuddyTest, BuddyMerging) {
   void* ptr2 = buddy_->Alloc(0);
   ASSERT_NE(ptr2, nullptr);
   auto offset2 = static_cast<char*>(ptr2) - static_cast<char*>(test_memory_);
-  size_t page2 = offset2 / AllocatorBase::kPageSize;
+  size_t page2 = offset2 / kPageSize;
   std::cout << "✓ 分配成功: ptr2 = " << ptr2 << " (页" << page2 << ")"
             << std::endl;
 
@@ -716,7 +710,7 @@ TEST_F(BuddyTest, BuddyMerging) {
   if (large_ptr != nullptr) {
     auto large_offset =
         static_cast<char*>(large_ptr) - static_cast<char*>(test_memory_);
-    size_t large_page = large_offset / AllocatorBase::kPageSize;
+    size_t large_page = large_offset / kPageSize;
     std::cout << "✓ 分配成功: " << large_ptr << " (页" << large_page << "~"
               << (large_page + 1) << ")" << std::endl;
     EXPECT_NE(large_ptr, nullptr) << "buddy合并后应该能分配更大的块";
@@ -786,7 +780,7 @@ TEST_F(BuddyTest, MemoryReadWrite) {
   std::uniform_int_distribution<uint32_t> int_dist;
   std::vector<uint32_t> test_ints;
 
-  size_t int_count = AllocatorBase::kPageSize / sizeof(uint32_t);
+  size_t int_count = kPageSize / sizeof(uint32_t);
   for (size_t i = 0; i < int_count; ++i) {
     uint32_t random_int = int_dist(gen);
     int_ptr[i] = random_int;
@@ -921,7 +915,7 @@ TEST_F(BuddyTest, DifferentOrderSizes) {
           << "地址验证失败，order=" << order;
 
       auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
-      size_t start_page = offset / AllocatorBase::kPageSize;
+      size_t start_page = offset / kPageSize;
       size_t end_page = start_page + pages - 1;
       std::cout << "✓ 分配成功: " << ptr << " (页" << start_page;
       if (pages > 1) {
@@ -967,7 +961,7 @@ TEST_F(BuddyTest, DifferentOrderSizes) {
   for (const auto& [ptr, order, expected_data] : ptrs) {
     size_t pages = 1 << order;
     auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
-    size_t start_page = offset / AllocatorBase::kPageSize;
+    size_t start_page = offset / kPageSize;
     size_t end_page = start_page + pages - 1;
 
     // 验证随机数据完整性
@@ -1076,8 +1070,8 @@ TEST_F(BuddyTest, ConstructorValidation) {
   std::cout << "\n=== ConstructorValidation 测试开始 ===" << std::endl;
 
   // 测试用很小的内存创建分配器
-  size_t small_size = AllocatorBase::kPageSize * 4;  // 4页
-  void* small_memory = std::aligned_alloc(AllocatorBase::kPageSize, small_size);
+  size_t small_size = kPageSize * 4;  // 4页
+  void* small_memory = std::aligned_alloc(kPageSize, small_size);
   ASSERT_NE(small_memory, nullptr);
 
   std::memset(small_memory, 0, small_size);
@@ -1096,7 +1090,7 @@ TEST_F(BuddyTest, ConstructorValidation) {
   if (ptr1) {
     // 对小内存池的地址进行验证 - 需要相对于小内存池的基地址
     auto offset = static_cast<char*>(ptr1) - static_cast<char*>(small_memory);
-    size_t page = offset / AllocatorBase::kPageSize;
+    size_t page = offset / kPageSize;
     std::cout << "✓ 分配成功: " << ptr1 << " (页" << page << ")" << std::endl;
 
     // 基本有效性检查
@@ -1105,7 +1099,7 @@ TEST_F(BuddyTest, ConstructorValidation) {
     EXPECT_LT(static_cast<char*>(ptr1),
               static_cast<char*>(small_memory) + small_size)
         << "地址应该在小内存池范围内";
-    EXPECT_EQ(offset % AllocatorBase::kPageSize, 0) << "地址应该按页对齐";
+    EXPECT_EQ(offset % kPageSize, 0) << "地址应该按页对齐";
     EXPECT_LT(page, 4) << "页号应该在0-3范围内";
     EXPECT_GE(page, 0) << "页号应该非负";
 
@@ -1118,7 +1112,7 @@ TEST_F(BuddyTest, ConstructorValidation) {
   EXPECT_NE(ptr2, nullptr) << "应该能在小内存池中分配2页";
   if (ptr2) {
     auto offset = static_cast<char*>(ptr2) - static_cast<char*>(small_memory);
-    size_t start_page = offset / AllocatorBase::kPageSize;
+    size_t start_page = offset / kPageSize;
     std::cout << "✓ 分配成功: " << ptr2 << " (页" << start_page << "~"
               << (start_page + 1) << ")" << std::endl;
 
@@ -1128,7 +1122,7 @@ TEST_F(BuddyTest, ConstructorValidation) {
     EXPECT_LT(static_cast<char*>(ptr2),
               static_cast<char*>(small_memory) + small_size)
         << "地址应该在小内存池范围内";
-    EXPECT_EQ(offset % AllocatorBase::kPageSize, 0) << "地址应该按页对齐";
+    EXPECT_EQ(offset % kPageSize, 0) << "地址应该按页对齐";
     EXPECT_EQ(start_page % 2, 0) << "2页分配应该按2页边界对齐";
     EXPECT_LT(start_page + 1, 4) << "结束页号应该在范围内";
     EXPECT_GE(start_page, 0) << "起始页号应该非负";
@@ -1143,7 +1137,7 @@ TEST_F(BuddyTest, ConstructorValidation) {
       auto offset2 =
           static_cast<char*>(ptr2) - static_cast<char*>(small_memory);
       auto distance = abs(static_cast<long>(offset2 - offset1));
-      EXPECT_GE(distance, AllocatorBase::kPageSize) << "地址间距应该至少一页";
+      EXPECT_GE(distance, kPageSize) << "地址间距应该至少一页";
       std::cout << "地址间距: " << distance << " 字节" << std::endl;
     }
   }
@@ -1247,7 +1241,7 @@ TEST_F(BuddyTest, RandomDataIntegrityTest) {
         << "随机数据测试地址验证失败，order=" << order;
 
     auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
-    size_t start_page = offset / AllocatorBase::kPageSize;
+    size_t start_page = offset / kPageSize;
     size_t end_page = start_page + (1 << order) - 1;
     std::cout << "✓ 分配成功: " << ptr << " (页" << start_page;
     if ((1 << order) > 1) {
@@ -1272,7 +1266,7 @@ TEST_F(BuddyTest, RandomDataIntegrityTest) {
     // 测试数据模式：边界数据
     size_t pages = 1 << order;
     auto* byte_ptr = static_cast<uint8_t*>(ptr);
-    size_t total_size = pages * AllocatorBase::kPageSize;
+    size_t total_size = pages * kPageSize;
 
     // 在内存的第一个和最后一个字节写入特殊值
     uint8_t first_byte = byte_ptr[0];
@@ -1327,7 +1321,7 @@ TEST_F(BuddyTest, AddressValidationTest) {
       // 额外的边界测试
       std::cout << "\n额外边界检查:" << std::endl;
       size_t pages = 1 << order;
-      size_t block_size = pages * AllocatorBase::kPageSize;
+      size_t block_size = pages * kPageSize;
 
       // 测试内存块的第一个和最后一个字节
       auto* byte_ptr = static_cast<uint8_t*>(ptr);
@@ -1350,10 +1344,8 @@ TEST_F(BuddyTest, AddressValidationTest) {
       auto addr_value = reinterpret_cast<uintptr_t>(ptr);
       auto base_addr = reinterpret_cast<uintptr_t>(test_memory_);
 
-      EXPECT_EQ(addr_value % AllocatorBase::kPageSize, 0)
-          << "地址未按页大小对齐";
-      EXPECT_EQ((addr_value - base_addr) % (pages * AllocatorBase::kPageSize),
-                0)
+      EXPECT_EQ(addr_value % kPageSize, 0) << "地址未按页大小对齐";
+      EXPECT_EQ((addr_value - base_addr) % (pages * kPageSize), 0)
           << "地址未按order要求对齐";
 
       // 验证地址范围
@@ -1587,8 +1579,7 @@ TEST_F(BuddyMultiThreadTest, MultiThreadStressTest) {
             // 生成魔数并写入内存
             uint32_t magic = magic_dist(gen);
             auto* uint32_ptr = static_cast<uint32_t*>(ptr);
-            size_t uint32_count =
-                ((1 << order) * AllocatorBase::kPageSize) / sizeof(uint32_t);
+            size_t uint32_count = ((1 << order) * kPageSize) / sizeof(uint32_t);
 
             // 填充魔数
             for (size_t i = 0; i < uint32_count; ++i) {
@@ -1615,8 +1606,7 @@ TEST_F(BuddyMultiThreadTest, MultiThreadStressTest) {
 
             // 验证数据完整性
             auto* uint32_ptr = static_cast<uint32_t*>(ptr);
-            size_t uint32_count =
-                ((1 << order) * AllocatorBase::kPageSize) / sizeof(uint32_t);
+            size_t uint32_count = ((1 << order) * kPageSize) / sizeof(uint32_t);
             bool corruption_detected = false;
 
             for (size_t i = 0; i < uint32_count; ++i) {
@@ -1687,8 +1677,7 @@ TEST_F(BuddyMultiThreadTest, MultiThreadStressTest) {
     for (const auto& [ptr, order, magic] : thread_allocations[t]) {
       // 验证数据完整性
       auto* uint32_ptr = static_cast<uint32_t*>(ptr);
-      size_t uint32_count =
-          ((1 << order) * AllocatorBase::kPageSize) / sizeof(uint32_t);
+      size_t uint32_count = ((1 << order) * kPageSize) / sizeof(uint32_t);
 
       for (size_t i = 0; i < uint32_count; ++i) {
         EXPECT_EQ(uint32_ptr[i], magic)
@@ -1772,19 +1761,21 @@ TEST_F(BuddyMultiThreadTest, MultiThreadExhaustionTest) {
     void* test_ptr = buddy_->Alloc(0);
     if (test_ptr != nullptr) {
       allocation_failed = false;
-      std::cout << "警告: 第" << (i+1) << "次尝试仍能分配内存: " << test_ptr << std::endl;
+      std::cout << "警告: 第" << (i + 1) << "次尝试仍能分配内存: " << test_ptr
+                << std::endl;
       // 立即释放以避免内存泄漏
       buddy_->Free(test_ptr, 0);
       break;
     }
   }
-  
+
   // 如果仍能分配内存，说明没有完全耗尽，这在多线程环境中是可能的
   if (!allocation_failed) {
     std::cout << "注意: 内存未完全耗尽，这在多线程环境中是正常的" << std::endl;
-    std::cout << "分配页数: " << total_allocated.load() 
-              << ", 总页数: " << test_pages_ 
-              << ", 剩余: " << (test_pages_ - total_allocated.load()) << std::endl;
+    std::cout << "分配页数: " << total_allocated.load()
+              << ", 总页数: " << test_pages_
+              << ", 剩余: " << (test_pages_ - total_allocated.load())
+              << std::endl;
   } else {
     std::cout << "✓ 内存已完全耗尽" << std::endl;
   }
@@ -1910,7 +1901,7 @@ TEST_F(BuddyMultiThreadTest, MultiThreadBuddyMergingTest) {
             // 填充线程专用的标识数据
             auto* byte_ptr = static_cast<uint8_t*>(ptr);
             // 使用更大的范围来避免冲突
-            for (size_t j = 0; j < AllocatorBase::kPageSize; j += 256) {
+            for (size_t j = 0; j < kPageSize; j += 256) {
               byte_ptr[j] = thread_id;
             }
 
@@ -1934,7 +1925,7 @@ TEST_F(BuddyMultiThreadTest, MultiThreadBuddyMergingTest) {
             // 验证数据完整性 - 检查多个位置
             auto* byte_ptr = static_cast<uint8_t*>(ptr);
             bool data_valid = true;
-            for (size_t j = 0; j < AllocatorBase::kPageSize; j += 256) {
+            for (size_t j = 0; j < kPageSize; j += 256) {
               if (byte_ptr[j] != thread_id) {
                 data_valid = false;
                 break;
@@ -1968,7 +1959,7 @@ TEST_F(BuddyMultiThreadTest, MultiThreadBuddyMergingTest) {
 
           // 测试大块内存
           auto* byte_ptr = static_cast<uint8_t*>(large_ptr);
-          size_t large_size = 4 * AllocatorBase::kPageSize;
+          size_t large_size = 4 * kPageSize;
 
           // 填充测试数据
           std::memset(byte_ptr, static_cast<int>(thread_id), large_size);

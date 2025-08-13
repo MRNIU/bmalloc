@@ -129,7 +129,6 @@ class Buddy : public AllocatorBase<LogFunc, Lock> {
   using AllocatorBase<LogFunc, Lock>::length_;
   using AllocatorBase<LogFunc, Lock>::free_count_;
   using AllocatorBase<LogFunc, Lock>::used_count_;
-  using AllocatorBase<LogFunc, Lock>::kPageSize;
 
   /**
    * @brief 整数 log2 函数实现

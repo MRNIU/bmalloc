@@ -12,4 +12,4 @@ if (${PROJECT_SOURCE_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 endif ()
 
 add_subdirectory(${PROJECT_SOURCE_DIR}/src)
-# add_subdirectory(${PROJECT_SOURCE_DIR}/test)
+add_subdirectory(${PROJECT_SOURCE_DIR}/test)
