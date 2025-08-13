@@ -138,7 +138,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // num of total objects in cache - 总对象数量
     size_t num_allocations;
     // mutex (uses to lock the cache) - 缓存互斥锁
-    Lock cache_mutex;
+    Lock cache_lock;
     // order of one slab (one slab has 2^order blocks) - slab的order值
     uint32_t order;
     // maximum multiplier for offset of first object in slab - 最大颜色偏移乘数
@@ -215,7 +215,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // 初始化空闲对象链表
     for (int i = 0; i < n; i++) {
       *list[i].name = '\0';
-      new (&list[i].cache_mutex) Lock;
+      new (&list[i].cache_lock) Lock;
       slab->freeList[i] = i + 1;
     }
 
@@ -276,7 +276,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       return nullptr;
     }
 
-    LockGuard guard(cache_cache.cache_mutex);
+    LockGuard guard(cache_cache.cache_lock);
 
     kmem_cache_t *ret = nullptr;
     cache_cache.error_code = 0;  // reset error code
@@ -302,7 +302,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     if (s == nullptr)  // 没有足够空间，需要为cache_cache分配更多空间
     {
-      LockGuard guard(buddy_mutex);
       void *ptr = page_allocator_.Alloc(CACHE_CACHE_ORDER);
       if (ptr == nullptr) {
         cache_cache.error_code = 2;
@@ -333,8 +332,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       // 初始化对象数组
       for (size_t i = 0; i < cache_cache.objectsInSlab; i++) {
         *list[i].name = '\0';
-        // memcpy(&list[i].cache_mutex, &mutex(), sizeof(mutex));
-        new (&list[i].cache_mutex) Lock;
+        new (&list[i].cache_lock) Lock;
         s->freeList[i] = i + 1;
       }
       // s->freeList[cache_cache.objectsInSlab - 1] = -1;
@@ -446,13 +444,12 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     if (cachep == nullptr) {
       return 0;
     }
-    LockGuard guard(cachep->cache_mutex);
+    LockGuard guard(cachep->cache_lock);
 
     int blocksFreed = 0;
     cachep->error_code = 0;
     // 只有当存在空闲slab且cache不在增长时才收缩
     if (cachep->slabs_free != nullptr && cachep->growing == false) {
-      LockGuard guard(buddy_mutex);
       int n = 1 << cachep->order;  // 每个slab包含的内存块数
       slab_t *s;
       while (cachep->slabs_free != nullptr) {
@@ -485,7 +482,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       return nullptr;
     }
 
-    LockGuard guard(cachep->cache_mutex);
+    LockGuard guard(cachep->cache_lock);
 
     void *retObject = nullptr;
     cachep->error_code = 0;
@@ -497,8 +494,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
     // 需要分配新slab
     if (s == nullptr) {
-      LockGuard guard(buddy_mutex);
-
       void *ptr = page_allocator_.Alloc(cachep->order);
       if (ptr == nullptr) {
         cachep->error_code = 2;
@@ -610,7 +605,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       return;
     }
 
-    LockGuard guard(cachep->cache_mutex);
+    LockGuard guard(cachep->cache_lock);
 
     cachep->error_code = 0;
     slab_t *s;
@@ -749,7 +744,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
    * 3. 检查对象地址是否在slab的地址范围内
    */
   kmem_cache_t *find_buffers_cache(const void *objp) {
-    LockGuard guard(cache_cache.cache_mutex);
+    LockGuard guard(cache_cache.cache_lock);
 
     kmem_cache_t *curr = allCaches;
     slab_t *s;
@@ -806,9 +801,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
 
     // 获取三个互斥锁：cache锁、cache_cache锁、buddy锁
-    LockGuard guard1(cachep->cache_mutex);
-    LockGuard guard2(cache_cache.cache_mutex);
-    LockGuard guard3(buddy_mutex);
+    LockGuard guard1(cachep->cache_lock);
+    LockGuard guard2(cache_cache.cache_lock);
 
     slab_t *s;
     void *ptr;
@@ -1003,7 +997,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       return;
     }
 
-    LockGuard guard2(cachep->cache_mutex);
+    LockGuard guard2(cachep->cache_lock);
 
     int i = 0;
 
@@ -1064,7 +1058,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       return 4;
     }
 
-    LockGuard guard2(cachep->cache_mutex);
+    LockGuard guard2(cachep->cache_lock);
 
     int error_code = cachep->error_code;
 
@@ -1126,11 +1120,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
   using AllocatorBase<LogFunc, Lock>::length_;
   using AllocatorBase<LogFunc, Lock>::free_count_;
   using AllocatorBase<LogFunc, Lock>::used_count_;
-
-  // guarding buddy alocator - 保护buddy分配器的互斥锁
-  Lock buddy_mutex;
-  // guarding cout - 保护输出的互斥锁
-  // mutex cout_mutex;
 
   PageAllocator page_allocator_;
 
