@@ -63,8 +63,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       temp /= 10;
       i++;
     }
-
-    str[i] = '\0';  // 字符串结束符
+    // 字符串结束符
+    str[i] = '\0';
 
     // 从后往前填充数字
     while (value > 0) {
@@ -279,7 +279,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     LockGuard guard(cache_cache.cache_lock);
 
     kmem_cache_t *ret = nullptr;
-    cache_cache.error_code = 0;  // reset error code
+    // reset error code
+    cache_cache.error_code = 0;
 
     slab_t *s;
 
@@ -299,9 +300,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     if (s == nullptr) {
       s = cache_cache.slabs_free;
     }
-
-    if (s == nullptr)  // 没有足够空间，需要为cache_cache分配更多空间
-    {
+    // 没有足够空间，需要为cache_cache分配更多空间
+    if (s == nullptr) {
       void *ptr = page_allocator_.Alloc(CACHE_CACHE_ORDER);
       if (ptr == nullptr) {
         cache_cache.error_code = 2;
@@ -361,8 +361,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
         if (cache_cache.slabs_partial != nullptr)
           cache_cache.slabs_partial->prev = s;
         cache_cache.slabs_partial = s;
-      } else  // from free to full
-      {
+      } else {
+        // from free to full
         s->next = cache_cache.slabs_full;
         if (cache_cache.slabs_full != nullptr) {
           cache_cache.slabs_full->prev = s;
@@ -370,8 +370,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
         cache_cache.slabs_full = s;
       }
     } else {
-      if (s->inuse == cache_cache.objectsInSlab)  // from partial to full
-      {
+      // from partial to full
+      if (s->inuse == cache_cache.objectsInSlab) {
         cache_cache.slabs_partial = s->next;
         if (cache_cache.slabs_partial != nullptr) {
           cache_cache.slabs_partial->prev = nullptr;
@@ -450,17 +450,20 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     cachep->error_code = 0;
     // 只有当存在空闲slab且cache不在增长时才收缩
     if (cachep->slabs_free != nullptr && cachep->growing == false) {
-      int n = 1 << cachep->order;  // 每个slab包含的内存块数
+      // 每个slab包含的内存块数
+      int n = 1 << cachep->order;
       slab_t *s;
       while (cachep->slabs_free != nullptr) {
         s = cachep->slabs_free;
         cachep->slabs_free = s->next;
-        page_allocator_.Free(s, cachep->order);  // 释放slab到buddy分配器
+        // 释放slab到buddy分配器
+        page_allocator_.Free(s, cachep->order);
         blocksFreed += n;
         cachep->num_allocations -= cachep->objectsInSlab;
       }
     }
-    cachep->growing = false;  // 重置增长标志
+    // 重置增长标志
+    cachep->growing = false;
     return blocksFreed;
   }
 
@@ -552,16 +555,15 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       if (cachep->slabs_free != nullptr) {
         cachep->slabs_free->prev = nullptr;
       }
-
-      if (s->inuse != cachep->objectsInSlab)  // 移动到partial链表
-      {
+      // 移动到partial链表
+      if (s->inuse != cachep->objectsInSlab) {
         s->next = cachep->slabs_partial;
         if (cachep->slabs_partial != nullptr) {
           cachep->slabs_partial->prev = s;
         }
         cachep->slabs_partial = s;
-      } else  // 移动到full链表
-      {
+      } else {
+        // 移动到full链表
         s->next = cachep->slabs_full;
         if (cachep->slabs_full != nullptr) {
           cachep->slabs_full->prev = s;
@@ -569,8 +571,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
         cachep->slabs_full = s;
       }
     } else {
-      if (s->inuse == cachep->objectsInSlab)  // 从partial移动到full
-      {
+      // 从partial移动到full
+      if (s->inuse == cachep->objectsInSlab) {
         cachep->slabs_partial = s->next;
         if (cachep->slabs_partial != nullptr) {
           cachep->slabs_partial->prev = nullptr;
@@ -612,7 +614,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     // 查找对象所属的slab
     int slabSize = kPageSize * (1 << cachep->order);
-    bool inFullList = true;  // 标记slab是否在full链表中
+    // 标记slab是否在full链表中
+    bool inFullList = true;
 
     // 首先在full链表中查找
     s = cachep->slabs_full;
@@ -664,8 +667,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     if (cachep->dtor != nullptr) {
       cachep->dtor(objp);
     }
-    // 注释：析构函数负责将对象恢复到初始化状态
-    // if (cachep->ctor != nullptr) cachep->ctor(objp);
 
     // 检查slab现在是否为空闲或部分使用状态，并更新链表
     // slab原本在full链表中
@@ -694,17 +695,18 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
           cachep->slabs_partial->prev = s;
         }
         cachep->slabs_partial = s;
-      } else  // 插入到free链表
-      {
+      } else {
+        // 插入到free链表
         s->next = cachep->slabs_free;
         if (cachep->slabs_free != nullptr) {
           cachep->slabs_free->prev = s;
         }
         cachep->slabs_free = s;
       }
-    } else  // slab原本在partial链表中
-    {
-      if (s->inuse == 0) {  // 现在变成完全空闲
+    } else {
+      // slab原本在partial链表中
+      // 现在变成完全空闲
+      if (s->inuse == 0) {
         slab_t *prev, *next;
 
         // 从partial链表中删除slab
@@ -814,9 +816,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       prev = curr;
       curr = curr->next;
     }
-
-    if (curr == nullptr)  // cache不在cache链中（意味着对象也不在cache_cache中）
-    {
+    // cache不在cache链中（意味着对象也不在cache_cache中）
+    if (curr == nullptr) {
       cache_cache.error_code = 5;
       return;
     }
@@ -830,7 +831,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     // 在cache_cache中查找拥有该cache对象的slab
     int slabSize = kPageSize * (1 << cache_cache.order);
-    bool inFullList = true;  // 标记slab是否在full链表中
+    // 标记slab是否在full链表中
+    bool inFullList = true;
     s = cache_cache.slabs_full;
     while (s != nullptr) {
       if ((void *)cachep > (void *)s &&
@@ -841,7 +843,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
 
     if (s == nullptr) {
-      inFullList = false;  // slab在partial链表中
+      // slab在partial链表中
+      inFullList = false;
       s = cache_cache.slabs_partial;
       while (s != nullptr) {
         if ((void *)cachep > (void *)s &&
@@ -851,9 +854,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
         s = s->next;
       }
     }
-
-    if (s == nullptr)  // 在cache_cache中没找到拥有该cache的slab
-    {
+    // 在cache_cache中没找到拥有该cache的slab
+    if (s == nullptr) {
       cache_cache.error_code = 5;
       return;
     }
@@ -866,7 +868,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     int i = cachep - (kmem_cache_t *)s->objects;
     s->freeList[i] = s->nextFreeObj;
     s->nextFreeObj = i;
-    *cachep->name = '\0';  // 清空cache名称
+    // 清空cache名称
+    *cachep->name = '\0';
     cachep->objectSize = 0;
 
     // 释放cache中使用的所有slab
@@ -896,8 +899,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
 
     // 检查cache_cache中的slab现在是否为空闲或部分使用状态
-    if (inFullList)  // slab原本在full链表中
-    {
+    // slab原本在full链表中
+    if (inFullList) {
       slab_t *prev, *next;
 
       // 从full链表中删除slab
@@ -914,24 +917,23 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       if (cache_cache.slabs_full == s) {
         cache_cache.slabs_full = next;
       }
-
-      if (s->inuse != 0)  // 插入到partial链表
-      {
+      // 插入到partial链表
+      if (s->inuse != 0) {
         s->next = cache_cache.slabs_partial;
         if (cache_cache.slabs_partial != nullptr) {
           cache_cache.slabs_partial->prev = s;
         }
         cache_cache.slabs_partial = s;
-      } else  // 插入到free链表
-      {
+      } else {
+        // 插入到free链表
         s->next = cache_cache.slabs_free;
         if (cache_cache.slabs_free != nullptr) {
           cache_cache.slabs_free->prev = s;
         }
         cache_cache.slabs_free = s;
       }
-    } else  // slab原本在partial链表中
-    {
+    } else {
+      // slab原本在partial链表中
       if (s->inuse == 0) {
         slab_t *prev, *next;
 
