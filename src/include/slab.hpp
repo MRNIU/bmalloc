@@ -863,7 +863,204 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
   }
 
-  void kmem_cache_destroy(kmem_cache_t *cachep);
+  /**
+   * 销毁cache - 释放cache及其所有slab
+   *
+   * @param cachep 要销毁的cache指针
+   *
+   * 功能：
+   * 1. 从全局cache链表中移除cache
+   * 2. 在cache_cache中查找并释放该cache对象
+   * 3. 释放cache中的所有slab（full、partial、free）
+   * 4. 更新cache_cache的链表状态
+   * 5. 清理cache_cache中多余的空闲slab
+   */
+  void kmem_cache_destroy(kmem_cache_t *cachep) {
+    if (cachep == nullptr || *cachep->name == '\0') {
+      return;
+    }
+
+    // 获取三个互斥锁：cache锁、cache_cache锁、buddy锁
+    LockGuard guard1(cachep->cache_mutex);
+    LockGuard guard2(cache_cache.cache_mutex);
+    LockGuard guard3(buddy_mutex);
+
+    slab_t *s;
+    void *ptr;
+    cache_cache.error_code = 0;
+
+    // 从allCaches链表中删除cache
+    kmem_cache_t *prev = nullptr, *curr = allCaches;
+    while (curr != cachep) {
+      prev = curr;
+      curr = curr->next;
+    }
+
+    if (curr == nullptr)  // cache不在cache链中（意味着对象也不在cache_cache中）
+    {
+      cache_cache.error_code = 5;
+      return;
+    }
+
+    if (prev == nullptr) {
+      allCaches = allCaches->next;
+    } else {
+      prev->next = curr->next;
+    }
+    curr->next = nullptr;
+
+    // 在cache_cache中查找拥有该cache对象的slab
+    int slabSize = kPageSize * (1 << cache_cache.order);
+    bool inFullList = true;  // 标记slab是否在full链表中
+    s = cache_cache.slabs_full;
+    while (s != nullptr) {
+      if ((void *)cachep > (void *)s &&
+          (void *)cachep < (void *)((char *)s + slabSize)) {
+        break;
+      }
+      s = s->next;
+    }
+
+    if (s == nullptr) {
+      inFullList = false;  // slab在partial链表中
+      s = cache_cache.slabs_partial;
+      while (s != nullptr) {
+        if ((void *)cachep > (void *)s &&
+            (void *)cachep < (void *)((char *)s + slabSize)) {
+          break;
+        }
+        s = s->next;
+      }
+    }
+
+    if (s == nullptr)  // 在cache_cache中没找到拥有该cache的slab
+    {
+      cache_cache.error_code = 5;
+      return;
+    }
+
+    // 找到拥有该cache的slab
+
+    // 重置cache字段并更新cache_cache字段
+    s->inuse--;
+    cache_cache.num_active--;
+    int i = cachep - (kmem_cache_t *)s->objects;
+    s->freeList[i] = s->nextFreeObj;
+    s->nextFreeObj = i;
+    *cachep->name = '\0';  // 清空cache名称
+    cachep->objectSize = 0;
+
+    // 释放cache中使用的所有slab
+
+    // 释放full slab链表
+    slab_t *freeTemp = cachep->slabs_full;
+    while (freeTemp != nullptr) {
+      ptr = freeTemp;
+      freeTemp = freeTemp->next;
+      page_allocator_.Free(ptr, cachep->order);
+    }
+
+    // 释放partial slab链表
+    freeTemp = cachep->slabs_partial;
+    while (freeTemp != nullptr) {
+      ptr = freeTemp;
+      freeTemp = freeTemp->next;
+      page_allocator_.Free(ptr, cachep->order);
+    }
+
+    // 释放free slab链表
+    freeTemp = cachep->slabs_free;
+    while (freeTemp != nullptr) {
+      ptr = freeTemp;
+      freeTemp = freeTemp->next;
+      page_allocator_.Free(ptr, cachep->order);
+    }
+
+    // 检查cache_cache中的slab现在是否为空闲或部分使用状态
+    if (inFullList)  // slab原本在full链表中
+    {
+      slab_t *prev, *next;
+
+      // 从full链表中删除slab
+      prev = s->prev;
+      next = s->next;
+      s->prev = nullptr;
+
+      if (prev != nullptr) {
+        prev->next = next;
+      }
+      if (next != nullptr) {
+        next->prev = prev;
+      }
+      if (cache_cache.slabs_full == s) {
+        cache_cache.slabs_full = next;
+      }
+
+      if (s->inuse != 0)  // 插入到partial链表
+      {
+        s->next = cache_cache.slabs_partial;
+        if (cache_cache.slabs_partial != nullptr) {
+          cache_cache.slabs_partial->prev = s;
+        }
+        cache_cache.slabs_partial = s;
+      } else  // 插入到free链表
+      {
+        s->next = cache_cache.slabs_free;
+        if (cache_cache.slabs_free != nullptr) {
+          cache_cache.slabs_free->prev = s;
+        }
+        cache_cache.slabs_free = s;
+      }
+    } else  // slab原本在partial链表中
+    {
+      if (s->inuse == 0) {
+        slab_t *prev, *next;
+
+        // 从partial链表中删除slab
+        prev = s->prev;
+        next = s->next;
+        s->prev = nullptr;
+
+        if (prev != nullptr) {
+          prev->next = next;
+        }
+        if (next != nullptr) {
+          next->prev = prev;
+        }
+        if (cache_cache.slabs_partial == s) {
+          cache_cache.slabs_partial = next;
+        }
+
+        // 插入到free链表
+        s->next = cache_cache.slabs_free;
+        if (cache_cache.slabs_free != nullptr) {
+          cache_cache.slabs_free->prev = s;
+        }
+        cache_cache.slabs_free = s;
+      }
+    }
+
+    // 如果free链表中有多个slab，释放多余的slab以节省内存
+    if (cache_cache.slabs_free != nullptr) {
+      s = cache_cache.slabs_free;
+      i = 0;
+      while (s != nullptr) {
+        i++;
+        s = s->next;
+      }
+
+      // 保留一个空闲slab，释放其余的
+      while (i > 1) {
+        i--;
+        s = cache_cache.slabs_free;
+        cache_cache.slabs_free = cache_cache.slabs_free->next;
+        s->next = nullptr;
+        cache_cache.slabs_free->prev = nullptr;
+        page_allocator_.Free(s, cache_cache.order);
+        cache_cache.num_allocations -= cache_cache.objectsInSlab;
+      }
+    }
+  }
 
   void kmem_cache_info(kmem_cache_t *cachep);
 

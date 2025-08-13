@@ -613,7 +613,7 @@ TEST_F(SlabTest, KmemCacheFreeTest) {
 
 /**
  * @brief 测试 kmalloc 功能
- * 
+ *
  * 测试内容：
  * 1. 基本内存分配测试
  * 2. 不同大小的内存分配
@@ -633,10 +633,10 @@ TEST_F(SlabTest, KmallocTest) {
   std::cout << "1. Basic allocation test\n";
   void* ptr32 = slab.kmalloc(32);
   ASSERT_NE(ptr32, nullptr) << "Failed to allocate 32 bytes";
-  
+
   void* ptr64 = slab.kmalloc(64);
   ASSERT_NE(ptr64, nullptr) << "Failed to allocate 64 bytes";
-  
+
   void* ptr128 = slab.kmalloc(128);
   ASSERT_NE(ptr128, nullptr) << "Failed to allocate 128 bytes";
 
@@ -649,15 +649,15 @@ TEST_F(SlabTest, KmallocTest) {
 
   // 2. 测试不同大小的内存分配（2的幂次方对齐）
   std::cout << "2. Power-of-2 alignment test\n";
-  
+
   // 测试33字节应该分配到64字节的cache
   void* ptr33 = slab.kmalloc(33);
   ASSERT_NE(ptr33, nullptr) << "Failed to allocate 33 bytes";
-  
+
   // 测试65字节应该分配到128字节的cache
   void* ptr65 = slab.kmalloc(65);
   ASSERT_NE(ptr65, nullptr) << "Failed to allocate 65 bytes";
-  
+
   // 测试129字节应该分配到256字节的cache
   void* ptr129 = slab.kmalloc(129);
   ASSERT_NE(ptr129, nullptr) << "Failed to allocate 129 bytes";
@@ -666,23 +666,26 @@ TEST_F(SlabTest, KmallocTest) {
 
   // 3. 边界条件测试
   std::cout << "3. Boundary condition test\n";
-  
+
   // 测试最小大小（32字节）
   void* ptr_min = slab.kmalloc(32);
   ASSERT_NE(ptr_min, nullptr) << "Failed to allocate minimum size (32 bytes)";
-  
+
   // 测试最大大小（使用较小的大小，如32KB）
   void* ptr_max = slab.kmalloc(32768);
-  ASSERT_NE(ptr_max, nullptr) << "Failed to allocate maximum test size (32768 bytes)";
-  
+  ASSERT_NE(ptr_max, nullptr)
+      << "Failed to allocate maximum test size (32768 bytes)";
+
   // 测试小于最小大小
   void* ptr_too_small = slab.kmalloc(16);
-  EXPECT_EQ(ptr_too_small, nullptr) << "Should fail to allocate size < 32 bytes";
-  
+  EXPECT_EQ(ptr_too_small, nullptr)
+      << "Should fail to allocate size < 32 bytes";
+
   // 测试大于最大大小
   void* ptr_too_large = slab.kmalloc(131073);
-  EXPECT_EQ(ptr_too_large, nullptr) << "Should fail to allocate size > 131072 bytes";
-  
+  EXPECT_EQ(ptr_too_large, nullptr)
+      << "Should fail to allocate size > 131072 bytes";
+
   // 测试0大小
   void* ptr_zero = slab.kmalloc(0);
   EXPECT_EQ(ptr_zero, nullptr) << "Should fail to allocate 0 bytes";
@@ -691,16 +694,16 @@ TEST_F(SlabTest, KmallocTest) {
 
   // 4. 内存写入测试
   std::cout << "4. Memory write test\n";
-  
+
   void* test_ptr = slab.kmalloc(256);
   ASSERT_NE(test_ptr, nullptr) << "Failed to allocate 256 bytes for write test";
-  
+
   // 写入测试数据
   uint8_t* byte_ptr = static_cast<uint8_t*>(test_ptr);
   for (int i = 0; i < 256; ++i) {
     byte_ptr[i] = static_cast<uint8_t>(i & 0xFF);
   }
-  
+
   // 验证数据
   for (int i = 0; i < 256; ++i) {
     EXPECT_EQ(byte_ptr[i], static_cast<uint8_t>(i & 0xFF))
@@ -711,10 +714,10 @@ TEST_F(SlabTest, KmallocTest) {
 
   // 5. 大量分配测试（使用较小的数量）
   std::cout << "5. Bulk allocation test\n";
-  
+
   std::vector<void*> ptrs;
   const int num_allocs = 20;  // 减少分配数量
-  
+
   for (int i = 0; i < num_allocs; ++i) {
     size_t size = 64 + (i % 4) * 64;  // 64, 128, 192, 256 字节（减少变化）
     void* ptr = slab.kmalloc(size);
@@ -722,24 +725,24 @@ TEST_F(SlabTest, KmallocTest) {
       ptrs.push_back(ptr);
     }
   }
-  
+
   EXPECT_GT(ptrs.size(), 0) << "Should allocate at least some memory blocks";
-  std::cout << "Successfully allocated " << ptrs.size() 
-            << " out of " << num_allocs << " requested blocks\n";
+  std::cout << "Successfully allocated " << ptrs.size() << " out of "
+            << num_allocs << " requested blocks\n";
 
   // 验证所有指针都是唯一的
   std::set<void*> unique_ptrs(ptrs.begin(), ptrs.end());
-  EXPECT_EQ(unique_ptrs.size(), ptrs.size()) 
+  EXPECT_EQ(unique_ptrs.size(), ptrs.size())
       << "All allocated pointers should be unique";
 
   std::cout << "Bulk allocation test passed\n";
 
   // 6. 常用大小分配测试（减少测试大小）
   std::cout << "6. Common size allocation test\n";
-  
+
   std::vector<size_t> common_sizes = {32, 64, 128, 256, 512};  // 移除大的分配
   std::vector<void*> common_ptrs;
-  
+
   for (size_t size : common_sizes) {
     void* ptr = slab.kmalloc(size);
     if (ptr != nullptr) {
@@ -747,17 +750,19 @@ TEST_F(SlabTest, KmallocTest) {
       // 写入一些数据验证内存可用
       memset(ptr, 0xAA, size);
     } else {
-      std::cout << "Warning: Failed to allocate " << size << " bytes (may be out of memory)\n";
+      std::cout << "Warning: Failed to allocate " << size
+                << " bytes (may be out of memory)\n";
     }
   }
-  
-  EXPECT_GT(common_ptrs.size(), 0) << "Should allocate at least some common sizes";
-  
+
+  EXPECT_GT(common_ptrs.size(), 0)
+      << "Should allocate at least some common sizes";
+
   // 验证数据完整性（只对成功分配的内存）
   for (size_t i = 0; i < common_ptrs.size() && i < common_sizes.size(); ++i) {
     uint8_t* byte_ptr = static_cast<uint8_t*>(common_ptrs[i]);
     for (size_t j = 0; j < common_sizes[i]; ++j) {
-      EXPECT_EQ(byte_ptr[j], 0xAA) 
+      EXPECT_EQ(byte_ptr[j], 0xAA)
           << "Data corruption in " << common_sizes[i] << " byte allocation";
     }
   }
@@ -769,7 +774,7 @@ TEST_F(SlabTest, KmallocTest) {
 
 /**
  * @brief 测试 find_buffers_cache 功能
- * 
+ *
  * 测试内容：
  * 1. 查找有效的 kmalloc 分配的对象
  * 2. 查找无效的指针
@@ -786,26 +791,29 @@ TEST_F(SlabTest, FindBuffersCacheTest) {
 
   // 1. 测试查找通过 kmalloc 分配的对象
   std::cout << "1. Basic find_buffers_cache test\n";
-  
+
   void* ptr64 = slab.kmalloc(64);
   ASSERT_NE(ptr64, nullptr) << "Failed to allocate 64 bytes";
-  
+
   auto* cache64 = slab.find_buffers_cache(ptr64);
-  ASSERT_NE(cache64, nullptr) << "Should find cache for valid 64-byte allocation";
-  
+  ASSERT_NE(cache64, nullptr)
+      << "Should find cache for valid 64-byte allocation";
+
   // 验证找到的缓存名称包含 "size-"
-  EXPECT_NE(strstr(cache64->name, "size-"), nullptr) 
+  EXPECT_NE(strstr(cache64->name, "size-"), nullptr)
       << "Cache name should contain 'size-'";
-  
+
   std::cout << "Found cache: " << cache64->name << " for 64-byte allocation\n";
 
   void* ptr128 = slab.kmalloc(128);
   ASSERT_NE(ptr128, nullptr) << "Failed to allocate 128 bytes";
-  
+
   auto* cache128 = slab.find_buffers_cache(ptr128);
-  ASSERT_NE(cache128, nullptr) << "Should find cache for valid 128-byte allocation";
-  
-  std::cout << "Found cache: " << cache128->name << " for 128-byte allocation\n";
+  ASSERT_NE(cache128, nullptr)
+      << "Should find cache for valid 128-byte allocation";
+
+  std::cout << "Found cache: " << cache128->name
+            << " for 128-byte allocation\n";
 
   // 验证不同大小的对象找到不同的缓存（除非它们使用相同的2的幂大小）
   if (strcmp(cache64->name, cache128->name) != 0) {
@@ -818,47 +826,53 @@ TEST_F(SlabTest, FindBuffersCacheTest) {
 
   // 2. 测试查找无效指针
   std::cout << "2. Invalid pointer test\n";
-  
+
   // 测试 nullptr
   auto* cache_null = slab.find_buffers_cache(nullptr);
   EXPECT_EQ(cache_null, nullptr) << "Should not find cache for nullptr";
-  
+
   // 测试随机无效指针
   void* invalid_ptr = reinterpret_cast<void*>(0x12345678);
   auto* cache_invalid = slab.find_buffers_cache(invalid_ptr);
-  EXPECT_EQ(cache_invalid, nullptr) << "Should not find cache for invalid pointer";
-  
+  EXPECT_EQ(cache_invalid, nullptr)
+      << "Should not find cache for invalid pointer";
+
   // 测试指向测试内存范围外的指针
-  char* out_of_range = static_cast<char*>(test_memory_) + kTestMemorySize + 1000;
+  char* out_of_range =
+      static_cast<char*>(test_memory_) + kTestMemorySize + 1000;
   auto* cache_out = slab.find_buffers_cache(out_of_range);
-  EXPECT_EQ(cache_out, nullptr) << "Should not find cache for out-of-range pointer";
+  EXPECT_EQ(cache_out, nullptr)
+      << "Should not find cache for out-of-range pointer";
 
   std::cout << "Invalid pointer test passed\n";
 
   // 3. 测试多个不同大小的分配
   std::cout << "3. Multiple allocation sizes test\n";
-  
+
   std::vector<std::pair<void*, size_t>> allocations;
   std::vector<size_t> test_sizes = {32, 64, 96, 128, 200, 256, 500, 512};
-  
+
   for (size_t size : test_sizes) {
     void* ptr = slab.kmalloc(size);
     if (ptr != nullptr) {
       allocations.push_back({ptr, size});
     }
   }
-  
-  EXPECT_GT(allocations.size(), 0) << "Should allocate at least some test objects";
-  
+
+  EXPECT_GT(allocations.size(), 0)
+      << "Should allocate at least some test objects";
+
   // 验证每个分配都能找到对应的缓存
   for (const auto& [ptr, size] : allocations) {
     auto* cache = slab.find_buffers_cache(ptr);
-    ASSERT_NE(cache, nullptr) << "Should find cache for " << size << "-byte allocation";
-    
+    ASSERT_NE(cache, nullptr)
+        << "Should find cache for " << size << "-byte allocation";
+
     // 验证缓存名称
-    EXPECT_NE(strstr(cache->name, "size-"), nullptr) 
-        << "Cache name should contain 'size-' for " << size << "-byte allocation";
-    
+    EXPECT_NE(strstr(cache->name, "size-"), nullptr)
+        << "Cache name should contain 'size-' for " << size
+        << "-byte allocation";
+
     std::cout << "Size " << size << " -> Cache: " << cache->name << "\n";
   }
 
@@ -866,29 +880,29 @@ TEST_F(SlabTest, FindBuffersCacheTest) {
 
   // 4. 测试指针边界
   std::cout << "4. Pointer boundary test\n";
-  
+
   void* test_ptr = slab.kmalloc(256);
   ASSERT_NE(test_ptr, nullptr) << "Failed to allocate test object";
-  
+
   auto* found_cache = slab.find_buffers_cache(test_ptr);
   ASSERT_NE(found_cache, nullptr) << "Should find cache for test object";
-  
+
   // 测试指向对象内部的指针
   char* byte_ptr = static_cast<char*>(test_ptr);
   auto* cache_internal1 = slab.find_buffers_cache(byte_ptr + 1);
   auto* cache_internal2 = slab.find_buffers_cache(byte_ptr + 100);
-  
+
   // 根据实现，这些可能返回相同的缓存或nullptr（取决于具体的边界检查逻辑）
   if (cache_internal1 != nullptr) {
-    EXPECT_EQ(cache_internal1, found_cache) 
+    EXPECT_EQ(cache_internal1, found_cache)
         << "Internal pointer should find same cache";
     std::cout << "Internal pointer +1 found same cache\n";
   } else {
     std::cout << "Internal pointer +1 not found (strict boundary check)\n";
   }
-  
+
   if (cache_internal2 != nullptr) {
-    EXPECT_EQ(cache_internal2, found_cache) 
+    EXPECT_EQ(cache_internal2, found_cache)
         << "Internal pointer should find same cache";
     std::cout << "Internal pointer +100 found same cache\n";
   } else {
@@ -899,42 +913,46 @@ TEST_F(SlabTest, FindBuffersCacheTest) {
 
   // 5. 测试相同大小的多个分配
   std::cout << "5. Same size multiple allocations test\n";
-  
+
   std::vector<void*> same_size_ptrs;
   const size_t alloc_size = 128;
   const int num_same_size = 5;
-  
+
   for (int i = 0; i < num_same_size; ++i) {
     void* ptr = slab.kmalloc(alloc_size);
     if (ptr != nullptr) {
       same_size_ptrs.push_back(ptr);
     }
   }
-  
-  EXPECT_GT(same_size_ptrs.size(), 0) << "Should allocate at least some same-size objects";
-  
+
+  EXPECT_GT(same_size_ptrs.size(), 0)
+      << "Should allocate at least some same-size objects";
+
   // 验证所有相同大小的分配都找到缓存（可能是不同的缓存实例）
-  auto* first_cache = static_cast<decltype(slab.find_buffers_cache(nullptr))>(nullptr);
+  auto* first_cache =
+      static_cast<decltype(slab.find_buffers_cache(nullptr))>(nullptr);
   std::set<decltype(first_cache)> unique_caches;
-  
+
   for (size_t i = 0; i < same_size_ptrs.size(); ++i) {
     auto* cache = slab.find_buffers_cache(same_size_ptrs[i]);
     ASSERT_NE(cache, nullptr) << "Should find cache for allocation " << i;
-    
+
     if (first_cache == nullptr) {
       first_cache = cache;
     }
     unique_caches.insert(cache);
   }
-  
+
   if (first_cache != nullptr) {
     if (unique_caches.size() == 1) {
-      std::cout << "All " << same_size_ptrs.size() 
-                << " same-size allocations use same cache: " << first_cache->name << "\n";
+      std::cout << "All " << same_size_ptrs.size()
+                << " same-size allocations use same cache: "
+                << first_cache->name << "\n";
     } else {
-      std::cout << "All " << same_size_ptrs.size() 
-                << " same-size allocations found caches (" << unique_caches.size() 
-                << " unique cache instances for size " << alloc_size << ")\n";
+      std::cout << "All " << same_size_ptrs.size()
+                << " same-size allocations found caches ("
+                << unique_caches.size() << " unique cache instances for size "
+                << alloc_size << ")\n";
     }
   }
 
@@ -945,7 +963,7 @@ TEST_F(SlabTest, FindBuffersCacheTest) {
 
 /**
  * @brief 测试 kfree 功能
- * 
+ *
  * 测试内容：
  * 1. 基本释放测试
  * 2. 释放 nullptr 测试
@@ -964,81 +982,82 @@ TEST_F(SlabTest, KfreeTest) {
 
   // 1. 基本释放测试
   std::cout << "1. Basic kfree test\n";
-  
+
   void* ptr64 = slab.kmalloc(64);
   ASSERT_NE(ptr64, nullptr) << "Failed to allocate 64 bytes";
-  
+
   // 写入一些数据验证内存可用
   memset(ptr64, 0xAA, 64);
-  
+
   // 验证能找到对应的缓存
   auto* cache_before = slab.find_buffers_cache(ptr64);
   ASSERT_NE(cache_before, nullptr) << "Should find cache before kfree";
-  
+
   // 记录释放前的状态
   auto active_before = cache_before->num_active;
-  
+
   // 释放内存
   slab.kfree(ptr64);
-  
+
   // 验证释放后缓存的活跃对象数量减少
-  EXPECT_LT(cache_before->num_active, active_before) 
+  EXPECT_LT(cache_before->num_active, active_before)
       << "Active count should decrease after kfree";
-  
-  std::cout << "Active objects before: " << active_before 
+
+  std::cout << "Active objects before: " << active_before
             << ", after: " << cache_before->num_active << "\n";
   std::cout << "Basic kfree test passed\n";
 
   // 2. 释放 nullptr 测试
   std::cout << "2. kfree nullptr test\n";
-  
+
   // 这应该不会崩溃或产生错误
   slab.kfree(nullptr);
-  
+
   std::cout << "kfree nullptr test passed\n";
 
   // 3. 释放无效指针测试
   std::cout << "3. kfree invalid pointer test\n";
-  
+
   // 测试无效指针（不会崩溃，但也不会释放任何内存）
   void* invalid_ptr = reinterpret_cast<void*>(0x12345678);
   slab.kfree(invalid_ptr);
-  
+
   // 测试指向测试内存范围外的指针
-  char* out_of_range = static_cast<char*>(test_memory_) + kTestMemorySize + 1000;
+  char* out_of_range =
+      static_cast<char*>(test_memory_) + kTestMemorySize + 1000;
   slab.kfree(out_of_range);
-  
+
   std::cout << "kfree invalid pointer test passed\n";
 
   // 4. 分配后立即释放测试
   std::cout << "4. Allocate and immediate free test\n";
-  
+
   std::vector<size_t> test_sizes = {32, 64, 128, 256, 512, 1024};
-  
+
   for (size_t size : test_sizes) {
     void* ptr = slab.kmalloc(size);
     if (ptr != nullptr) {
       // 写入数据验证内存可用
       memset(ptr, static_cast<int>(size & 0xFF), size);
-      
+
       // 立即释放
       slab.kfree(ptr);
-      
+
       std::cout << "Successfully allocated and freed " << size << " bytes\n";
     } else {
       std::cout << "Warning: Failed to allocate " << size << " bytes\n";
     }
   }
-  
+
   std::cout << "Allocate and immediate free test passed\n";
 
   // 5. 多次分配和释放测试
   std::cout << "5. Multiple allocate/free cycles test\n";
-  
+
   std::vector<void*> ptrs;
   const int num_cycles = 10;
   const size_t alloc_size = 128;
-  
+
   for (int cycle = 0; cycle < num_cycles; ++cycle) {
     // 分配一些内存
     for (int i = 0; i < 5; ++i) {
@@ -1049,7 +1068,7 @@ TEST_F(SlabTest, KfreeTest) {
         memset(ptr, cycle + i, alloc_size);
       }
     }
-    
+
     // 释放一半内存
     size_t to_free = ptrs.size() / 2;
     for (size_t i = 0; i < to_free; ++i) {
@@ -1057,50 +1076,50 @@ TEST_F(SlabTest, KfreeTest) {
       ptrs.pop_back();
     }
   }
-  
+
   // 释放剩余的所有内存
   for (void* ptr : ptrs) {
     slab.kfree(ptr);
   }
-  
+
   std::cout << "Completed " << num_cycles << " allocation/free cycles\n";
   std::cout << "Multiple allocate/free cycles test passed\n";
 
   // 6. 释放后的内存状态验证
   std::cout << "6. Memory state after free test\n";
-  
+
   void* test_ptr = slab.kmalloc(256);
   ASSERT_NE(test_ptr, nullptr) << "Failed to allocate test memory";
-  
+
   auto* cache = slab.find_buffers_cache(test_ptr);
   ASSERT_NE(cache, nullptr) << "Should find cache for test memory";
-  
+
   auto active_before_final = cache->num_active;
-  
+
   // 释放内存
   slab.kfree(test_ptr);
-  
+
   // 验证活跃对象数量减少
-  EXPECT_LT(cache->num_active, active_before_final) 
+  EXPECT_LT(cache->num_active, active_before_final)
       << "Active count should decrease after final kfree";
-  
+
   // 尝试再次查找已释放的指针（应该仍然能找到缓存，但不应该再次释放）
   auto* cache_after = slab.find_buffers_cache(test_ptr);
   if (cache_after != nullptr) {
     std::cout << "Cache still findable after kfree (expected)\n";
   }
-  
+
   // 双重释放测试（应该是安全的，不会崩溃）
   slab.kfree(test_ptr);
-  
+
   std::cout << "Memory state after free test passed\n";
 
   // 7. 大量分配和释放测试
   std::cout << "7. Bulk allocate and free test\n";
-  
+
   std::vector<std::pair<void*, size_t>> bulk_ptrs;
   std::vector<size_t> sizes = {32, 64, 96, 128, 160, 192, 224, 256};
-  
+
   // 大量分配
   for (int i = 0; i < 20; ++i) {
     size_t size = sizes[i % sizes.size()];
@@ -1111,20 +1130,227 @@ TEST_F(SlabTest, KfreeTest) {
       memset(ptr, i & 0xFF, size);
     }
   }
-  
+
   std::cout << "Allocated " << bulk_ptrs.size() << " objects for bulk test\n";
-  
+
   // 随机释放
   std::random_device rd;
   std::mt19937 g(rd());
   std::shuffle(bulk_ptrs.begin(), bulk_ptrs.end(), g);
-  
+
   for (const auto& [ptr, size] : bulk_ptrs) {
     slab.kfree(ptr);
   }
-  
+
   std::cout << "Freed all " << bulk_ptrs.size() << " objects\n";
   std::cout << "Bulk allocate and free test passed\n";
 
   std::cout << "=== kfree tests completed successfully! ===\n";
+}
+
+/**
+ * @brief 测试 kmem_cache_destroy 功能
+ *
+ * 测试内容：
+ * 1. 基本缓存销毁测试
+ * 2. 销毁nullptr缓存测试
+ * 3. 销毁有分配对象的缓存测试
+ * 4. 销毁空缓存测试
+ * 5. 多个缓存销毁测试
+ * 6. 销毁后的状态验证
+ */
+TEST_F(SlabTest, KmemCacheDestroyTest) {
+  std::cout << "\n=== Starting kmem_cache_destroy tests ===\n";
+
+  using MyBuddy = Buddy<TestLogger>;
+  using MySlab = Slab<MyBuddy, TestLogger, TestLock>;
+
+  MySlab slab("slab_destroy_test", test_memory_, kTestPages);
+
+  // 1. 基本缓存销毁测试
+  std::cout << "1. Basic cache destroy test\n";
+
+  auto* cache1 =
+      slab.kmem_cache_create("destroy_test_1", sizeof(int), nullptr, nullptr);
+  ASSERT_NE(cache1, nullptr) << "Failed to create cache for destroy test";
+  EXPECT_STREQ(cache1->name, "destroy_test_1");
+
+  // 记录销毁前的名称
+  std::string cache_name_before(cache1->name);
+
+  // 销毁缓存
+  slab.kmem_cache_destroy(cache1);
+
+  // 验证缓存名称被清空（这是销毁的标志）
+  EXPECT_EQ(cache1->name[0], '\0')
+      << "Cache name should be cleared after destroy";
+  EXPECT_EQ(cache1->objectSize, 0)
+      << "Object size should be reset after destroy";
+
+  std::cout << "Cache '" << cache_name_before << "' destroyed successfully\n";
+  std::cout << "Basic cache destroy test passed\n";
+
+  // 2. 销毁nullptr缓存测试
+  std::cout << "2. Destroy nullptr cache test\n";
+
+  // 这应该不会崩溃
+  slab.kmem_cache_destroy(nullptr);
+
+  std::cout << "Destroy nullptr cache test passed\n";
+
+  // 3. 销毁有分配对象的缓存测试
+  std::cout << "3. Destroy cache with allocated objects test\n";
+
+  auto* cache2 = slab.kmem_cache_create("destroy_test_2", 64, nullptr, nullptr);
+  ASSERT_NE(cache2, nullptr)
+      << "Failed to create cache for allocated objects test";
+
+  // 分配一些对象
+  std::vector<void*> allocated_objects;
+  for (int i = 0; i < 5; ++i) {
+    void* obj = slab.kmem_cache_alloc(cache2);
+    if (obj != nullptr) {
+      allocated_objects.push_back(obj);
+      memset(obj, i, 64);
+    }
+  }
+
+  EXPECT_GT(allocated_objects.size(), 0) << "Should allocate some objects";
+  std::cout << "Allocated " << allocated_objects.size()
+            << " objects before destroy\n";
+
+  auto active_before = cache2->num_active;
+
+  // 销毁有活跃对象的缓存
+  slab.kmem_cache_destroy(cache2);
+
+  // 验证缓存被销毁
+  EXPECT_EQ(cache2->name[0], '\0')
+      << "Cache name should be cleared even with active objects";
+
+  std::cout << "Cache with " << active_before << " active objects destroyed\n";
+  std::cout << "Destroy cache with allocated objects test passed\n";
+
+  // 4. 销毁空缓存测试
+  std::cout << "4. Destroy empty cache test\n";
+
+  auto* cache3 =
+      slab.kmem_cache_create("destroy_test_3", 128, nullptr, nullptr);
+  ASSERT_NE(cache3, nullptr) << "Failed to create empty cache for test";
+
+  // 确保缓存是空的
+  EXPECT_EQ(cache3->num_active, 0) << "Cache should be empty initially";
+
+  // 销毁空缓存
+  slab.kmem_cache_destroy(cache3);
+
+  // 验证销毁成功
+  EXPECT_EQ(cache3->name[0], '\0')
+      << "Empty cache name should be cleared after destroy";
+
+  std::cout << "Empty cache destroyed successfully\n";
+  std::cout << "Destroy empty cache test passed\n";
+
+  // 5. 多个缓存销毁测试
+  std::cout << "5. Multiple cache destroy test\n";
+
+  std::vector<std::pair<decltype(cache1), std::string>> caches_to_destroy;
+
+  // 创建多个不同大小的缓存
+  std::vector<std::pair<std::string, size_t>> cache_specs = {
+      {"multi_destroy_32", 32},
+      {"multi_destroy_64", 64},
+      {"multi_destroy_256", 256},
+      {"multi_destroy_512", 512}};
+
+  for (const auto& [name, size] : cache_specs) {
+    auto* cache = slab.kmem_cache_create(name.c_str(), size, nullptr, nullptr);
+    if (cache != nullptr) {
+      caches_to_destroy.push_back({cache, name});
+
+      // 在一些缓存中分配对象
+      if (size <= 256) {
+        void* obj = slab.kmem_cache_alloc(cache);
+        if (obj != nullptr) {
+          memset(obj, 0xCC, size);
+        }
+      }
+    }
+  }
+
+  std::cout << "Created " << caches_to_destroy.size()
+            << " caches for multi-destroy test\n";
+
+  // 销毁所有缓存
+  for (const auto& [cache, name] : caches_to_destroy) {
+    EXPECT_STRNE(cache->name, "")
+        << "Cache name should not be empty before destroy";
+
+    slab.kmem_cache_destroy(cache);
+
+    EXPECT_EQ(cache->name[0], '\0')
+        << "Cache " << name << " should be destroyed";
+    std::cout << "Destroyed cache: " << name << "\n";
+  }
+
+  std::cout << "Multiple cache destroy test passed\n";
+
+  // 6. 销毁后的状态验证
+  std::cout << "6. Post-destroy state verification test\n";
+
+  auto* cache4 =
+      slab.kmem_cache_create("verify_destroy", 256, nullptr, nullptr);
+  ASSERT_NE(cache4, nullptr) << "Failed to create cache for verification test";
+
+  // 分配和释放一些对象
+  void* obj1 = slab.kmem_cache_alloc(cache4);
+
+  if (obj1 != nullptr) {
+    slab.kmem_cache_free(cache4, obj1);
+  }
+  // 故意不释放 obj2，测试销毁有未释放对象的缓存
+  slab.kmem_cache_alloc(cache4);
+
+  auto active_before_destroy = cache4->num_active;
+  std::cout << "Cache has " << active_before_destroy
+            << " active objects before destroy\n";
+
+  // 销毁缓存
+  slab.kmem_cache_destroy(cache4);
+
+  // 验证缓存状态
+  EXPECT_EQ(cache4->name[0], '\0') << "Cache name should be cleared";
+  EXPECT_EQ(cache4->objectSize, 0) << "Object size should be reset";
+
+  std::cout << "Post-destroy state verification test passed\n";
+
+  // 7. 边界条件测试
+  std::cout << "7. Edge case testing\n";
+
+  // 创建一个缓存然后立即销毁
+  auto* cache5 =
+      slab.kmem_cache_create("immediate_destroy", 64, nullptr, nullptr);
+  if (cache5 != nullptr) {
+    slab.kmem_cache_destroy(cache5);
+    EXPECT_EQ(cache5->name[0], '\0')
+        << "Immediately destroyed cache should be cleared";
+    std::cout << "Immediate destroy test passed\n";
+  }
+
+  // 尝试多次销毁同一个缓存（第二次应该是安全的）
+  auto* cache6 =
+      slab.kmem_cache_create("double_destroy", 128, nullptr, nullptr);
+  if (cache6 != nullptr) {
+    slab.kmem_cache_destroy(cache6);
+    EXPECT_EQ(cache6->name[0], '\0') << "First destroy should clear name";
+
+    // 第二次销毁（应该是安全的，因为名称已经为空）
+    slab.kmem_cache_destroy(cache6);
+
+    std::cout << "Double destroy test passed\n";
+  }
+
+  std::cout << "Edge case testing passed\n";
+
+  std::cout << "=== kmem_cache_destroy tests completed successfully! ===\n";
 }
