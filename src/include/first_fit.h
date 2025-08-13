@@ -27,7 +27,8 @@ class FirstFit : public AllocatorBase {
    * @param log_func printf 风格的日志函数指针（可选）
    */
   explicit FirstFit(const char* name, void* start_addr, size_t page_count,
-                    int (*log_func)(const char*, ...) = nullptr);
+                    int (*log_func)(const char*, ...) = nullptr,
+                    LockBase* lock = nullptr);
 
   /// @name 构造/析构函数
   /// @{

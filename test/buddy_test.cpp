@@ -9,13 +9,32 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdarg>
 #include <cstring>
 #include <iostream>
+#include <mutex>
 #include <random>
+#include <set>
+#include <thread>
 #include <vector>
 
 namespace bmalloc {
+
+/**
+ * @brief 测试用的互斥锁实现
+ * @details 基于std::mutex实现的LockBase接口，用于多线程测试
+ */
+class TestMutexLock : public LockBase {
+ public:
+  void Lock() override { mutex_.lock(); }
+
+  void Unlock() override { mutex_.unlock(); }
+
+ private:
+  std::mutex mutex_;
+};
 
 /**
  * @brief 辅助函数：打印 Buddy 分配器的当前状态
@@ -23,8 +42,10 @@ namespace bmalloc {
  */
 class BuddyDebugHelper : public Buddy {
  public:
-  BuddyDebugHelper(const char* name, void* start_addr, size_t total_pages)
-      : Buddy(name, start_addr, total_pages) {}
+  BuddyDebugHelper(const char* name, void* start_addr, size_t total_pages,
+                   int (*log_func)(const char*, ...) = nullptr,
+                   LockBase* lock = nullptr)
+      : Buddy(name, start_addr, total_pages, log_func, lock) {}
 
   void print() const {
     printf("\n==========================================\n");
@@ -346,6 +367,68 @@ class BuddyTest : public ::testing::Test {
   }
 
   std::unique_ptr<BuddyDebugHelper> buddy_;
+  void* test_memory_ = nullptr;
+  size_t test_memory_size_ = 0;
+  size_t test_pages_ = 0;
+};
+
+/**
+ * @brief 多线程Buddy分配器测试夹具类
+ * 使用线程安全的锁机制
+ */
+class BuddyMultiThreadTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    // 分配测试用的内存池 (2MB = 512页，更大的内存用于多线程测试)
+    test_memory_size_ = 2 * 1024 * 1024;                         // 2MB
+    test_pages_ = test_memory_size_ / AllocatorBase::kPageSize;  // 512页
+    test_memory_ =
+        std::aligned_alloc(AllocatorBase::kPageSize, test_memory_size_);
+
+    ASSERT_NE(test_memory_, nullptr) << "无法分配测试内存";
+
+    // 初始化为0，便于检测内存污染
+    std::memset(test_memory_, 0, test_memory_size_);
+
+    // 创建测试用的锁
+    lock_ = std::make_unique<TestMutexLock>();
+
+    // 创建thread-safe的buddy分配器实例
+    buddy_ = std::make_unique<BuddyDebugHelper>(
+        "test_buddy_mt", test_memory_, test_pages_, nullptr, lock_.get());
+  }
+
+  void TearDown() override {
+    buddy_.reset();
+    lock_.reset();
+    if (test_memory_) {
+      std::free(test_memory_);
+    }
+  }
+
+  // 辅助函数：检查内存是否在管理范围内
+  bool IsInManagedRange(void* ptr) const {
+    if (!ptr) return false;
+    auto start = static_cast<char*>(test_memory_);
+    auto end = start + test_memory_size_;
+    auto addr = static_cast<char*>(ptr);
+    return addr >= start && addr < end;
+  }
+
+  // 辅助函数：验证地址有效性（简化版本）
+  bool ValidateAddress(void* ptr, size_t order) const {
+    if (!ptr || !IsInManagedRange(ptr)) return false;
+
+    auto offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
+    if (offset % AllocatorBase::kPageSize != 0) return false;
+
+    size_t page_num = offset / AllocatorBase::kPageSize;
+    size_t pages = 1 << order;
+    return (page_num % pages == 0) && (page_num + pages <= test_pages_);
+  }
+
+  std::unique_ptr<BuddyDebugHelper> buddy_;
+  std::unique_ptr<TestMutexLock> lock_;
   void* test_memory_ = nullptr;
   size_t test_memory_size_ = 0;
   size_t test_pages_ = 0;
@@ -1316,6 +1399,569 @@ TEST_F(BuddyTest, AddressValidationTest) {
   }
 
   std::cout << "\n=== AddressValidationTest 测试结束 ===" << std::endl;
+}
+
+/**
+ * @brief 多线程基础测试：测试多个线程同时分配和释放内存
+ */
+TEST_F(BuddyMultiThreadTest, MultiThreadBasicTest) {
+  std::cout << "\n=== MultiThreadBasicTest 测试开始 ===" << std::endl;
+
+  const int num_threads = 4;
+  const int allocs_per_thread = 50;
+
+  // 用于收集各线程的分配结果
+  std::vector<std::vector<std::pair<void*, size_t>>> thread_allocations(
+      num_threads);
+  std::vector<std::thread> threads;
+  std::atomic<int> successful_allocs{0};
+  std::atomic<int> failed_allocs{0};
+
+  // 启动多个线程进行并发分配
+  for (int t = 0; t < num_threads; ++t) {
+    threads.emplace_back([this, t, allocs_per_thread, &thread_allocations,
+                          &successful_allocs, &failed_allocs]() {
+      std::random_device rd;
+      std::mt19937 gen(rd() + t);  // 每个线程使用不同的种子
+      std::uniform_int_distribution<> order_dist(0, 2);  // order 0-2
+
+      std::cout << "线程 " << t << " 开始分配..." << std::endl;
+
+      for (int i = 0; i < allocs_per_thread; ++i) {
+        size_t order = order_dist(gen);
+        void* ptr = buddy_->Alloc(order);
+
+        if (ptr != nullptr) {
+          // 验证地址有效性（使用简化版本以减少输出）
+          EXPECT_TRUE(ValidateAddress(ptr, order))
+              << "线程 " << t << " 地址验证失败";
+
+          thread_allocations[t].emplace_back(ptr, order);
+          successful_allocs.fetch_add(1);
+
+          // 测试内存可写性
+          auto* byte_ptr = static_cast<uint8_t*>(ptr);
+          byte_ptr[0] = static_cast<uint8_t>(t);  // 写入线程ID
+
+          // 验证写入成功
+          EXPECT_EQ(byte_ptr[0], static_cast<uint8_t>(t))
+              << "线程 " << t << " 内存写入失败";
+        } else {
+          failed_allocs.fetch_add(1);
+        }
+
+        // 短暂延时增加并发竞争
+        if (i % 10 == 0) {
+          std::this_thread::sleep_for(std::chrono::microseconds(1));
+        }
+      }
+
+      std::cout << "线程 " << t
+                << " 完成分配，成功: " << thread_allocations[t].size()
+                << std::endl;
+    });
+  }
+
+  // 等待所有线程完成
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  std::cout << "\n并发分配结果:" << std::endl;
+  std::cout << "成功分配: " << successful_allocs.load() << std::endl;
+  std::cout << "失败分配: " << failed_allocs.load() << std::endl;
+
+  // 验证所有分配的地址都不相同
+  std::set<void*> all_addresses;
+  size_t total_allocated = 0;
+
+  for (int t = 0; t < num_threads; ++t) {
+    for (const auto& [ptr, order] : thread_allocations[t]) {
+      EXPECT_TRUE(all_addresses.insert(ptr).second)
+          << "发现重复地址: " << ptr << " (线程 " << t << ")";
+      total_allocated++;
+    }
+  }
+
+  EXPECT_EQ(total_allocated, successful_allocs.load())
+      << "实际分配数量与统计不符";
+  EXPECT_EQ(all_addresses.size(), successful_allocs.load()) << "存在重复地址";
+
+  std::cout << "✓ 地址唯一性验证通过，共 " << all_addresses.size()
+            << " 个唯一地址" << std::endl;
+
+  // 多线程释放内存
+  std::cout << "\n开始多线程释放..." << std::endl;
+  std::atomic<int> successful_frees{0};
+  threads.clear();
+
+  for (int t = 0; t < num_threads; ++t) {
+    threads.emplace_back([this, t, &thread_allocations, &successful_frees]() {
+      std::cout << "线程 " << t << " 开始释放..." << std::endl;
+
+      for (const auto& [ptr, order] : thread_allocations[t]) {
+        // 验证内存中的线程ID还在
+        auto* byte_ptr = static_cast<uint8_t*>(ptr);
+        EXPECT_EQ(byte_ptr[0], static_cast<uint8_t>(t))
+            << "线程 " << t << " 内存数据被损坏";
+
+        buddy_->Free(ptr, order);
+        successful_frees.fetch_add(1);
+      }
+
+      std::cout << "线程 " << t
+                << " 完成释放，释放数量: " << thread_allocations[t].size()
+                << std::endl;
+    });
+  }
+
+  // 等待所有释放完成
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  std::cout << "✓ 多线程释放完成，总释放数量: " << successful_frees.load()
+            << std::endl;
+  EXPECT_EQ(successful_frees.load(), successful_allocs.load())
+      << "释放数量应该等于分配数量";
+
+  std::cout << "=== MultiThreadBasicTest 测试结束 ===\n" << std::endl;
+}
+
+/**
+ * @brief 多线程压力测试：高强度并发分配和释放
+ */
+TEST_F(BuddyMultiThreadTest, MultiThreadStressTest) {
+  std::cout << "\n=== MultiThreadStressTest 测试开始 ===" << std::endl;
+
+  const int num_threads = 8;
+  const int operations_per_thread = 200;
+  const std::chrono::seconds test_duration(5);  // 5秒压力测试
+
+  std::atomic<bool> stop_flag{false};
+  std::atomic<long> total_allocs{0};
+  std::atomic<long> total_frees{0};
+  std::atomic<long> alloc_failures{0};
+  std::atomic<long> data_corruption_errors{0};
+
+  // 每个线程维护自己的分配列表
+  std::vector<std::vector<std::tuple<void*, size_t, uint32_t>>>
+      thread_allocations(num_threads);
+  std::vector<std::mutex> thread_mutexes(num_threads);
+  std::vector<std::thread> threads;
+
+  auto start_time = std::chrono::steady_clock::now();
+
+  // 启动压力测试线程
+  for (int t = 0; t < num_threads; ++t) {
+    threads.emplace_back([this, t, operations_per_thread, &stop_flag,
+                          &total_allocs, &total_frees, &alloc_failures,
+                          &data_corruption_errors, &thread_allocations,
+                          &thread_mutexes]() {
+      std::random_device rd;
+      std::mt19937 gen(rd() + t * 1000);
+      std::uniform_int_distribution<> order_dist(0, 3);
+      std::uniform_real_distribution<> action_dist(0.0, 1.0);
+      std::uniform_int_distribution<uint32_t> magic_dist;
+
+      int local_allocs = 0;
+      int local_frees = 0;
+      int local_failures = 0;
+      int local_corruptions = 0;
+
+      while (!stop_flag.load() &&
+             (local_allocs + local_frees) < operations_per_thread) {
+        bool should_alloc;
+        {
+          std::lock_guard<std::mutex> lock(thread_mutexes[t]);
+          should_alloc =
+              thread_allocations[t].empty() || action_dist(gen) < 0.6;
+        }
+
+        if (should_alloc) {
+          // 分配操作
+          size_t order = order_dist(gen);
+          void* ptr = buddy_->Alloc(order);
+
+          if (ptr != nullptr) {
+            // 生成魔数并写入内存
+            uint32_t magic = magic_dist(gen);
+            auto* uint32_ptr = static_cast<uint32_t*>(ptr);
+            size_t uint32_count =
+                ((1 << order) * AllocatorBase::kPageSize) / sizeof(uint32_t);
+
+            // 填充魔数
+            for (size_t i = 0; i < uint32_count; ++i) {
+              uint32_ptr[i] = magic;
+            }
+
+            {
+              std::lock_guard<std::mutex> lock(thread_mutexes[t]);
+              thread_allocations[t].emplace_back(ptr, order, magic);
+            }
+            local_allocs++;
+          } else {
+            local_failures++;
+          }
+        } else {
+          // 释放操作
+          std::lock_guard<std::mutex> lock(thread_mutexes[t]);
+          if (!thread_allocations[t].empty()) {
+            std::uniform_int_distribution<> index_dist(
+                0, thread_allocations[t].size() - 1);
+            size_t index = index_dist(gen);
+
+            auto [ptr, order, magic] = thread_allocations[t][index];
+
+            // 验证数据完整性
+            auto* uint32_ptr = static_cast<uint32_t*>(ptr);
+            size_t uint32_count =
+                ((1 << order) * AllocatorBase::kPageSize) / sizeof(uint32_t);
+            bool corruption_detected = false;
+
+            for (size_t i = 0; i < uint32_count; ++i) {
+              if (uint32_ptr[i] != magic) {
+                corruption_detected = true;
+                break;
+              }
+            }
+
+            if (corruption_detected) {
+              local_corruptions++;
+            }
+
+            buddy_->Free(ptr, order);
+            thread_allocations[t].erase(thread_allocations[t].begin() + index);
+            local_frees++;
+          }
+        }
+
+        // 随机短暂延时
+        if ((local_allocs + local_frees) % 50 == 0) {
+          std::this_thread::sleep_for(std::chrono::microseconds(gen() % 10));
+        }
+      }
+
+      total_allocs.fetch_add(local_allocs);
+      total_frees.fetch_add(local_frees);
+      alloc_failures.fetch_add(local_failures);
+      data_corruption_errors.fetch_add(local_corruptions);
+
+      std::cout << "线程 " << t << " 完成: 分配=" << local_allocs
+                << ", 释放=" << local_frees << ", 失败=" << local_failures
+                << ", 损坏=" << local_corruptions << std::endl;
+    });
+  }
+
+  // 等待指定时间后停止测试
+  std::this_thread::sleep_for(test_duration);
+  stop_flag.store(true);
+
+  // 等待所有线程完成
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  auto end_time = std::chrono::steady_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+      end_time - start_time);
+
+  std::cout << "\n压力测试结果（" << duration.count() << "ms）:" << std::endl;
+  std::cout << "总分配次数: " << total_allocs.load() << std::endl;
+  std::cout << "总释放次数: " << total_frees.load() << std::endl;
+  std::cout << "分配失败次数: " << alloc_failures.load() << std::endl;
+  std::cout << "数据损坏次数: " << data_corruption_errors.load() << std::endl;
+
+  EXPECT_EQ(data_corruption_errors.load(), 0) << "不应该有数据损坏";
+  EXPECT_GT(total_allocs.load(), 0) << "应该有成功的分配操作";
+
+  // 计算性能指标
+  double ops_per_second =
+      (total_allocs.load() + total_frees.load()) * 1000.0 / duration.count();
+  std::cout << "操作速率: " << ops_per_second << " ops/sec" << std::endl;
+
+  // 清理剩余分配
+  std::cout << "\n清理剩余分配..." << std::endl;
+  int cleanup_count = 0;
+  for (int t = 0; t < num_threads; ++t) {
+    for (const auto& [ptr, order, magic] : thread_allocations[t]) {
+      // 验证数据完整性
+      auto* uint32_ptr = static_cast<uint32_t*>(ptr);
+      size_t uint32_count =
+          ((1 << order) * AllocatorBase::kPageSize) / sizeof(uint32_t);
+
+      for (size_t i = 0; i < uint32_count; ++i) {
+        EXPECT_EQ(uint32_ptr[i], magic)
+            << "清理时发现数据损坏，线程=" << t << ", 位置=" << i;
+      }
+
+      buddy_->Free(ptr, order);
+      cleanup_count++;
+    }
+  }
+
+  std::cout << "清理了 " << cleanup_count << " 个剩余分配" << std::endl;
+  std::cout << "=== MultiThreadStressTest 测试结束 ===\n" << std::endl;
+}
+
+/**
+ * @brief 多线程内存耗尽测试：测试多线程下的内存耗尽和恢复
+ */
+TEST_F(BuddyMultiThreadTest, MultiThreadExhaustionTest) {
+  std::cout << "\n=== MultiThreadExhaustionTest 测试开始 ===" << std::endl;
+
+  const int num_threads = 6;
+  std::vector<std::vector<std::pair<void*, size_t>>> thread_allocations(
+      num_threads);
+  std::vector<std::thread> threads;
+  std::atomic<int> total_allocated{0};
+  std::atomic<bool> memory_exhausted{false};
+
+  // 第一阶段：多线程耗尽内存
+  std::cout << "\n第一阶段：多线程耗尽内存..." << std::endl;
+
+  for (int t = 0; t < num_threads; ++t) {
+    threads.emplace_back(
+        [this, t, &thread_allocations, &total_allocated, &memory_exhausted]() {
+          std::random_device rd;
+          std::mt19937 gen(rd() + t);
+          std::uniform_int_distribution<> order_dist(0, 1);  // 主要分配小块
+
+          int thread_allocs = 0;
+          while (!memory_exhausted.load()) {
+            size_t order = order_dist(gen);
+            void* ptr = buddy_->Alloc(order);
+
+            if (ptr != nullptr) {
+              thread_allocations[t].emplace_back(ptr, order);
+              thread_allocs++;
+              total_allocated.fetch_add(1 << order);  // 累加页数
+
+              // 填充线程标识
+              auto* byte_ptr = static_cast<uint8_t*>(ptr);
+              byte_ptr[0] = static_cast<uint8_t>(t);
+            } else {
+              // 内存耗尽，设置标志让其他线程停止
+              memory_exhausted.store(true);
+              break;
+            }
+
+            // 减少竞争激烈程度
+            if (thread_allocs % 20 == 0) {
+              std::this_thread::sleep_for(std::chrono::microseconds(1));
+            }
+          }
+
+          std::cout << "线程 " << t << " 分配了 " << thread_allocs << " 个块"
+                    << std::endl;
+        });
+  }
+
+  // 等待所有线程完成
+  for (auto& thread : threads) {
+    thread.join();
+  }
+  threads.clear();
+
+  std::cout << "内存耗尽阶段完成，总分配页数: " << total_allocated.load()
+            << std::endl;
+
+  // 验证确实无法再分配
+  void* test_ptr = buddy_->Alloc(0);
+  EXPECT_EQ(test_ptr, nullptr) << "内存耗尽后应该无法分配";
+
+  // 第二阶段：验证数据完整性
+  std::cout << "\n第二阶段：验证数据完整性..." << std::endl;
+  std::atomic<int> integrity_errors{0};
+
+  for (int t = 0; t < num_threads; ++t) {
+    threads.emplace_back([this, t, &thread_allocations, &integrity_errors]() {
+      int checked = 0;
+      for (const auto& [ptr, order] : thread_allocations[t]) {
+        auto* byte_ptr = static_cast<uint8_t*>(ptr);
+        if (byte_ptr[0] != static_cast<uint8_t>(t)) {
+          integrity_errors.fetch_add(1);
+        }
+        checked++;
+      }
+      std::cout << "线程 " << t << " 检查了 " << checked << " 个块"
+                << std::endl;
+    });
+  }
+
+  for (auto& thread : threads) {
+    thread.join();
+  }
+  threads.clear();
+
+  EXPECT_EQ(integrity_errors.load(), 0) << "不应该有数据完整性错误";
+  std::cout << "✓ 数据完整性验证通过" << std::endl;
+
+  // 第三阶段：多线程释放内存
+  std::cout << "\n第三阶段：多线程释放内存..." << std::endl;
+  std::atomic<int> total_freed{0};
+
+  for (int t = 0; t < num_threads; ++t) {
+    threads.emplace_back([this, t, &thread_allocations, &total_freed]() {
+      int thread_frees = 0;
+      for (const auto& [ptr, order] : thread_allocations[t]) {
+        buddy_->Free(ptr, order);
+        total_freed.fetch_add(1 << order);  // 累加页数
+        thread_frees++;
+
+        // 控制释放速度
+        if (thread_frees % 30 == 0) {
+          std::this_thread::sleep_for(std::chrono::microseconds(1));
+        }
+      }
+      std::cout << "线程 " << t << " 释放了 " << thread_frees << " 个块"
+                << std::endl;
+    });
+  }
+
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  std::cout << "释放阶段完成，总释放页数: " << total_freed.load() << std::endl;
+  EXPECT_EQ(total_freed.load(), total_allocated.load())
+      << "释放的页数应该等于分配的页数";
+
+  // 第四阶段：验证内存可以重新分配
+  std::cout << "\n第四阶段：验证内存恢复..." << std::endl;
+  test_ptr = buddy_->Alloc(0);
+  EXPECT_NE(test_ptr, nullptr) << "释放后应该能重新分配内存";
+
+  if (test_ptr) {
+    // 测试新分配的内存可以正常使用
+    auto* byte_ptr = static_cast<uint8_t*>(test_ptr);
+    byte_ptr[0] = 0xFF;
+    EXPECT_EQ(byte_ptr[0], 0xFF) << "新分配的内存应该可以正常读写";
+    buddy_->Free(test_ptr, 0);
+    std::cout << "✓ 内存恢复验证通过" << std::endl;
+  }
+
+  std::cout << "=== MultiThreadExhaustionTest 测试结束 ===\n" << std::endl;
+}
+
+/**
+ * @brief 多线程buddy合并测试：测试多线程环境下的内存合并
+ */
+TEST_F(BuddyMultiThreadTest, MultiThreadBuddyMergingTest) {
+  std::cout << "\n=== MultiThreadBuddyMergingTest 测试开始 ===" << std::endl;
+
+  const int num_pairs = 4;  // 4对线程，每对测试buddy合并
+  std::vector<std::thread> threads;
+  std::atomic<int> merge_opportunities{0};
+  std::atomic<int> successful_large_allocs{0};
+
+  // 每对线程分配相邻的buddy块，然后释放测试合并
+  for (int pair = 0; pair < num_pairs; ++pair) {
+    // 存储每对线程的分配结果
+    auto allocations =
+        std::make_shared<std::vector<std::pair<void*, size_t>>>();
+    auto pair_mutex = std::make_shared<std::mutex>();
+
+    // 启动两个线程
+    for (int t = 0; t < 2; ++t) {
+      threads.emplace_back([this, pair, t, allocations, pair_mutex,
+                            &merge_opportunities, &successful_large_allocs]() {
+        std::random_device rd;
+        std::mt19937 gen(rd() + pair * 100 + t);
+
+        // 第一步：分配小块
+        std::cout << "线程对 " << pair << "-" << t << " 开始分配小块..."
+                  << std::endl;
+
+        for (int i = 0; i < 10; ++i) {
+          void* ptr = buddy_->Alloc(0);  // 分配1页
+          if (ptr != nullptr) {
+            // 填充标识数据
+            auto* byte_ptr = static_cast<uint8_t*>(ptr);
+            byte_ptr[0] = static_cast<uint8_t>(pair * 10 + t);
+
+            {
+              std::lock_guard<std::mutex> lock(*pair_mutex);
+              allocations->emplace_back(ptr, 0);
+            }
+          }
+
+          // 短暂延时增加并发
+          std::this_thread::sleep_for(std::chrono::microseconds(gen() % 5));
+        }
+
+        // 第二步：释放所有小块（可能触发合并）
+        std::cout << "线程对 " << pair << "-" << t << " 开始释放小块..."
+                  << std::endl;
+        {
+          std::lock_guard<std::mutex> lock(*pair_mutex);
+          for (const auto& [ptr, order] : *allocations) {
+            // 验证数据完整性
+            auto* byte_ptr = static_cast<uint8_t*>(ptr);
+            EXPECT_EQ(byte_ptr[0], static_cast<uint8_t>(pair * 10 + t))
+                << "释放前数据损坏，线程对 " << pair << "-" << t;
+
+            buddy_->Free(ptr, order);
+          }
+          allocations->clear();
+        }
+
+        merge_opportunities.fetch_add(1);
+
+        // 第三步：尝试分配大块（验证合并效果）
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(1));  // 让合并有时间完成
+
+        void* large_ptr = buddy_->Alloc(2);  // 尝试分配4页
+        if (large_ptr != nullptr) {
+          successful_large_allocs.fetch_add(1);
+          std::cout << "✓ 线程对 " << pair << "-" << t
+                    << " 成功分配大块: " << large_ptr << std::endl;
+
+          // 测试大块内存
+          auto* byte_ptr = static_cast<uint8_t*>(large_ptr);
+          size_t large_size = 4 * AllocatorBase::kPageSize;
+
+          // 填充测试数据
+          std::memset(byte_ptr, static_cast<int>(pair * 10 + t), large_size);
+
+          // 验证写入
+          for (size_t i = 0; i < large_size; ++i) {
+            EXPECT_EQ(byte_ptr[i], static_cast<uint8_t>(pair * 10 + t))
+                << "大块内存写入失败，位置 " << i;
+          }
+
+          // 延时后释放
+          std::this_thread::sleep_for(std::chrono::milliseconds(gen() % 5));
+          buddy_->Free(large_ptr, 2);
+          std::cout << "✓ 线程对 " << pair << "-" << t << " 释放大块"
+                    << std::endl;
+        } else {
+          std::cout << "✗ 线程对 " << pair << "-" << t << " 大块分配失败"
+                    << std::endl;
+        }
+      });
+    }
+  }
+
+  // 等待所有线程完成
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  std::cout << "\n合并测试结果:" << std::endl;
+  std::cout << "合并机会: " << merge_opportunities.load() << std::endl;
+  std::cout << "成功的大块分配: " << successful_large_allocs.load()
+            << std::endl;
+
+  // 验证内存状态
+  void* final_test = buddy_->Alloc(0);
+  EXPECT_NE(final_test, nullptr) << "测试结束后应该能分配内存";
+  if (final_test) {
+    buddy_->Free(final_test, 0);
+  }
+
+  std::cout << "=== MultiThreadBuddyMergingTest 测试结束 ===\n" << std::endl;
 }
 
 }  // namespace bmalloc

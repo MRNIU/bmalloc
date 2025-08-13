@@ -7,27 +7,17 @@
 namespace bmalloc {
 
 FirstFit::FirstFit(const char* name, void* start_addr, size_t page_count,
-                   int (*log_func)(const char*, ...))
-    : AllocatorBase(name, start_addr, page_count, log_func) {
-  Log("FirstFit allocator '%s' initializing: start_addr=%p, page_count=%zu\n",
-      name, start_addr, page_count);
-
+                   int (*log_func)(const char*, ...), LockBase* lock)
+    : AllocatorBase(name, start_addr, page_count, log_func, lock) {
   // 初始化位图为全0 (所有页面空闲)
   bitmap_.reset();
 
   // 初始化统计信息
   free_count_ = length_;
   used_count_ = 0;
-
-  Log("FirstFit allocator '%s' initialization completed: free_pages=%zu, "
-      "used_pages=%zu\n",
-      name_, free_count_, used_count_);
 }
 
 auto FirstFit::AllocImpl(size_t page_count) -> void* {
-  Log("FirstFit allocator '%s' allocation request: page_count=%zu\n", name_,
-      page_count);
-
   if (page_count == 0 || page_count > free_count_) {
     Log("FirstFit allocator '%s' allocation failed: invalid page_count=%zu "
         "(free_count=%zu)\n",
@@ -44,10 +34,6 @@ auto FirstFit::AllocImpl(size_t page_count) -> void* {
     return nullptr;
   }
 
-  Log("FirstFit allocator '%s' found consecutive free pages: start_idx=%zu, "
-      "count=%zu\n",
-      name_, start_idx, page_count);
-
   // 标记这些页面为已使用
   for (size_t i = start_idx; i < start_idx + page_count; ++i) {
     bitmap_[i] = true;
@@ -61,17 +47,10 @@ auto FirstFit::AllocImpl(size_t page_count) -> void* {
   free_count_ -= page_count;
   used_count_ += page_count;
 
-  Log("FirstFit allocator '%s' allocation successful: addr=%p, pages=%zu, "
-      "free_count=%zu, used_count=%zu\n",
-      name_, allocated_addr, page_count, free_count_, used_count_);
-
   return allocated_addr;
 }
 
 void FirstFit::FreeImpl(void* addr, size_t page_count) {
-  Log("FirstFit allocator '%s' free request: addr=%p, page_count=%zu\n", name_,
-      addr, page_count);
-
   // 将 void* 转换为 uintptr_t 进行地址计算
   uintptr_t target_addr = reinterpret_cast<uintptr_t>(addr);
   uintptr_t start_addr = reinterpret_cast<uintptr_t>(start_addr_);
@@ -97,9 +76,6 @@ void FirstFit::FreeImpl(void* addr, size_t page_count) {
     return;
   }
 
-  Log("FirstFit allocator '%s' freeing pages: start_idx=%zu, count=%zu\n",
-      name_, start_idx, page_count);
-
   // 标记页面为空闲
   for (size_t i = start_idx; i < start_idx + page_count; ++i) {
     bitmap_[i] = false;
@@ -107,16 +83,9 @@ void FirstFit::FreeImpl(void* addr, size_t page_count) {
   // 更新统计信息
   free_count_ += page_count;
   used_count_ -= page_count;
-
-  Log("FirstFit allocator '%s' free successful: addr=%p, pages=%zu, "
-      "free_count=%zu, used_count=%zu\n",
-      name_, addr, page_count, free_count_, used_count_);
 }
 
 auto FirstFit::FindConsecutiveBits(size_t length, bool value) const -> size_t {
-  Log("FirstFit allocator '%s' searching for %zu consecutive %s pages\n", name_,
-      length, value ? "used" : "free");
-
   if (length == 0 || length > length_) {
     Log("FirstFit allocator '%s' search failed: invalid length=%zu (max=%zu)\n",
         name_, length, length_);
@@ -134,9 +103,6 @@ auto FirstFit::FindConsecutiveBits(size_t length, bool value) const -> size_t {
       }
       ++count;
       if (count == length) {
-        Log("FirstFit allocator '%s' found %zu consecutive %s pages at "
-            "start_idx=%zu\n",
-            name_, length, value ? "used" : "free", start_idx);
         return start_idx;
       }
     } else {
