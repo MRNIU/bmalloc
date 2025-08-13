@@ -18,24 +18,13 @@
 namespace bmalloc {
 
 /**
- * @brief 简单的日志函数实现
- */
-int buddy_printf(const char* format, ...) {
-  va_list args;
-  va_start(args, format);
-  int result = vprintf(format, args);
-  va_end(args);
-  return result;
-}
-
-/**
  * @brief 辅助函数：打印 Buddy 分配器的当前状态
  * 由于 Buddy 的成员现在是 protected，我们创建一个继承类来访问内部状态
  */
 class BuddyDebugHelper : public Buddy {
  public:
   BuddyDebugHelper(const char* name, void* start_addr, size_t total_pages)
-      : Buddy(name, start_addr, total_pages, buddy_printf) {}
+      : Buddy(name, start_addr, total_pages) {}
 
   void print() const {
     printf("\n==========================================\n");

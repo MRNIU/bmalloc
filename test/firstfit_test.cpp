@@ -18,24 +18,13 @@
 namespace bmalloc {
 
 /**
- * @brief 简单的日志函数实现
- */
-int firstfit_printf(const char* format, ...) {
-  va_list args;
-  va_start(args, format);
-  int result = vprintf(format, args);
-  va_end(args);
-  return result;
-}
-
-/**
  * @brief 辅助函数：打印 FirstFit 分配器的当前状态
  * 由于 FirstFit 的成员现在是 protected，我们创建一个继承类来访问内部状态
  */
 class FirstFitDebugHelper : public FirstFit {
  public:
   FirstFitDebugHelper(const char* name, void* start_addr, size_t page_count)
-      : FirstFit(name, start_addr, page_count, firstfit_printf) {}
+      : FirstFit(name, start_addr, page_count) {}
 
   void print() const {
     printf("\n==========================================\n");
