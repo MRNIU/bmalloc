@@ -416,3 +416,175 @@ TEST_F(SlabTest, KmemCacheAllocTest) {
   
   std::cout << "kmem_cache_alloc tests completed successfully!\n";
 }
+
+/**
+ * @brief 测试 kmem_cache_free 函数
+ */
+TEST_F(SlabTest, KmemCacheFreeTest) {
+  // 使用简单的配置
+  using MyBuddy = Buddy<TestLogger>;
+  using MySlab = Slab<MyBuddy, TestLogger>;
+  
+  MySlab slab("test_slab", test_memory_, kTestPages);
+  
+  // 1. 测试对 nullptr 的处理
+  auto cache = slab.kmem_cache_create("free_test_cache", sizeof(int), nullptr, nullptr);
+  ASSERT_NE(cache, nullptr);
+  
+  // 测试 nullptr cache
+  slab.kmem_cache_free(nullptr, (void*)0x1000);  // 应该安全返回
+  
+  // 测试 nullptr object
+  slab.kmem_cache_free(cache, nullptr);  // 应该安全返回
+  
+  std::cout << "nullptr handling tests passed\n";
+  
+  // 2. 测试基本的分配和释放
+  void* obj1 = slab.kmem_cache_alloc(cache);
+  ASSERT_NE(obj1, nullptr);
+  EXPECT_EQ(cache->num_active, 1);
+  
+  std::cout << "Before free: num_active = " << cache->num_active << "\n";
+  
+  // 释放对象
+  slab.kmem_cache_free(cache, obj1);
+  EXPECT_EQ(cache->num_active, 0);
+  EXPECT_EQ(cache->error_code, 0);  // 没有错误
+  
+  std::cout << "After free: num_active = " << cache->num_active << "\n";
+  
+  // 3. 测试多个对象的分配和释放
+  std::vector<void*> objects;
+  const size_t num_objects = 10;
+  
+  // 分配多个对象
+  for (size_t i = 0; i < num_objects; i++) {
+    void* obj = slab.kmem_cache_alloc(cache);
+    ASSERT_NE(obj, nullptr);
+    objects.push_back(obj);
+  }
+  
+  EXPECT_EQ(cache->num_active, num_objects);
+  std::cout << "Allocated " << num_objects << " objects, num_active = " << cache->num_active << "\n";
+  
+  // 释放一半对象
+  for (size_t i = 0; i < num_objects / 2; i++) {
+    slab.kmem_cache_free(cache, objects[i]);
+  }
+  
+  EXPECT_EQ(cache->num_active, num_objects - num_objects / 2);
+  std::cout << "After freeing half: num_active = " << cache->num_active << "\n";
+  
+  // 释放剩余对象
+  for (size_t i = num_objects / 2; i < num_objects; i++) {
+    slab.kmem_cache_free(cache, objects[i]);
+  }
+  
+  EXPECT_EQ(cache->num_active, 0);
+  std::cout << "After freeing all: num_active = " << cache->num_active << "\n";
+  
+  // 4. 测试带析构函数的缓存
+  static int dtor_call_count = 0;
+  auto dtor = +[](void* ptr) {
+    dtor_call_count++;
+    *(int*)ptr = -1; // 标记为已析构
+  };
+  
+  auto cache_with_dtor = slab.kmem_cache_create("dtor_cache", sizeof(int), nullptr, dtor);
+  ASSERT_NE(cache_with_dtor, nullptr);
+  
+  void* dtor_obj = slab.kmem_cache_alloc(cache_with_dtor);
+  ASSERT_NE(dtor_obj, nullptr);
+  *(int*)dtor_obj = 123;  // 设置值
+  
+  int initial_dtor_calls = dtor_call_count;
+  slab.kmem_cache_free(cache_with_dtor, dtor_obj);
+  
+  // 验证析构函数被调用
+  EXPECT_GT(dtor_call_count, initial_dtor_calls);
+  EXPECT_EQ(*(int*)dtor_obj, -1);  // 验证析构函数修改了值
+  
+  std::cout << "Destructor test: calls = " << dtor_call_count << ", value = " << *(int*)dtor_obj << "\n";
+  
+  // 5. 测试 slab 状态转换（full -> partial -> free）
+  auto transition_cache = slab.kmem_cache_create("transition_cache", sizeof(double), nullptr, nullptr);
+  ASSERT_NE(transition_cache, nullptr);
+  
+  // 分配足够的对象填满一个slab
+  std::vector<void*> transition_objects;
+  for (size_t i = 0; i < transition_cache->objectsInSlab; i++) {
+    void* obj = slab.kmem_cache_alloc(transition_cache);
+    ASSERT_NE(obj, nullptr);
+    transition_objects.push_back(obj);
+  }
+  
+  EXPECT_EQ(transition_cache->num_active, transition_cache->objectsInSlab);
+  std::cout << "Filled slab: num_active = " << transition_cache->num_active << "\n";
+  
+  // 释放一个对象（full -> partial）
+  slab.kmem_cache_free(transition_cache, transition_objects[0]);
+  EXPECT_EQ(transition_cache->num_active, transition_cache->objectsInSlab - 1);
+  
+  // 释放所有剩余对象（partial -> free）
+  for (size_t i = 1; i < transition_objects.size(); i++) {
+    slab.kmem_cache_free(transition_cache, transition_objects[i]);
+  }
+  
+  EXPECT_EQ(transition_cache->num_active, 0);
+  std::cout << "After freeing all transition objects: num_active = " << transition_cache->num_active << "\n";
+  
+  // 6. 测试重复分配和释放（内存复用）
+  void* reuse_obj1 = slab.kmem_cache_alloc(cache);
+  void* reuse_obj2 = slab.kmem_cache_alloc(cache);
+  ASSERT_NE(reuse_obj1, nullptr);
+  ASSERT_NE(reuse_obj2, nullptr);
+  
+  slab.kmem_cache_free(cache, reuse_obj1);
+  slab.kmem_cache_free(cache, reuse_obj2);
+  
+  // 再次分配，应该重用之前的内存
+  void* reuse_obj3 = slab.kmem_cache_alloc(cache);
+  void* reuse_obj4 = slab.kmem_cache_alloc(cache);
+  
+  ASSERT_NE(reuse_obj3, nullptr);
+  ASSERT_NE(reuse_obj4, nullptr);
+  
+  // 地址应该匹配之前释放的对象之一
+  EXPECT_TRUE(reuse_obj3 == reuse_obj1 || reuse_obj3 == reuse_obj2);
+  EXPECT_TRUE(reuse_obj4 == reuse_obj1 || reuse_obj4 == reuse_obj2);
+  EXPECT_NE(reuse_obj3, reuse_obj4);
+  
+  std::cout << "Memory reuse test:\n";
+  std::cout << "  - original obj1: " << reuse_obj1 << ", obj2: " << reuse_obj2 << "\n";
+  std::cout << "  - reused obj3: " << reuse_obj3 << ", obj4: " << reuse_obj4 << "\n";
+  
+  // 清理
+  slab.kmem_cache_free(cache, reuse_obj3);
+  slab.kmem_cache_free(cache, reuse_obj4);
+  
+  // 7. 测试错误情况：释放无效对象
+  void* invalid_obj = malloc(sizeof(int));  // 不是从slab分配的对象
+  
+  slab.kmem_cache_free(cache, invalid_obj);
+  EXPECT_NE(cache->error_code, 0);  // 应该有错误
+  
+  std::cout << "Invalid object free test: error_code = " << cache->error_code << "\n";
+  
+  free(invalid_obj);
+  
+  // 8. 测试大对象的释放
+  auto large_cache = slab.kmem_cache_create("large_free_test", 1024, nullptr, nullptr);
+  ASSERT_NE(large_cache, nullptr);
+  
+  void* large_obj = slab.kmem_cache_alloc(large_cache);
+  ASSERT_NE(large_obj, nullptr);
+  EXPECT_EQ(large_cache->num_active, 1);
+  
+  slab.kmem_cache_free(large_cache, large_obj);
+  EXPECT_EQ(large_cache->num_active, 0);
+  EXPECT_EQ(large_cache->error_code, 0);
+  
+  std::cout << "Large object free test completed\n";
+  
+  std::cout << "kmem_cache_free tests completed successfully!\n";
+}

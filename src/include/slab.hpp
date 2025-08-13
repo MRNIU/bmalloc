@@ -491,8 +491,137 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     return retObject;
   }
 
-  void kmem_cache_free(kmem_cache_t *cachep,
-                       void *objp);  // Deallocate one object from cache
+  void kmem_cache_free(kmem_cache_t *cachep, void *objp) {
+    if (cachep == nullptr || *cachep->name == '\0' || objp == nullptr) {
+      return;
+    }
+
+    LockGuard guard(cachep->cache_mutex);
+
+    cachep->error_code = 0;
+    slab_t *s;
+
+    // 查找对象所属的slab
+    int slabSize = kPageSize * (1 << cachep->order);
+    bool inFullList = true;  // 标记slab是否在full链表中
+
+    // 首先在full链表中查找
+    s = cachep->slabs_full;
+    while (s != nullptr) {
+      if ((void *)objp > (void *)s &&
+          (void *)objp < (void *)((char *)s + slabSize)) {
+        break;
+      }
+      s = s->next;
+    }
+
+    // 如果在full链表中没找到，在partial链表中查找
+    if (s == nullptr) {
+      inFullList = false;
+      s = cachep->slabs_partial;
+      while (s != nullptr) {
+        if ((void *)objp > (void *)s &&
+            (void *)objp < (void *)((char *)s + slabSize)) {
+          break;
+        }
+        s = s->next;
+      }
+    }
+
+    // 没找到对应的slab
+    if (s == nullptr) {
+      cachep->error_code = 6;
+      return;
+    }
+
+    // 找到slab，将对象返回到slab中
+    s->inuse--;
+    cachep->num_active--;
+
+    // 计算对象在数组中的索引
+    int i = ((char *)objp - (char *)s->objects) / cachep->objectSize;
+
+    // 验证对象地址是否对齐
+    if (objp != (void *)((char *)s->objects + i * cachep->objectSize)) {
+      cachep->error_code = 7;
+      return;
+    }
+
+    // 将对象加入空闲链表
+    s->freeList[i] = s->nextFreeObj;
+    s->nextFreeObj = i;
+
+    // 调用析构函数
+    if (cachep->dtor != nullptr) {
+      cachep->dtor(objp);
+    }
+    // 注释：析构函数负责将对象恢复到初始化状态
+    // if (cachep->ctor != nullptr) cachep->ctor(objp);
+
+    // 检查slab现在是否为空闲或部分使用状态，并更新链表
+    // slab原本在full链表中
+    if (inFullList) {
+      slab_t *prev, *next;
+
+      // 从full链表中删除slab
+      prev = s->prev;
+      next = s->next;
+      s->prev = nullptr;
+
+      if (prev != nullptr) {
+        prev->next = next;
+      }
+      if (next != nullptr) {
+        next->prev = prev;
+      }
+      if (cachep->slabs_full == s) {
+        cachep->slabs_full = next;
+      }
+
+      // 插入到partial链表
+      if (s->inuse != 0) {
+        s->next = cachep->slabs_partial;
+        if (cachep->slabs_partial != nullptr) {
+          cachep->slabs_partial->prev = s;
+        }
+        cachep->slabs_partial = s;
+      } else  // 插入到free链表
+      {
+        s->next = cachep->slabs_free;
+        if (cachep->slabs_free != nullptr) {
+          cachep->slabs_free->prev = s;
+        }
+        cachep->slabs_free = s;
+      }
+    } else  // slab原本在partial链表中
+    {
+      if (s->inuse == 0) {  // 现在变成完全空闲
+        slab_t *prev, *next;
+
+        // 从partial链表中删除slab
+        prev = s->prev;
+        next = s->next;
+        s->prev = nullptr;
+
+        if (prev != nullptr) {
+          prev->next = next;
+        }
+        if (next != nullptr) {
+          next->prev = prev;
+        }
+        if (cachep->slabs_partial == s) {
+          cachep->slabs_partial = next;
+        }
+
+        // 插入到free链表
+        s->next = cachep->slabs_free;
+        if (cachep->slabs_free != nullptr) {
+          cachep->slabs_free->prev = s;
+        }
+        cachep->slabs_free = s;
+      }
+    }
+  }
 
   void *kmalloc(size_t size);  // Alloacate one small memory buffer
 
