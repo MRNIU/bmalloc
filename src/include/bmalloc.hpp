@@ -11,6 +11,7 @@
 
 #include "allocator_base.hpp"
 #include "buddy.hpp"
+#include "first_fit.hpp"
 
 namespace bmalloc {
 
@@ -19,7 +20,7 @@ namespace bmalloc {
  * @tparam Allocator 分配器类型，直接处理用户的内存请求
  */
 template <class Allocator, class LogFunc, class Lock = LockBase>
-  // requires std::derived_from<Allocator, AllocatorBase<LogFunc, Lock>>
+// requires std::derived_from<Allocator, AllocatorBase<LogFunc, Lock>>
 class Malloc {
  public:
   /**
