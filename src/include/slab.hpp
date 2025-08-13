@@ -110,7 +110,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     if (ptr == nullptr) {
       return;
     }
-    slab_t *slab = (slab_t *)ptr;
+    auto *slab = static_cast<slab_t *>(ptr);
 
     // 初始化cache_cache的slab链表
     cache_cache.slabs_free = slab;
@@ -130,7 +130,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     // 初始化slab结构
     slab->colouroff = 0;
-    slab->freeList = (int *)((char *)ptr + sizeof(slab_t));
+    slab->freeList =
+        reinterpret_cast<int *>(static_cast<char *>(ptr) + sizeof(slab_t));
     slab->nextFreeObj = 0;
     slab->inuse = 0;
     slab->next = nullptr;
@@ -147,9 +148,9 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
 
     // 设置对象数组起始位置
-    slab->objects =
-        (void *)((char *)ptr + sizeof(slab_t) + sizeof(uint32_t) * n);
-    kmem_cache_t *list = (kmem_cache_t *)slab->objects;
+    slab->objects = static_cast<void *>(static_cast<char *>(ptr) +
+                                        sizeof(slab_t) + sizeof(uint32_t) * n);
+    auto *list = static_cast<kmem_cache_t *>(slab->objects);
 
     // 初始化空闲对象链表
     for (int i = 0; i < n; i++) {
@@ -246,7 +247,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
         cache_cache.error_code = 2;
         return nullptr;
       }
-      s = (slab_t *)ptr;
+      s = static_cast<slab_t *>(ptr);
 
       cache_cache.slabs_partial = s;
 
@@ -256,17 +257,19 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
           (cache_cache.colour_next + 1) % (cache_cache.colour_max + 1);
 
       // 初始化新slab
-      s->freeList = (int *)((char *)ptr + sizeof(slab_t));
+      s->freeList =
+          reinterpret_cast<int *>(static_cast<char *>(ptr) + sizeof(slab_t));
       s->nextFreeObj = 0;
       s->inuse = 0;
       s->next = nullptr;
       s->prev = nullptr;
       s->myCache = &cache_cache;
 
-      s->objects = (void *)((char *)ptr + sizeof(slab_t) +
-                            sizeof(uint32_t) * cache_cache.objectsInSlab +
-                            CACHE_L1_LINE_SIZE * s->colouroff);
-      kmem_cache_t *list = (kmem_cache_t *)s->objects;
+      s->objects =
+          static_cast<void *>(static_cast<char *>(ptr) + sizeof(slab_t) +
+                              sizeof(uint32_t) * cache_cache.objectsInSlab +
+                              CACHE_L1_LINE_SIZE * s->colouroff);
+      auto *list = static_cast<kmem_cache_t *>(s->objects);
 
       // 初始化对象数组
       for (size_t i = 0; i < cache_cache.objectsInSlab; i++) {
@@ -282,7 +285,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
 
     // 从slab中分配一个kmem_cache_t对象
-    kmem_cache_t *list = (kmem_cache_t *)s->objects;
+    auto *list = static_cast<kmem_cache_t *>(s->objects);
     ret = &list[s->nextFreeObj];
     s->nextFreeObj = s->freeList[s->nextFreeObj];
     s->inuse++;
@@ -441,7 +444,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
         cachep->error_code = 2;
         return nullptr;
       }
-      s = (slab_t *)ptr;
+      s = static_cast<slab_t *>(ptr);
 
       // 新分配的slab将被放入partial链表（因为即将从中分配对象）
       cachep->slabs_partial = s;
@@ -452,7 +455,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
           (cachep->colour_next + 1) % (cachep->colour_max + 1);
 
       // 初始化slab结构
-      s->freeList = (int *)((char *)ptr + sizeof(slab_t));
+      s->freeList =
+          reinterpret_cast<int *>(static_cast<char *>(ptr) + sizeof(slab_t));
       s->nextFreeObj = 0;
       s->inuse = 0;
       s->next = nullptr;
@@ -460,9 +464,10 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       s->myCache = cachep;
 
       // 设置对象数组位置（考虑缓存行对齐）
-      s->objects = (void *)((char *)ptr + sizeof(slab_t) +
-                            sizeof(uint32_t) * cachep->objectsInSlab +
-                            CACHE_L1_LINE_SIZE * s->colouroff);
+      s->objects =
+          static_cast<void *>(static_cast<char *>(ptr) + sizeof(slab_t) +
+                              sizeof(uint32_t) * cachep->objectsInSlab +
+                              CACHE_L1_LINE_SIZE * s->colouroff);
       void *obj = s->objects;
 
       // 初始化所有对象（调用构造函数）并设置空闲链表
@@ -471,7 +476,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
         if (cachep->ctor) {
           cachep->ctor(obj);
         }
-        obj = (void *)((char *)obj + cachep->objectSize);
+        obj =
+            static_cast<void *>(static_cast<char *>(obj) + cachep->objectSize);
         s->freeList[i] = i + 1;
       }
       // s->freeList[cachep->objectsInSlab - 1] = -1;
@@ -481,8 +487,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
 
     // 从slab中分配对象
-    retObject =
-        (void *)((char *)s->objects + s->nextFreeObj * cachep->objectSize);
+    retObject = static_cast<void *>(static_cast<char *>(s->objects) +
+                                    s->nextFreeObj * cachep->objectSize);
     s->nextFreeObj = s->freeList[s->nextFreeObj];
     s->inuse++;
     cachep->num_active++;
@@ -510,7 +516,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
         cachep->slabs_full = s;
       }
     } else {
-      // 从partial移动到full
+      // from partial to full
       if (s->inuse == cachep->objectsInSlab) {
         cachep->slabs_partial = s->next;
         if (cachep->slabs_partial != nullptr) {
@@ -559,8 +565,9 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // 首先在full链表中查找
     s = cachep->slabs_full;
     while (s != nullptr) {
-      if ((void *)objp > (void *)s &&
-          (void *)objp < (void *)((char *)s + slabSize)) {
+      if (objp > s &&
+          objp < static_cast<void *>(
+                     static_cast<char *>(static_cast<void *>(s)) + slabSize)) {
         break;
       }
       s = s->next;
@@ -571,8 +578,9 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       inFullList = false;
       s = cachep->slabs_partial;
       while (s != nullptr) {
-        if ((void *)objp > (void *)s &&
-            (void *)objp < (void *)((char *)s + slabSize)) {
+        if (objp > s && objp < static_cast<void *>(
+                                   static_cast<char *>(static_cast<void *>(s)) +
+                                   slabSize)) {
           break;
         }
         s = s->next;
@@ -590,10 +598,12 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     cachep->num_active--;
 
     // 计算对象在数组中的索引
-    int i = ((char *)objp - (char *)s->objects) / cachep->objectSize;
+    int i = (static_cast<char *>(objp) - static_cast<char *>(s->objects)) /
+            cachep->objectSize;
 
     // 验证对象地址是否对齐
-    if (objp != (void *)((char *)s->objects + i * cachep->objectSize)) {
+    if (objp != static_cast<void *>(static_cast<char *>(s->objects) +
+                                    i * cachep->objectSize)) {
       cachep->error_code = 7;
       return;
     }
@@ -698,8 +708,10 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
         int slabSize = kPageSize * (1 << curr->order);
         while (s != nullptr) {
           // 找到包含对象的cache
-          if ((void *)objp > (void *)s &&
-              (void *)objp < (void *)((char *)s + slabSize)) {
+          if (objp > s &&
+              objp <
+                  static_cast<const void *>(
+                      static_cast<char *>(static_cast<void *>(s)) + slabSize)) {
             return curr;
           }
 
@@ -710,8 +722,10 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
         s = curr->slabs_partial;
         while (s != nullptr) {
           // 找到包含对象的cache
-          if ((void *)objp > (void *)s &&
-              (void *)objp < (void *)((char *)s + slabSize)) {
+          if (objp > s &&
+              objp <
+                  static_cast<const void *>(
+                      static_cast<char *>(static_cast<void *>(s)) + slabSize)) {
             return curr;
           }
 
@@ -774,8 +788,10 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     bool inFullList = true;
     s = cache_cache.slabs_full;
     while (s != nullptr) {
-      if ((void *)cachep > (void *)s &&
-          (void *)cachep < (void *)((char *)s + slabSize)) {
+      if (static_cast<const void *>(cachep) > static_cast<void *>(s) &&
+          static_cast<const void *>(cachep) <
+              static_cast<void *>(static_cast<char *>(static_cast<void *>(s)) +
+                                  slabSize)) {
         break;
       }
       s = s->next;
@@ -786,8 +802,10 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       inFullList = false;
       s = cache_cache.slabs_partial;
       while (s != nullptr) {
-        if ((void *)cachep > (void *)s &&
-            (void *)cachep < (void *)((char *)s + slabSize)) {
+        if (static_cast<const void *>(cachep) > static_cast<void *>(s) &&
+            static_cast<const void *>(cachep) <
+                static_cast<void *>(
+                    static_cast<char *>(static_cast<void *>(s)) + slabSize)) {
           break;
         }
         s = s->next;
@@ -804,7 +822,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // 重置cache字段并更新cache_cache字段
     s->inuse--;
     cache_cache.num_active--;
-    int i = cachep - (kmem_cache_t *)s->objects;
+    int i = cachep - static_cast<kmem_cache_t *>(s->objects);
     s->freeList[i] = s->nextFreeObj;
     s->nextFreeObj = i;
     // 清空cache名称
@@ -1125,8 +1143,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
   // 比较内存块
   static int memcmp(const void *s1, const void *s2, size_t n) {
     if (s1 == nullptr || s2 == nullptr) return 0;
-    const unsigned char *p1 = (const unsigned char *)s1;
-    const unsigned char *p2 = (const unsigned char *)s2;
+    const auto *p1 = static_cast<const unsigned char *>(s1);
+    const auto *p2 = static_cast<const unsigned char *>(s2);
     for (size_t i = 0; i < n; i++) {
       if (p1[i] != p2[i]) {
         return p1[i] - p2[i];
@@ -1144,7 +1162,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     // 如果s2是空字符串，返回s1
     if (*s2 == '\0') {
-      return (char *)s1;
+      return const_cast<char *>(s1);
     }
 
     size_t l1 = strlen(s1);
@@ -1158,7 +1176,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // 搜索子字符串
     for (size_t i = 0; i <= l1 - l2; i++) {
       if (memcmp(s1 + i, s2, l2) == 0) {
-        return (char *)(s1 + i);
+        return const_cast<char *>(s1 + i);
       }
     }
 
@@ -1270,7 +1288,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
 
     // 释放对象
-    kmem_cache_free(buffCachep, (void *)addr);
+    kmem_cache_free(buffCachep, addr);
 
     // 如果cache有空闲slab，尝试收缩以节省内存
     if (buffCachep->slabs_free != nullptr) {
