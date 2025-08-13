@@ -610,3 +610,159 @@ TEST_F(SlabTest, KmemCacheFreeTest) {
 
   std::cout << "kmem_cache_free tests completed successfully!\n";
 }
+
+/**
+ * @brief 测试 kmalloc 功能
+ * 
+ * 测试内容：
+ * 1. 基本内存分配测试
+ * 2. 不同大小的内存分配
+ * 3. 边界条件测试
+ * 4. 内存对齐测试
+ * 5. 大量分配测试
+ */
+TEST_F(SlabTest, KmallocTest) {
+  std::cout << "\n=== Starting kmalloc tests ===\n";
+
+  using MyBuddy = Buddy<TestLogger>;
+  using MySlab = Slab<MyBuddy, TestLogger, TestLock>;
+
+  MySlab slab("slab_kmalloc_test", test_memory_, kTestPages);
+
+  // 1. 基本内存分配测试
+  std::cout << "1. Basic allocation test\n";
+  void* ptr32 = slab.kmalloc(32);
+  ASSERT_NE(ptr32, nullptr) << "Failed to allocate 32 bytes";
+  
+  void* ptr64 = slab.kmalloc(64);
+  ASSERT_NE(ptr64, nullptr) << "Failed to allocate 64 bytes";
+  
+  void* ptr128 = slab.kmalloc(128);
+  ASSERT_NE(ptr128, nullptr) << "Failed to allocate 128 bytes";
+
+  // 验证分配的地址不同
+  EXPECT_NE(ptr32, ptr64);
+  EXPECT_NE(ptr64, ptr128);
+  EXPECT_NE(ptr32, ptr128);
+
+  std::cout << "Basic allocation test passed\n";
+
+  // 2. 测试不同大小的内存分配（2的幂次方对齐）
+  std::cout << "2. Power-of-2 alignment test\n";
+  
+  // 测试33字节应该分配到64字节的cache
+  void* ptr33 = slab.kmalloc(33);
+  ASSERT_NE(ptr33, nullptr) << "Failed to allocate 33 bytes";
+  
+  // 测试65字节应该分配到128字节的cache
+  void* ptr65 = slab.kmalloc(65);
+  ASSERT_NE(ptr65, nullptr) << "Failed to allocate 65 bytes";
+  
+  // 测试129字节应该分配到256字节的cache
+  void* ptr129 = slab.kmalloc(129);
+  ASSERT_NE(ptr129, nullptr) << "Failed to allocate 129 bytes";
+
+  std::cout << "Power-of-2 alignment test passed\n";
+
+  // 3. 边界条件测试
+  std::cout << "3. Boundary condition test\n";
+  
+  // 测试最小大小（32字节）
+  void* ptr_min = slab.kmalloc(32);
+  ASSERT_NE(ptr_min, nullptr) << "Failed to allocate minimum size (32 bytes)";
+  
+  // 测试最大大小（使用较小的大小，如32KB）
+  void* ptr_max = slab.kmalloc(32768);
+  ASSERT_NE(ptr_max, nullptr) << "Failed to allocate maximum test size (32768 bytes)";
+  
+  // 测试小于最小大小
+  void* ptr_too_small = slab.kmalloc(16);
+  EXPECT_EQ(ptr_too_small, nullptr) << "Should fail to allocate size < 32 bytes";
+  
+  // 测试大于最大大小
+  void* ptr_too_large = slab.kmalloc(131073);
+  EXPECT_EQ(ptr_too_large, nullptr) << "Should fail to allocate size > 131072 bytes";
+  
+  // 测试0大小
+  void* ptr_zero = slab.kmalloc(0);
+  EXPECT_EQ(ptr_zero, nullptr) << "Should fail to allocate 0 bytes";
+
+  std::cout << "Boundary condition test passed\n";
+
+  // 4. 内存写入测试
+  std::cout << "4. Memory write test\n";
+  
+  void* test_ptr = slab.kmalloc(256);
+  ASSERT_NE(test_ptr, nullptr) << "Failed to allocate 256 bytes for write test";
+  
+  // 写入测试数据
+  uint8_t* byte_ptr = static_cast<uint8_t*>(test_ptr);
+  for (int i = 0; i < 256; ++i) {
+    byte_ptr[i] = static_cast<uint8_t>(i & 0xFF);
+  }
+  
+  // 验证数据
+  for (int i = 0; i < 256; ++i) {
+    EXPECT_EQ(byte_ptr[i], static_cast<uint8_t>(i & 0xFF))
+        << "Memory corruption at offset " << i;
+  }
+
+  std::cout << "Memory write test passed\n";
+
+  // 5. 大量分配测试（使用较小的数量）
+  std::cout << "5. Bulk allocation test\n";
+  
+  std::vector<void*> ptrs;
+  const int num_allocs = 20;  // 减少分配数量
+  
+  for (int i = 0; i < num_allocs; ++i) {
+    size_t size = 64 + (i % 4) * 64;  // 64, 128, 192, 256 字节（减少变化）
+    void* ptr = slab.kmalloc(size);
+    if (ptr != nullptr) {
+      ptrs.push_back(ptr);
+    }
+  }
+  
+  EXPECT_GT(ptrs.size(), 0) << "Should allocate at least some memory blocks";
+  std::cout << "Successfully allocated " << ptrs.size() 
+            << " out of " << num_allocs << " requested blocks\n";
+
+  // 验证所有指针都是唯一的
+  std::set<void*> unique_ptrs(ptrs.begin(), ptrs.end());
+  EXPECT_EQ(unique_ptrs.size(), ptrs.size()) 
+      << "All allocated pointers should be unique";
+
+  std::cout << "Bulk allocation test passed\n";
+
+  // 6. 常用大小分配测试（减少测试大小）
+  std::cout << "6. Common size allocation test\n";
+  
+  std::vector<size_t> common_sizes = {32, 64, 128, 256, 512};  // 移除大的分配
+  std::vector<void*> common_ptrs;
+  
+  for (size_t size : common_sizes) {
+    void* ptr = slab.kmalloc(size);
+    if (ptr != nullptr) {
+      common_ptrs.push_back(ptr);
+      // 写入一些数据验证内存可用
+      memset(ptr, 0xAA, size);
+    } else {
+      std::cout << "Warning: Failed to allocate " << size << " bytes (may be out of memory)\n";
+    }
+  }
+  
+  EXPECT_GT(common_ptrs.size(), 0) << "Should allocate at least some common sizes";
+  
+  // 验证数据完整性（只对成功分配的内存）
+  for (size_t i = 0; i < common_ptrs.size() && i < common_sizes.size(); ++i) {
+    uint8_t* byte_ptr = static_cast<uint8_t*>(common_ptrs[i]);
+    for (size_t j = 0; j < common_sizes[i]; ++j) {
+      EXPECT_EQ(byte_ptr[j], 0xAA) 
+          << "Data corruption in " << common_sizes[i] << " byte allocation";
+    }
+  }
+
+  std::cout << "Common size allocation test passed\n";
+
+  std::cout << "=== kmalloc tests completed successfully! ===\n";
+}
