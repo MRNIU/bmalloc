@@ -379,8 +379,117 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     return blocksFreed;
   }
 
-  void *kmem_cache_alloc(
-      kmem_cache_t *cachep);  // Allocate one object from cache
+  void *kmem_cache_alloc(kmem_cache_t *cachep) {
+    if (cachep == nullptr || *cachep->name == '\0') {
+      return nullptr;
+    }
+
+    LockGuard guard(cachep->cache_mutex);
+
+    void *retObject = nullptr;
+    cachep->error_code = 0;
+
+    // 查找可用的slab：优先使用部分使用的slab，然后是空闲slab
+    slab_t *s = cachep->slabs_partial;
+    if (s == nullptr) {
+      s = cachep->slabs_free;
+    }
+    // 需要分配新slab
+    if (s == nullptr) {
+      LockGuard guard(buddy_mutex);
+
+      void *ptr = page_allocator_.Alloc(cachep->order);
+      if (ptr == nullptr) {
+        cachep->error_code = 2;
+        return nullptr;
+      }
+      s = (slab_t *)ptr;
+
+      // 新分配的slab将被放入partial链表（因为即将从中分配对象）
+      cachep->slabs_partial = s;
+
+      // 设置缓存行对齐偏移
+      s->colouroff = cachep->colour_next;
+      cachep->colour_next =
+          (cachep->colour_next + 1) % (cachep->colour_max + 1);
+
+      // 初始化slab结构
+      s->freeList = (int *)((char *)ptr + sizeof(slab_t));
+      s->nextFreeObj = 0;
+      s->inuse = 0;
+      s->next = nullptr;
+      s->prev = nullptr;
+      s->myCache = cachep;
+
+      // 设置对象数组位置（考虑缓存行对齐）
+      s->objects = (void *)((char *)ptr + sizeof(slab_t) +
+                            sizeof(uint32_t) * cachep->objectsInSlab +
+                            CACHE_L1_LINE_SIZE * s->colouroff);
+      void *obj = s->objects;
+
+      // 初始化所有对象（调用构造函数）并设置空闲链表
+      for (size_t i = 0; i < cachep->objectsInSlab; i++) {
+        // 调用对象构造函数
+        if (cachep->ctor) {
+          cachep->ctor(obj);
+        }
+        obj = (void *)((char *)obj + cachep->objectSize);
+        s->freeList[i] = i + 1;
+      }
+      // s->freeList[cachep->objectsInSlab - 1] = -1;
+
+      cachep->num_allocations += cachep->objectsInSlab;
+      cachep->growing = true;
+    }
+
+    // 从slab中分配对象
+    retObject =
+        (void *)((char *)s->objects + s->nextFreeObj * cachep->objectSize);
+    s->nextFreeObj = s->freeList[s->nextFreeObj];
+    s->inuse++;
+    cachep->num_active++;
+
+    // 更新slab链表状态
+    if (s == cachep->slabs_free) {
+      // 从free链表中移除
+      cachep->slabs_free = s->next;
+      if (cachep->slabs_free != nullptr) {
+        cachep->slabs_free->prev = nullptr;
+      }
+
+      if (s->inuse != cachep->objectsInSlab)  // 移动到partial链表
+      {
+        s->next = cachep->slabs_partial;
+        if (cachep->slabs_partial != nullptr) {
+          cachep->slabs_partial->prev = s;
+        }
+        cachep->slabs_partial = s;
+      } else  // 移动到full链表
+      {
+        s->next = cachep->slabs_full;
+        if (cachep->slabs_full != nullptr) {
+          cachep->slabs_full->prev = s;
+        }
+        cachep->slabs_full = s;
+      }
+    } else {
+      if (s->inuse == cachep->objectsInSlab)  // 从partial移动到full
+      {
+        cachep->slabs_partial = s->next;
+        if (cachep->slabs_partial != nullptr) {
+          cachep->slabs_partial->prev = nullptr;
+        }
+
+        s->next = cachep->slabs_full;
+        if (cachep->slabs_full != nullptr) {
+          cachep->slabs_full->prev = s;
+        }
+        cachep->slabs_full = s;
+      }
+    }
+
+    return retObject;
+  }
 
   void kmem_cache_free(kmem_cache_t *cachep,
                        void *objp);  // Deallocate one object from cache
