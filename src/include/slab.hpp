@@ -22,13 +22,11 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
   using AllocatorBase<LogFunc, Lock>::GetUsedCount;
 
   struct kmem_cache_t;
-#define BLOCK_SIZE (4096)
-#define CACHE_L1_LINE_SIZE (64)
-
-// 缓存名称的最大长度
-#define CACHE_NAMELEN (20)
-// cache_cache的order值，表示管理kmem_cache_t结构体的cache使用的内存块大小
-#define CACHE_CACHE_ORDER (0)
+  static constexpr size_t CACHE_L1_LINE_SIZE = 64;
+  // 缓存名称的最大长度
+  static constexpr size_t CACHE_NAMELEN = 20;
+  // cache_cache的order值，表示管理kmem_cache_t结构体的cache使用的内存块大小
+  static constexpr size_t CACHE_CACHE_ORDER = 0;
 
   /**
    * Slab结构体 - 表示一个内存slab
@@ -37,7 +35,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
    */
   struct slab_t {
     // offset for this slab - 用于缓存行对齐的偏移量
-    unsigned int colouroff;
+    uint32_t colouroff;
     // starting adress of objects - 对象数组的起始地址
     void *objects;
     // list of free objects - 空闲对象索引列表
@@ -45,7 +43,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // next free object - 下一个空闲对象的索引
     int nextFreeObj;
     // number of active objects in this slab - 当前使用的对象数量
-    unsigned int inuse;
+    uint32_t inuse;
     // next slab in chain - 链表中的下一个slab
     slab_t *next;
     // previous slab in chain - 链表中的前一个slab
@@ -72,21 +70,21 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // cache name - 缓存名称
     char name[CACHE_NAMELEN];
     // size of one object - 单个对象大小
-    unsigned int objectSize;
+    size_t objectSize;
     // num of objects in one slab - 每个slab中的对象数量
-    unsigned int objectsInSlab;
+    size_t objectsInSlab;
     // num of active objects in cache - 活跃对象数量
-    unsigned long num_active;
+    size_t num_active;
     // num of total objects in cache - 总对象数量
-    unsigned long num_allocations;
+    size_t num_allocations;
     // mutex (uses to lock the cache) - 缓存互斥锁
     Lock cache_mutex;
     // order of one slab (one slab has 2^order blocks) - slab的order值
-    unsigned int order;
+    uint32_t order;
     // maximum multiplier for offset of first object in slab - 最大颜色偏移乘数
-    unsigned int colour_max;
+    uint32_t colour_max;
     // multiplier for next slab offset - 下一个slab的颜色偏移
-    unsigned int colour_next;
+    uint32_t colour_next;
     // false - cache is not growing / true - cache is growing - 是否正在增长
     bool growing;
     // objects constructor - 对象构造函数
@@ -172,6 +170,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
    * @return void* 分配的内存起始地址，失败时返回0
    */
   [[nodiscard]] auto AllocImpl(size_t page_count) -> void * override {
+    (void)page_count;
     return nullptr;
   }
 
@@ -180,7 +179,11 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
    * @param addr 要释放的内存起始地址
    * @param page_count 要释放的页数
    */
-  void FreeImpl(void *addr, size_t page_count) override { return; }
+  void FreeImpl(void *addr, size_t page_count) override {
+    (void)addr;
+    (void)page_count;
+    return;
+  }
 };
 
 }  // namespace bmalloc

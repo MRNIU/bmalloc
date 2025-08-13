@@ -18,10 +18,10 @@
  * 5. 线程安全
  */
 
-#include "slab.h"
-
 #include <cstring>
 #include <iostream>
+
+#include "slab.h"
 
 namespace bmalloc {
 
@@ -94,17 +94,16 @@ AAA::AAA(void* space, int block_num)
   slab->myCache = &cache_cache;
 
   // 计算每个slab能容纳的对象数量
-  long memory = (1 << cache_cache.order) * BLOCK_SIZE;
+  long memory = (1 << cache_cache.order) * kPageSize;
   memory -= sizeof(slab_t);
   int n = 0;
-  while ((long)(memory - sizeof(unsigned int) - cache_cache.objectSize) >= 0) {
+  while ((long)(memory - sizeof(uint32_t) - cache_cache.objectSize) >= 0) {
     n++;
-    memory -= sizeof(unsigned int) + cache_cache.objectSize;
+    memory -= sizeof(uint32_t) + cache_cache.objectSize;
   }
 
   // 设置对象数组起始位置
-  slab->objects =
-      (void*)((char*)ptr + sizeof(slab_t) + sizeof(unsigned int) * n);
+  slab->objects = (void*)((char*)ptr + sizeof(slab_t) + sizeof(uint32_t) * n);
   kmem_cache_t* list = (kmem_cache_t*)slab->objects;
 
   // 初始化空闲对象链表
@@ -238,7 +237,7 @@ kmem_cache_t* AAA::kmem_cache_create(const char* name, size_t size,
     s->myCache = &cache_cache;
 
     s->objects = (void*)((char*)ptr + sizeof(slab_t) +
-                         sizeof(unsigned int) * cache_cache.objectsInSlab +
+                         sizeof(uint32_t) * cache_cache.objectsInSlab +
                          CACHE_L1_LINE_SIZE * s->colouroff);
     kmem_cache_t* list = (kmem_cache_t*)s->objects;
 
@@ -309,9 +308,9 @@ kmem_cache_t* AAA::kmem_cache_create(const char* name, size_t size,
   allCaches = ret;
 
   // 计算新cache的order值（使一个slab能容纳至少一个对象）
-  long memory = BLOCK_SIZE;
+  long memory = kPageSize;
   int order = 0;
-  while ((long)(memory - sizeof(slab_t) - sizeof(unsigned int) - size) < 0) {
+  while ((long)(memory - sizeof(slab_t) - sizeof(uint32_t) - size) < 0) {
     order++;
     memory *= 2;
   }
@@ -322,9 +321,9 @@ kmem_cache_t* AAA::kmem_cache_create(const char* name, size_t size,
   // 计算每个slab中的对象数量
   memory -= sizeof(slab_t);
   int n = 0;
-  while ((long)(memory - sizeof(unsigned int) - size) >= 0) {
+  while ((long)(memory - sizeof(uint32_t) - size) >= 0) {
     n++;
-    memory -= sizeof(unsigned int) + size;
+    memory -= sizeof(uint32_t) + size;
   }
 
   ret->objectsInSlab = n;
@@ -430,7 +429,7 @@ void* AAA::kmem_cache_alloc(
 
     // 设置对象数组位置（考虑缓存行对齐）
     s->objects = (void*)((char*)ptr + sizeof(slab_t) +
-                         sizeof(unsigned int) * cachep->objectsInSlab +
+                         sizeof(uint32_t) * cachep->objectsInSlab +
                          CACHE_L1_LINE_SIZE * s->colouroff);
     void* obj = s->objects;
 
@@ -509,7 +508,7 @@ void AAA::kmem_cache_free(kmem_cache_t* cachep,
   slab_t* s;
 
   // 查找对象所属的slab
-  int slabSize = BLOCK_SIZE * (1 << cachep->order);
+  int slabSize = kPageSize * (1 << cachep->order);
   bool inFullList = true;  // 标记slab是否在full链表中
 
   // 首先在full链表中查找
@@ -669,7 +668,7 @@ kmem_cache_t* AAA::find_buffers_cache(const void* objp) {
     {
       // 在full slab中查找
       s = curr->slabs_full;
-      int slabSize = BLOCK_SIZE * (1 << curr->order);
+      int slabSize = kPageSize * (1 << curr->order);
       while (s != nullptr) {
         if ((void*)objp > (void*)s &&
             (void*)objp < (void*)((char*)s + slabSize))  // 找到包含对象的cache
@@ -765,7 +764,7 @@ void AAA::kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
   curr->next = nullptr;
 
   // 在cache_cache中查找拥有该cache对象的slab
-  int slabSize = BLOCK_SIZE * (1 << cache_cache.order);
+  int slabSize = kPageSize * (1 << cache_cache.order);
   bool inFullList = true;  // 标记slab是否在full链表中
   s = cache_cache.slabs_full;
   while (s != nullptr) {
@@ -943,7 +942,7 @@ void AAA::kmem_cache_info(kmem_cache_t* cachep)  // Print cache info
   }
 
   // 计算cache总大小（以内存块为单位）
-  unsigned int cacheSize = i * (1 << cachep->order);
+  uint32_t cacheSize = i * (1 << cachep->order);
 
   // 计算使用率百分比
   double perc = 0;
