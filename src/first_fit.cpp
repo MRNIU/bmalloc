@@ -24,7 +24,7 @@ FirstFit::FirstFit(const char* name, void* start_addr, size_t page_count,
       name_, free_count_, used_count_);
 }
 
-auto FirstFit::Alloc(size_t page_count) -> void* {
+auto FirstFit::AllocImpl(size_t page_count) -> void* {
   Log("FirstFit allocator '%s' allocation request: page_count=%zu\n", name_,
       page_count);
 
@@ -68,68 +68,7 @@ auto FirstFit::Alloc(size_t page_count) -> void* {
   return allocated_addr;
 }
 
-auto FirstFit::Alloc(void* addr, size_t page_count) -> bool {
-  Log("FirstFit allocator '%s' specific address allocation request: addr=%p, "
-      "page_count=%zu\n",
-      name_, addr, page_count);
-
-  // 将 void* 转换为 uintptr_t 进行地址计算
-  uintptr_t target_addr = reinterpret_cast<uintptr_t>(addr);
-  uintptr_t start_addr = reinterpret_cast<uintptr_t>(start_addr_);
-
-  // 检查地址是否在管理范围内
-  if (target_addr < start_addr ||
-      target_addr >= start_addr + length_ * kPageSize) {
-    Log("FirstFit allocator '%s' specific allocation failed: addr=%p out of "
-        "range [%p, %p)\n",
-        name_, addr, start_addr_,
-        static_cast<void*>(static_cast<char*>(const_cast<void*>(start_addr_)) +
-                           length_ * kPageSize));
-    return false;
-  }
-
-  // 计算页面索引
-  size_t start_idx = (target_addr - start_addr) / kPageSize;
-
-  // 检查是否超出边界
-  if (start_idx + page_count > length_) {
-    Log("FirstFit allocator '%s' specific allocation failed: start_idx=%zu + "
-        "page_count=%zu > length=%zu\n",
-        name_, start_idx, page_count, length_);
-    return false;
-  }
-
-  Log("FirstFit allocator '%s' checking if target pages are free: "
-      "start_idx=%zu, count=%zu\n",
-      name_, start_idx, page_count);
-
-  // 检查目标页面是否都是空闲的
-  for (size_t i = start_idx; i < start_idx + page_count; ++i) {
-    if (bitmap_[i]) {
-      Log("FirstFit allocator '%s' specific allocation failed: page %zu is "
-          "already allocated\n",
-          name_, i);
-      return false;
-    }
-  }
-
-  // 标记页面为已使用
-  for (size_t i = start_idx; i < start_idx + page_count; ++i) {
-    bitmap_[i] = true;
-  }
-
-  // 更新统计信息
-  free_count_ -= page_count;
-  used_count_ += page_count;
-
-  Log("FirstFit allocator '%s' specific allocation successful: addr=%p, "
-      "pages=%zu, free_count=%zu, used_count=%zu\n",
-      name_, addr, page_count, free_count_, used_count_);
-
-  return true;
-}
-
-void FirstFit::Free(void* addr, size_t page_count) {
+void FirstFit::FreeImpl(void* addr, size_t page_count) {
   Log("FirstFit allocator '%s' free request: addr=%p, page_count=%zu\n", name_,
       addr, page_count);
 

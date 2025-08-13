@@ -39,34 +39,25 @@ class FirstFit : public AllocatorBase {
   ~FirstFit() override = default;
   /// @}
 
+ protected:
+  /// @todo 用 bitset 表示太浪费空间了
+  static constexpr size_t kMaxPages = 1024;
+  /// 位图，每一位表示一页内存，1 表示已使用，0 表示未使用
+  std::bitset<kMaxPages> bitmap_;
+
   /**
    * @brief 分配指定页数的内存
    * @param page_count 要分配的页数
    * @return void* 分配的内存起始地址，失败时返回0
    */
-  [[nodiscard]] auto Alloc(size_t page_count) -> void* override;
-
-  /**
-   * @brief 在指定地址分配指定页数的内存
-   * @param addr 指定的地址
-   * @param page_count 要分配的页数
-   * @return true 分配成功
-   * @return false 分配失败
-   */
-  auto Alloc(void* addr, size_t page_count) -> bool override;
+  [[nodiscard]] auto AllocImpl(size_t page_count) -> void* override;
 
   /**
    * @brief 释放指定地址的内存
    * @param addr 要释放的内存起始地址
    * @param page_count 要释放的页数
    */
-  void Free(void* addr, size_t page_count) override;
-
- protected:
-  /// @todo 用 bitset 表示太浪费空间了
-  static constexpr size_t kMaxPages = 1024;
-  /// 位图，每一位表示一页内存，1 表示已使用，0 表示未使用
-  std::bitset<kMaxPages> bitmap_;
+  void FreeImpl(void* addr, size_t page_count) override;
 
   /**
    * @brief 查找连续的指定值的位序列

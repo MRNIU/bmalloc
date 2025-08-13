@@ -64,22 +64,6 @@ class Buddy : public AllocatorBase {
   ~Buddy() override = default;
   /// @}
 
-  /**
-   * @brief 分配 2 的幂次方页数的内存
-   * @param order 阶数，实际分配 2^order 个页面
-   * @return void* 分配的内存起始地址，失败时返回 nullptr
-   * @note 例如：order=0 分配 1 页，order=1 分配 2 页，order=2 分配 4 页
-   */
-  [[nodiscard]] auto Alloc(size_t order) -> void* override;
-
-  /**
-   * @brief 释放 2 的幂次方页数的内存
-   * @param addr 要释放的内存起始地址
-   * @param order 阶数，实际释放 2^order 个页面
-   * @note 必须与分配时使用的order值相同
-   */
-  void Free(void* addr, size_t order) override;
-
  protected:
   // 最大支持 2^31 个页面，足够大部分应用
   static constexpr size_t kMaxFreeListEntries = 32;
@@ -87,6 +71,22 @@ class Buddy : public AllocatorBase {
   struct FreeBlockNode {
     FreeBlockNode* next{};
   };
+
+  /**
+   * @brief 分配 2 的幂次方页数的内存
+   * @param order 阶数，实际分配 2^order 个页面
+   * @return void* 分配的内存起始地址，失败时返回 nullptr
+   * @note 例如：order=0 分配 1 页，order=1 分配 2 页，order=2 分配 4 页
+   */
+  [[nodiscard]] auto AllocImpl(size_t order) -> void* override;
+
+  /**
+   * @brief 释放 2 的幂次方页数的内存
+   * @param addr 要释放的内存起始地址
+   * @param order 阶数，实际释放 2^order 个页面
+   * @note 必须与分配时使用的order值相同
+   */
+  void FreeImpl(void* addr, size_t order) override;
 
   /**
    * @brief 内部释放函数，用于递归合并

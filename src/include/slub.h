@@ -25,11 +25,10 @@ class Slub : public AllocatorBase {
   ~Slub() override = default;
   /// @}
 
-  [[nodiscard]] auto Alloc(size_t order) -> void* override;
-
-  void Free(void* addr, size_t order) override;
-
  protected:
+  [[nodiscard]] auto AllocImpl(size_t order) -> void* override;
+
+  void FreeImpl(void* addr, size_t order) override;
 };
 
 }  // namespace bmalloc

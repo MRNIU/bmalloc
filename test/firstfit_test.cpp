@@ -435,50 +435,6 @@ TEST_F(FirstFitTest, MemoryReadWrite) {
 }
 
 /**
- * @brief 测试FirstFit特有的功能：指定地址分配
- */
-TEST_F(FirstFitTest, FixedAddressAllocation) {
-  std::cout << "\n=== FixedAddressAllocation 测试开始 ===" << std::endl;
-
-  // 计算特定页的地址
-  size_t target_page = 10;
-  void* target_addr =
-      static_cast<char*>(test_memory_) + target_page * AllocatorBase::kPageSize;
-
-  std::cout << "尝试在指定地址分配内存..." << std::endl;
-  std::cout << "目标地址: " << target_addr << " (页" << target_page << ")"
-            << std::endl;
-
-  // 在指定地址分配2页
-  bool success = firstfit_->Alloc(target_addr, 2);
-  EXPECT_TRUE(success) << "指定地址分配应该成功";
-
-  if (success) {
-    std::cout << "✓ 指定地址分配成功" << std::endl;
-    firstfit_->print();
-
-    // 验证页面确实被标记为已分配
-    EXPECT_TRUE(firstfit_->IsPageAllocated(target_page))
-        << "目标页应该被标记为已分配";
-    EXPECT_TRUE(firstfit_->IsPageAllocated(target_page + 1))
-        << "目标页+1应该被标记为已分配";
-
-    // 尝试在已分配的地址再次分配（应该失败）
-    bool should_fail = firstfit_->Alloc(target_addr, 1);
-    EXPECT_FALSE(should_fail) << "在已分配地址再次分配应该失败";
-
-    // 释放内存
-    firstfit_->Free(target_addr, 2);
-    EXPECT_FALSE(firstfit_->IsPageAllocated(target_page))
-        << "释放后页面应该标记为空闲";
-    EXPECT_FALSE(firstfit_->IsPageAllocated(target_page + 1))
-        << "释放后页面应该标记为空闲";
-  }
-
-  std::cout << "=== FixedAddressAllocation 测试结束 ===\n" << std::endl;
-}
-
-/**
  * @brief 测试GetUsedCount和GetFreeCount方法
  */
 TEST_F(FirstFitTest, UsedAndFreeCount) {

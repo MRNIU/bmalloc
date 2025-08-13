@@ -85,7 +85,7 @@ Buddy::Buddy(const char* name, void* start_addr, size_t total_pages,
       name_, free_count_, used_count_);
 }
 
-auto Buddy::Alloc(size_t order) -> void* {
+auto Buddy::AllocImpl(size_t order) -> void* {
   Log("Buddy allocator '%s' allocation request: order=%zu (%zu pages)\n", name_,
       order, 1UL << order);
 
@@ -155,7 +155,7 @@ auto Buddy::Alloc(size_t order) -> void* {
   return nullptr;
 }
 
-void Buddy::Free(void* addr, size_t order) {
+void Buddy::FreeImpl(void* addr, size_t order) {
   Log("Buddy allocator '%s' free request: addr=%p, order=%zu (%zu pages)\n",
       name_, addr, order, 1UL << order);
 
