@@ -40,26 +40,27 @@ class TestMutexLock : public LockBase {
  * @brief 辅助函数：打印 Buddy 分配器的当前状态
  * 由于 Buddy 的成员现在是 protected，我们创建一个继承类来访问内部状态
  */
-class BuddyDebugHelper : public Buddy<> {
+class BuddyDebugHelper : public Buddy<std::nullptr_t, TestMutexLock> {
  public:
   BuddyDebugHelper(const char* name, void* start_addr, size_t total_pages)
-      : Buddy<>(name, start_addr, total_pages) {}
+      : Buddy<std::nullptr_t, TestMutexLock>(name, start_addr, total_pages) {}
 
   void print() const {
     printf("\n==========================================\n");
     printf("Buddy 分配器状态详情\n");
 
     printf("当前空闲块链表状态:\n");
-    for (size_t i = 0; i < length_; i++) {
+    for (size_t i = 0; i < this->length_; i++) {
       auto size = static_cast<size_t>(1 << i);
       printf("entry[%zu](管理%zu页块) -> ", i, size);
-      FreeBlockNode* curr = free_block_lists_[i];
+      typename Buddy<std::nullptr_t, TestMutexLock>::FreeBlockNode* curr =
+          this->free_block_lists_[i];
 
       bool has_blocks = false;
       while (curr != nullptr) {
         auto first = static_cast<size_t>(
             (static_cast<const char*>(static_cast<void*>(curr)) -
-             static_cast<const char*>(start_addr_)) /
+             static_cast<const char*>(this->start_addr_)) /
             kPageSize);
         printf("块[页%zu~%zu] -> ", first, first + size - 1);
         curr = curr->next;
