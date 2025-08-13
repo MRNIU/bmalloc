@@ -1,8 +1,8 @@
 # Copyright The bmalloc Contributors
 
 add_library(${PROJECT_NAME} STATIC
-        buddy.cpp
-        first_fit.cpp
+        # buddy.cpp
+        # first_fit.cpp
         # slab.cpp
         # slub.cpp
         bmalloc.cpp

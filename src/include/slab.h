@@ -9,7 +9,7 @@
 #include <mutex>
 
 #include "allocator_base.hpp"
-#include "buddy.h"
+#include "buddy.hpp"
 
 namespace bmalloc {
 using namespace std;

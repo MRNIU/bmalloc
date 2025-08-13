@@ -10,6 +10,7 @@
 #include <cstdint>
 
 #include "allocator_base.hpp"
+#include "buddy.hpp"
 
 namespace bmalloc {
 
@@ -17,8 +18,8 @@ namespace bmalloc {
  * @brief 单层内存管理架构的 Malloc 实现
  * @tparam Allocator 分配器类型，直接处理用户的内存请求
  */
-template <class Allocator>
-  requires std::derived_from<Allocator, AllocatorBase>
+template <class Allocator, class LogFunc, class Lock = LockBase>
+  // requires std::derived_from<Allocator, AllocatorBase<LogFunc, Lock>>
 class Malloc {
  public:
   /**

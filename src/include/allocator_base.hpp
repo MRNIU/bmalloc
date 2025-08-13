@@ -50,8 +50,9 @@ class LockGuard {
  * @tparam LogFunc 日志函数类型
  * @tparam Lock 锁类型
  */
-template <class LogFunc = std::nullptr_t, class Lock = LockBase>
-  requires std::derived_from<Lock, LockBase>
+
+template <class LogFunc, class Lock>
+  requires std::derived_from<Lock, LockBase> || std::is_same_v<Lock, LockBase>
 class AllocatorBase {
  public:
   static constexpr size_t kPageSize = 4096;
@@ -145,7 +146,7 @@ class AllocatorBase {
    */
   template <typename... Args>
   void Log(const char* format, Args&&... args) const {
-    log_func_(format, std::forward<Args>(args)...);
+    LogFunc(format, std::forward<Args>(args)...);
   }
 
   /// 分配器名称
