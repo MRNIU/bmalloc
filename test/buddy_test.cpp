@@ -37,13 +37,28 @@ class TestMutexLock : public LockBase {
 };
 
 /**
+ * @brief 测试用的日志函数对象
+ * @details 基于printf的日志函数对象，用于Buddy分配器的调试输出
+ */
+class TestLogFunc {
+ public:
+  void operator()(const char* format, ...) const {
+    va_list args;
+    va_start(args, format);
+    printf("[BUDDY LOG] ");
+    vprintf(format, args);
+    va_end(args);
+  }
+};
+
+/**
  * @brief 辅助函数：打印 Buddy 分配器的当前状态
  * 由于 Buddy 的成员现在是 protected，我们创建一个继承类来访问内部状态
  */
-class BuddyDebugHelper : public Buddy<std::nullptr_t, TestMutexLock> {
+class BuddyDebugHelper : public Buddy<TestLogFunc, TestMutexLock> {
  public:
   BuddyDebugHelper(const char* name, void* start_addr, size_t total_pages)
-      : Buddy<std::nullptr_t, TestMutexLock>(name, start_addr, total_pages) {}
+      : Buddy<TestLogFunc, TestMutexLock>(name, start_addr, total_pages) {}
 
   void print() const {
     printf("\n==========================================\n");
@@ -53,7 +68,7 @@ class BuddyDebugHelper : public Buddy<std::nullptr_t, TestMutexLock> {
     for (size_t i = 0; i < this->length_; i++) {
       auto size = static_cast<size_t>(1 << i);
       printf("entry[%zu](管理%zu页块) -> ", i, size);
-      typename Buddy<std::nullptr_t, TestMutexLock>::FreeBlockNode* curr =
+      typename Buddy<TestLogFunc, TestMutexLock>::FreeBlockNode* curr =
           this->free_block_lists_[i];
 
       bool has_blocks = false;

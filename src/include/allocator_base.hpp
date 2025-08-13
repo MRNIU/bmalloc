@@ -139,7 +139,7 @@ class AllocatorBase {
   template <typename... Args>
   void Log(const char* format, Args&&... args) const {
     if constexpr (!std::is_same_v<LogFunc, std::nullptr_t>) {
-      LogFunc(format, args...);
+      LogFunc{}(format, args...);
     }
   }
 
