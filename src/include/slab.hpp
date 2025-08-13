@@ -246,6 +246,23 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
   ~Slab() override = default;
   /// @}
 
+  /**
+   * 创建一个新的cache
+   *
+   * @param name cache的名称
+   * @param size 每个对象的大小（字节）
+   * @param ctor 对象构造函数（可选）
+   * @param dtor 对象析构函数（可选）
+   * @return 成功返回cache指针，失败返回nullptr
+   *
+   * 功能：
+   * 1. 参数验证
+   * 2. 检查是否已存在相同的cache
+   * 3. 从cache_cache中分配kmem_cache_t结构
+   * 4. 计算最优的slab大小（order值）
+   * 5. 计算每个slab能容纳的对象数量
+   * 6. 设置缓存行对齐参数
+   */
   kmem_cache_t *kmem_cache_create(const char *name, size_t size,
                                   void (*ctor)(void *), void (*dtor)(void *)) {
     // 参数验证
@@ -415,6 +432,17 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     return ret;
   }
 
+  /**
+   * 收缩cache - 释放空闲的slab以节省内存
+   *
+   * @param cachep 要收缩的cache指针
+   * @return 释放的内存块数量
+   *
+   * 功能：
+   * 1. 释放cache中所有完全空闲的slab
+   * 2. 只在cache不处于增长状态时执行
+   * 3. 返回释放的内存块总数
+   */
   int kmem_cache_shrink(kmem_cache_t *cachep) {
     if (cachep == nullptr) {
       return 0;
@@ -440,6 +468,19 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     return blocksFreed;
   }
 
+  /**
+   * 从cache分配一个对象
+   *
+   * @param cachep cache指针
+   * @return 成功返回对象指针，失败返回nullptr
+   *
+   * 功能：
+   * 1. 查找可用的slab（优先从partial，然后free）
+   * 2. 如果没有可用slab，分配新的slab
+   * 3. 从slab中分配一个对象
+   * 4. 更新slab链表状态（free->partial->full）
+   * 5. 调用对象构造函数（如果存在）
+   */
   void *kmem_cache_alloc(kmem_cache_t *cachep) {
     if (cachep == nullptr || *cachep->name == '\0') {
       return nullptr;
@@ -552,6 +593,19 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     return retObject;
   }
 
+  /**
+   * 释放cache中的一个对象
+   *
+   * @param cachep cache指针
+   * @param objp 要释放的对象指针
+   *
+   * 功能：
+   * 1. 查找对象所属的slab
+   * 2. 验证对象地址的有效性
+   * 3. 将对象返回到slab的空闲链表
+   * 4. 调用对象析构函数（如果存在）
+   * 5. 更新slab链表状态（full->partial->free）
+   */
   void kmem_cache_free(kmem_cache_t *cachep, void *objp) {
     if (cachep == nullptr || *cachep->name == '\0' || objp == nullptr) {
       return;
@@ -684,6 +738,19 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
   }
 
+  /**
+   * 分配小内存缓冲区 - 通用分配接口
+   *
+   * @param size 请求的内存大小（字节）
+   * @return 成功返回内存指针，失败返回nullptr
+   *
+   * 功能：
+   * 1. 将请求大小向上舍入到2的幂次方
+   * 2. 创建或查找对应大小的cache（命名为"size-XXX"）
+   * 3. 从cache中分配对象
+   *
+   * 支持的大小范围：32字节到131072字节
+   */
   void *kmalloc(size_t size) {
     if (size < 32 || size > 131072) {
       return nullptr;
@@ -712,6 +779,57 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     buff = kmem_cache_alloc(buffCachep);
 
     return buff;
+  }
+
+  /**
+   * 查找包含指定对象的小内存缓冲区cache
+   *
+   * @param objp 对象指针
+   * @return 成功返回cache指针，失败返回nullptr
+   *
+   * 功能：
+   * 1. 遍历所有cache，查找名称以"size-"开头的cache
+   * 2. 在每个小内存cache的slab中查找指定对象
+   * 3. 检查对象地址是否在slab的地址范围内
+   */
+  kmem_cache_t *find_buffers_cache(const void *objp) {
+    LockGuard guard(cache_cache.cache_mutex);
+
+    kmem_cache_t *curr = allCaches;
+    slab_t *s;
+
+    while (curr != nullptr) {
+      // 找到小内存缓冲区cache
+      if (strstr(curr->name, "size-") != nullptr) {
+        // 在full slab中查找
+        s = curr->slabs_full;
+        int slabSize = kPageSize * (1 << curr->order);
+        while (s != nullptr) {
+          // 找到包含对象的cache
+          if ((void *)objp > (void *)s &&
+              (void *)objp < (void *)((char *)s + slabSize)) {
+            return curr;
+          }
+
+          s = s->next;
+        }
+
+        // 在partial slab中查找
+        s = curr->slabs_partial;
+        while (s != nullptr) {
+          // 找到包含对象的cache
+          if ((void *)objp > (void *)s &&
+              (void *)objp < (void *)((char *)s + slabSize)) {
+            return curr;
+          }
+
+          s = s->next;
+        }
+      }
+      curr = curr->next;
+    }
+
+    return nullptr;
   }
 
   void kfree(const void *objp);
@@ -743,8 +861,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
   // 所有cache的链表头
   kmem_cache_t *allCaches = nullptr;
-
-  kmem_cache_t *find_buffers_cache(const void *objp);
 
   /**
    * @brief 分配指定页数的内存

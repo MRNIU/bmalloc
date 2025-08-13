@@ -766,3 +766,179 @@ TEST_F(SlabTest, KmallocTest) {
 
   std::cout << "=== kmalloc tests completed successfully! ===\n";
 }
+
+/**
+ * @brief 测试 find_buffers_cache 功能
+ * 
+ * 测试内容：
+ * 1. 查找有效的 kmalloc 分配的对象
+ * 2. 查找无效的指针
+ * 3. 查找不同大小缓存中的对象
+ * 4. 边界条件测试
+ */
+TEST_F(SlabTest, FindBuffersCacheTest) {
+  std::cout << "\n=== Starting find_buffers_cache tests ===\n";
+
+  using MyBuddy = Buddy<TestLogger>;
+  using MySlab = Slab<MyBuddy, TestLogger, TestLock>;
+
+  MySlab slab("slab_find_test", test_memory_, kTestPages);
+
+  // 1. 测试查找通过 kmalloc 分配的对象
+  std::cout << "1. Basic find_buffers_cache test\n";
+  
+  void* ptr64 = slab.kmalloc(64);
+  ASSERT_NE(ptr64, nullptr) << "Failed to allocate 64 bytes";
+  
+  auto* cache64 = slab.find_buffers_cache(ptr64);
+  ASSERT_NE(cache64, nullptr) << "Should find cache for valid 64-byte allocation";
+  
+  // 验证找到的缓存名称包含 "size-"
+  EXPECT_NE(strstr(cache64->name, "size-"), nullptr) 
+      << "Cache name should contain 'size-'";
+  
+  std::cout << "Found cache: " << cache64->name << " for 64-byte allocation\n";
+
+  void* ptr128 = slab.kmalloc(128);
+  ASSERT_NE(ptr128, nullptr) << "Failed to allocate 128 bytes";
+  
+  auto* cache128 = slab.find_buffers_cache(ptr128);
+  ASSERT_NE(cache128, nullptr) << "Should find cache for valid 128-byte allocation";
+  
+  std::cout << "Found cache: " << cache128->name << " for 128-byte allocation\n";
+
+  // 验证不同大小的对象找到不同的缓存（除非它们使用相同的2的幂大小）
+  if (strcmp(cache64->name, cache128->name) != 0) {
+    std::cout << "Different caches for different sizes (as expected)\n";
+  } else {
+    std::cout << "Same cache used for both sizes (power-of-2 alignment)\n";
+  }
+
+  std::cout << "Basic find_buffers_cache test passed\n";
+
+  // 2. 测试查找无效指针
+  std::cout << "2. Invalid pointer test\n";
+  
+  // 测试 nullptr
+  auto* cache_null = slab.find_buffers_cache(nullptr);
+  EXPECT_EQ(cache_null, nullptr) << "Should not find cache for nullptr";
+  
+  // 测试随机无效指针
+  void* invalid_ptr = reinterpret_cast<void*>(0x12345678);
+  auto* cache_invalid = slab.find_buffers_cache(invalid_ptr);
+  EXPECT_EQ(cache_invalid, nullptr) << "Should not find cache for invalid pointer";
+  
+  // 测试指向测试内存范围外的指针
+  char* out_of_range = static_cast<char*>(test_memory_) + kTestMemorySize + 1000;
+  auto* cache_out = slab.find_buffers_cache(out_of_range);
+  EXPECT_EQ(cache_out, nullptr) << "Should not find cache for out-of-range pointer";
+
+  std::cout << "Invalid pointer test passed\n";
+
+  // 3. 测试多个不同大小的分配
+  std::cout << "3. Multiple allocation sizes test\n";
+  
+  std::vector<std::pair<void*, size_t>> allocations;
+  std::vector<size_t> test_sizes = {32, 64, 96, 128, 200, 256, 500, 512};
+  
+  for (size_t size : test_sizes) {
+    void* ptr = slab.kmalloc(size);
+    if (ptr != nullptr) {
+      allocations.push_back({ptr, size});
+    }
+  }
+  
+  EXPECT_GT(allocations.size(), 0) << "Should allocate at least some test objects";
+  
+  // 验证每个分配都能找到对应的缓存
+  for (const auto& [ptr, size] : allocations) {
+    auto* cache = slab.find_buffers_cache(ptr);
+    ASSERT_NE(cache, nullptr) << "Should find cache for " << size << "-byte allocation";
+    
+    // 验证缓存名称
+    EXPECT_NE(strstr(cache->name, "size-"), nullptr) 
+        << "Cache name should contain 'size-' for " << size << "-byte allocation";
+    
+    std::cout << "Size " << size << " -> Cache: " << cache->name << "\n";
+  }
+
+  std::cout << "Multiple allocation sizes test passed\n";
+
+  // 4. 测试指针边界
+  std::cout << "4. Pointer boundary test\n";
+  
+  void* test_ptr = slab.kmalloc(256);
+  ASSERT_NE(test_ptr, nullptr) << "Failed to allocate test object";
+  
+  auto* found_cache = slab.find_buffers_cache(test_ptr);
+  ASSERT_NE(found_cache, nullptr) << "Should find cache for test object";
+  
+  // 测试指向对象内部的指针
+  char* byte_ptr = static_cast<char*>(test_ptr);
+  auto* cache_internal1 = slab.find_buffers_cache(byte_ptr + 1);
+  auto* cache_internal2 = slab.find_buffers_cache(byte_ptr + 100);
+  
+  // 根据实现，这些可能返回相同的缓存或nullptr（取决于具体的边界检查逻辑）
+  if (cache_internal1 != nullptr) {
+    EXPECT_EQ(cache_internal1, found_cache) 
+        << "Internal pointer should find same cache";
+    std::cout << "Internal pointer +1 found same cache\n";
+  } else {
+    std::cout << "Internal pointer +1 not found (strict boundary check)\n";
+  }
+  
+  if (cache_internal2 != nullptr) {
+    EXPECT_EQ(cache_internal2, found_cache) 
+        << "Internal pointer should find same cache";
+    std::cout << "Internal pointer +100 found same cache\n";
+  } else {
+    std::cout << "Internal pointer +100 not found (strict boundary check)\n";
+  }
+
+  std::cout << "Pointer boundary test passed\n";
+
+  // 5. 测试相同大小的多个分配
+  std::cout << "5. Same size multiple allocations test\n";
+  
+  std::vector<void*> same_size_ptrs;
+  const size_t alloc_size = 128;
+  const int num_same_size = 5;
+  
+  for (int i = 0; i < num_same_size; ++i) {
+    void* ptr = slab.kmalloc(alloc_size);
+    if (ptr != nullptr) {
+      same_size_ptrs.push_back(ptr);
+    }
+  }
+  
+  EXPECT_GT(same_size_ptrs.size(), 0) << "Should allocate at least some same-size objects";
+  
+  // 验证所有相同大小的分配都找到缓存（可能是不同的缓存实例）
+  auto* first_cache = static_cast<decltype(slab.find_buffers_cache(nullptr))>(nullptr);
+  std::set<decltype(first_cache)> unique_caches;
+  
+  for (size_t i = 0; i < same_size_ptrs.size(); ++i) {
+    auto* cache = slab.find_buffers_cache(same_size_ptrs[i]);
+    ASSERT_NE(cache, nullptr) << "Should find cache for allocation " << i;
+    
+    if (first_cache == nullptr) {
+      first_cache = cache;
+    }
+    unique_caches.insert(cache);
+  }
+  
+  if (first_cache != nullptr) {
+    if (unique_caches.size() == 1) {
+      std::cout << "All " << same_size_ptrs.size() 
+                << " same-size allocations use same cache: " << first_cache->name << "\n";
+    } else {
+      std::cout << "All " << same_size_ptrs.size() 
+                << " same-size allocations found caches (" << unique_caches.size() 
+                << " unique cache instances for size " << alloc_size << ")\n";
+    }
+  }
+
+  std::cout << "Same size multiple allocations test passed\n";
+
+  std::cout << "=== find_buffers_cache tests completed successfully! ===\n";
+}

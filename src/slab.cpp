@@ -657,41 +657,41 @@ ERROR CODES: (error_cod value)
  * 2. 在每个小内存cache的slab中查找指定对象
  * 3. 检查对象地址是否在slab的地址范围内
  */
-kmem_cache_t* AAA::find_buffers_cache(const void* objp) {
-  lock_guard<mutex> guard(cache_cache.cache_mutex);
+// // kmem_cache_t* AAA::find_buffers_cache(const void* objp) {
+//   lock_guard<mutex> guard(cache_cache.cache_mutex);
 
-  kmem_cache_t* curr = allCaches;
-  slab_t* s;
+//   kmem_cache_t* curr = allCaches;
+//   slab_t* s;
 
-  while (curr != nullptr) {
-    if (strstr(curr->name, "size-") != nullptr)  // 找到小内存缓冲区cache
-    {
-      // 在full slab中查找
-      s = curr->slabs_full;
-      int slabSize = kPageSize * (1 << curr->order);
-      while (s != nullptr) {
-        if ((void*)objp > (void*)s &&
-            (void*)objp < (void*)((char*)s + slabSize))  // 找到包含对象的cache
-          return curr;
+//   while (curr != nullptr) {
+//     if (strstr(curr->name, "size-") != nullptr)  // 找到小内存缓冲区cache
+//     {
+//       // 在full slab中查找
+//       s = curr->slabs_full;
+//       int slabSize = kPageSize * (1 << curr->order);
+//       while (s != nullptr) {
+//         if ((void*)objp > (void*)s &&
+//             (void*)objp < (void*)((char*)s + slabSize))  // 找到包含对象的cache
+//           return curr;
 
-        s = s->next;
-      }
+//         s = s->next;
+//       }
 
-      // 在partial slab中查找
-      s = curr->slabs_partial;
-      while (s != nullptr) {
-        if ((void*)objp > (void*)s &&
-            (void*)objp < (void*)((char*)s + slabSize))  // 找到包含对象的cache
-          return curr;
+//       // 在partial slab中查找
+//       s = curr->slabs_partial;
+//       while (s != nullptr) {
+//         if ((void*)objp > (void*)s &&
+//             (void*)objp < (void*)((char*)s + slabSize))  // 找到包含对象的cache
+//           return curr;
 
-        s = s->next;
-      }
-    }
-    curr = curr->next;
-  }
+//         s = s->next;
+//       }
+//     }
+//     curr = curr->next;
+//   }
 
-  return nullptr;
-}
+//   return nullptr;
+// }
 
 /**
  * 释放小内存缓冲区 - 通用释放接口
