@@ -907,57 +907,57 @@ ERROR CODES: (error_cod value)
  * 2. 计算cache的总大小和使用率
  * 3. 打印cache的各项统计信息
  */
-void AAA::kmem_cache_info(kmem_cache_t* cachep)  // Print cache info
-{
-  // lock_guard<mutex> guard1(cout_mutex);
+// void AAA::kmem_cache_info(kmem_cache_t* cachep)  // Print cache info
+// {
+//   // lock_guard<mutex> guard1(cout_mutex);
 
-  if (cachep == nullptr) {
-    cout << "NullPointer passed as argument" << endl;
-    return;
-  }
+//   if (cachep == nullptr) {
+//     cout << "NullPointer passed as argument" << endl;
+//     return;
+//   }
 
-  lock_guard<mutex> guard2(cachep->cache_mutex);
+//   lock_guard<mutex> guard2(cachep->cache_mutex);
 
-  int i = 0;
+//   int i = 0;
 
-  // 统计free slab数量
-  slab_t* s = cachep->slabs_free;
-  while (s != nullptr) {
-    i++;
-    s = s->next;
-  }
+//   // 统计free slab数量
+//   slab_t* s = cachep->slabs_free;
+//   while (s != nullptr) {
+//     i++;
+//     s = s->next;
+//   }
 
-  // 统计partial slab数量
-  s = cachep->slabs_partial;
-  while (s != nullptr) {
-    i++;
-    s = s->next;
-  }
+//   // 统计partial slab数量
+//   s = cachep->slabs_partial;
+//   while (s != nullptr) {
+//     i++;
+//     s = s->next;
+//   }
 
-  // 统计full slab数量
-  s = cachep->slabs_full;
-  while (s != nullptr) {
-    i++;
-    s = s->next;
-  }
+//   // 统计full slab数量
+//   s = cachep->slabs_full;
+//   while (s != nullptr) {
+//     i++;
+//     s = s->next;
+//   }
 
-  // 计算cache总大小（以内存块为单位）
-  uint32_t cacheSize = i * (1 << cachep->order);
+//   // 计算cache总大小（以内存块为单位）
+//   uint32_t cacheSize = i * (1 << cachep->order);
 
-  // 计算使用率百分比
-  double perc = 0;
-  if (cachep->num_allocations > 0)
-    perc = 100 * (double)cachep->num_active / cachep->num_allocations;
+//   // 计算使用率百分比
+//   double perc = 0;
+//   if (cachep->num_allocations > 0)
+//     perc = 100 * (double)cachep->num_active / cachep->num_allocations;
 
-  // 打印cache信息
-  cout << "*** CACHE INFO: ***" << endl
-       << "Name:\t\t\t\t" << cachep->name << endl
-       << "Size of one object (in bytes):\t" << cachep->objectSize << endl
-       << "Size of cache (in blocks):\t" << cacheSize << endl
-       << "Number of slabs:\t\t" << i << endl
-       << "Number of objects in one slab:\t" << cachep->objectsInSlab << endl
-       << "Percentage occupancy of cache:\t" << perc << " %" << endl;
-}
+//   // 打印cache信息
+//   cout << "*** CACHE INFO: ***" << endl
+//        << "Name:\t\t\t\t" << cachep->name << endl
+//        << "Size of one object (in bytes):\t" << cachep->objectSize << endl
+//        << "Size of cache (in blocks):\t" << cacheSize << endl
+//        << "Number of slabs:\t\t" << i << endl
+//        << "Number of objects in one slab:\t" << cachep->objectsInSlab << endl
+//        << "Percentage occupancy of cache:\t" << perc << " %" << endl;
+// }
 
 /**
  * 打印cache的错误信息
@@ -970,71 +970,71 @@ void AAA::kmem_cache_info(kmem_cache_t* cachep)  // Print cache info
  * 2. 根据错误码打印相应的错误信息
  * 3. 返回错误码供调用者使用
  */
-int AAA::kmem_cache_error(kmem_cache_t* cachep)  // Print error message
-{
-  // lock_guard<mutex> guard1(cout_mutex);
+// int AAA::kmem_cache_error(kmem_cache_t* cachep)  // Print error message
+// {
+//   // lock_guard<mutex> guard1(cout_mutex);
 
-  if (cachep == nullptr) {
-    cout << "Nullpointer argument passed" << endl;
-    return 4;
-  }
+//   if (cachep == nullptr) {
+//     cout << "Nullpointer argument passed" << endl;
+//     return 4;
+//   }
 
-  lock_guard<mutex> guard2(cachep->cache_mutex);
+//   lock_guard<mutex> guard2(cachep->cache_mutex);
 
-  int error_code = cachep->error_code;
+//   int error_code = cachep->error_code;
 
-  if (error_code == 0) {
-    cout << "NO ERROR" << endl;
-    return 0;
-  }
+//   if (error_code == 0) {
+//     cout << "NO ERROR" << endl;
+//     return 0;
+//   }
 
-  cout << "ERROR: ";
-  switch (error_code) {
-    case 1:
-      cout << "Invalid arguments passed in function kmem_cache_create" << endl;
-      break;
-    case 2:
-      cout << "No enough space for allocating new slab" << endl;
-      break;
-    case 3:
-      cout << "Access to cache_cache isn't allowed" << endl;
-      break;
-    case 4:
-      cout << "NullPointer argument passed to func kmem_cache_error" << endl;
-      break;
-    case 5:
-      cout << "Cache passed by func kmem_cache_destroy does not exists in "
-              "kmem_cache"
-           << endl;
-      break;
-    case 6:
-      cout << "Object passed by func kmem_cache_free does not exists in "
-              "kmem_cache"
-           << endl;
-      break;
-    case 7:
-      cout << "Invalid pointer passed for object dealocation" << endl;
-      break;
-    default:
-      cout << "Undefined error" << endl;
-      break;
-  }
+//   cout << "ERROR: ";
+//   switch (error_code) {
+//     case 1:
+//       cout << "Invalid arguments passed in function kmem_cache_create" << endl;
+//       break;
+//     case 2:
+//       cout << "No enough space for allocating new slab" << endl;
+//       break;
+//     case 3:
+//       cout << "Access to cache_cache isn't allowed" << endl;
+//       break;
+//     case 4:
+//       cout << "NullPointer argument passed to func kmem_cache_error" << endl;
+//       break;
+//     case 5:
+//       cout << "Cache passed by func kmem_cache_destroy does not exists in "
+//               "kmem_cache"
+//            << endl;
+//       break;
+//     case 6:
+//       cout << "Object passed by func kmem_cache_free does not exists in "
+//               "kmem_cache"
+//            << endl;
+//       break;
+//     case 7:
+//       cout << "Invalid pointer passed for object dealocation" << endl;
+//       break;
+//     default:
+//       cout << "Undefined error" << endl;
+//       break;
+//   }
 
-  return error_code;
-}
+//   return error_code;
+// }
 
 /**
  * 打印所有cache的信息
  * 遍历allCaches链表，调用kmem_cache_info打印每个cache的详细信息
  */
-void AAA::kmem_cache_allInfo() {
-  kmem_cache_t* curr = allCaches;
-  while (curr != nullptr) {
-    kmem_cache_info(curr);
-    cout << endl;
-    curr = curr->next;
-  }
-}
+// void AAA::kmem_cache_allInfo() {
+//   kmem_cache_t* curr = allCaches;
+//   while (curr != nullptr) {
+//     kmem_cache_info(curr);
+//     cout << endl;
+//     curr = curr->next;
+//   }
+// }
 
 /*
 

@@ -9,7 +9,6 @@
 #include "buddy.hpp"
 
 namespace bmalloc {
-using namespace std;
 
 template <class PageAllocator, class LogFunc = std::nullptr_t,
           class Lock = LockBase>
@@ -1062,10 +1061,135 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
   }
 
-  void kmem_cache_info(kmem_cache_t *cachep);
+  /**
+   * 打印cache的详细信息
+   *
+   * @param cachep cache指针
+   *
+   * 功能：
+   * 1. 统计cache中所有slab的数量
+   * 2. 计算cache的总大小和使用率
+   * 3. 打印cache的各项统计信息
+   */
+  void kmem_cache_info(kmem_cache_t *cachep) {
+    if (cachep == nullptr) {
+      Log("NullPointer passed as argument\n");
+      return;
+    }
 
-  int kmem_cache_error(kmem_cache_t *cachep);
-  void kmem_cache_allInfo();
+    LockGuard guard2(cachep->cache_mutex);
+
+    int i = 0;
+
+    // 统计free slab数量
+    slab_t *s = cachep->slabs_free;
+    while (s != nullptr) {
+      i++;
+      s = s->next;
+    }
+
+    // 统计partial slab数量
+    s = cachep->slabs_partial;
+    while (s != nullptr) {
+      i++;
+      s = s->next;
+    }
+
+    // 统计full slab数量
+    s = cachep->slabs_full;
+    while (s != nullptr) {
+      i++;
+      s = s->next;
+    }
+
+    // 计算cache总大小（以内存块为单位）
+    uint32_t cacheSize = i * (1 << cachep->order);
+
+    // 计算使用率百分比
+    double perc = 0;
+    if (cachep->num_allocations > 0) {
+      perc = 100 * (double)cachep->num_active / cachep->num_allocations;
+    }
+
+    // 打印cache信息
+    Log("*** CACHE INFO: ***\n");
+    Log("Name:\t\t\t\t%s\n", cachep->name);
+    Log("Size of one object (in bytes):\t%zu\n", cachep->objectSize);
+    Log("Size of cache (in blocks):\t%d\n", cacheSize);
+    Log("Number of slabs:\t\t%d\n", i);
+    Log("Number of objects in one slab:\t%d\n", cachep->objectsInSlab);
+    Log("Percentage occupancy of cache:\t%.2f %%\n", perc);
+  }
+
+  /**
+   * 打印cache的错误信息
+   *
+   * @param cachep cache指针
+   * @return 错误码
+   *
+   * 功能：
+   * 1. 获取cache的错误码
+   * 2. 根据错误码打印相应的错误信息
+   * 3. 返回错误码供调用者使用
+   */
+  int kmem_cache_error(kmem_cache_t *cachep) {
+    if (cachep == nullptr) {
+      Log("Nullpointer argument passed\n");
+      return 4;
+    }
+
+    LockGuard guard2(cachep->cache_mutex);
+
+    int error_code = cachep->error_code;
+
+    if (error_code == 0) {
+      Log("NO ERROR\n");
+      return 0;
+    }
+
+    Log("ERROR: ");
+    switch (error_code) {
+      case 1:
+        Log("Invalid arguments passed in function kmem_cache_create\n");
+        break;
+      case 2:
+        Log("No enough space for allocating new slab\n");
+        break;
+      case 3:
+        Log("Access to cache_cache isn't allowed\n");
+        break;
+      case 4:
+        Log("NullPointer argument passed to func kmem_cache_error\n");
+        break;
+      case 5:
+        Log("Cache passed by func kmem_cache_destroy does not exists in kmem_cache\n");
+        break;
+      case 6:
+        Log("Object passed by func kmem_cache_free does not exists in kmem_cache\n");
+        break;
+      case 7:
+        Log("Invalid pointer passed for object dealocation\n");
+        break;
+      default:
+        Log("Undefined error\n");
+        break;
+    }
+
+    return error_code;
+  }
+
+  /**
+   * 打印所有cache的信息
+   * 遍历allCaches链表，调用kmem_cache_info打印每个cache的详细信息
+   */
+  void kmem_cache_allInfo() {
+    kmem_cache_t *curr = allCaches;
+    while (curr != nullptr) {
+      kmem_cache_info(curr);
+      Log("\n");
+      curr = curr->next;
+    }
+  }
 
  protected:
   using AllocatorBase<LogFunc, Lock>::Log;
