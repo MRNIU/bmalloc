@@ -612,7 +612,7 @@ TEST_F(SlabTest, KmemCacheFreeTest) {
 }
 
 /**
- * @brief 测试 kmalloc 功能
+ * @brief 测试 Alloc 功能
  *
  * 测试内容：
  * 1. 基本内存分配测试
@@ -622,7 +622,7 @@ TEST_F(SlabTest, KmemCacheFreeTest) {
  * 5. 大量分配测试
  */
 TEST_F(SlabTest, KmallocTest) {
-  std::cout << "\n=== Starting kmalloc tests ===\n";
+  std::cout << "\n=== Starting Alloc tests ===\n";
 
   using MyBuddy = Buddy<TestLogger>;
   using MySlab = Slab<MyBuddy, TestLogger, TestLock>;
@@ -631,13 +631,13 @@ TEST_F(SlabTest, KmallocTest) {
 
   // 1. 基本内存分配测试
   std::cout << "1. Basic allocation test\n";
-  void* ptr32 = slab.kmalloc(32);
+  void* ptr32 = slab.Alloc(32);
   ASSERT_NE(ptr32, nullptr) << "Failed to allocate 32 bytes";
 
-  void* ptr64 = slab.kmalloc(64);
+  void* ptr64 = slab.Alloc(64);
   ASSERT_NE(ptr64, nullptr) << "Failed to allocate 64 bytes";
 
-  void* ptr128 = slab.kmalloc(128);
+  void* ptr128 = slab.Alloc(128);
   ASSERT_NE(ptr128, nullptr) << "Failed to allocate 128 bytes";
 
   // 验证分配的地址不同
@@ -651,15 +651,15 @@ TEST_F(SlabTest, KmallocTest) {
   std::cout << "2. Power-of-2 alignment test\n";
 
   // 测试33字节应该分配到64字节的cache
-  void* ptr33 = slab.kmalloc(33);
+  void* ptr33 = slab.Alloc(33);
   ASSERT_NE(ptr33, nullptr) << "Failed to allocate 33 bytes";
 
   // 测试65字节应该分配到128字节的cache
-  void* ptr65 = slab.kmalloc(65);
+  void* ptr65 = slab.Alloc(65);
   ASSERT_NE(ptr65, nullptr) << "Failed to allocate 65 bytes";
 
   // 测试129字节应该分配到256字节的cache
-  void* ptr129 = slab.kmalloc(129);
+  void* ptr129 = slab.Alloc(129);
   ASSERT_NE(ptr129, nullptr) << "Failed to allocate 129 bytes";
 
   std::cout << "Power-of-2 alignment test passed\n";
@@ -668,26 +668,26 @@ TEST_F(SlabTest, KmallocTest) {
   std::cout << "3. Boundary condition test\n";
 
   // 测试最小大小（32字节）
-  void* ptr_min = slab.kmalloc(32);
+  void* ptr_min = slab.Alloc(32);
   ASSERT_NE(ptr_min, nullptr) << "Failed to allocate minimum size (32 bytes)";
 
   // 测试最大大小（使用较小的大小，如32KB）
-  void* ptr_max = slab.kmalloc(32768);
+  void* ptr_max = slab.Alloc(32768);
   ASSERT_NE(ptr_max, nullptr)
       << "Failed to allocate maximum test size (32768 bytes)";
 
   // 测试小于最小大小
-  void* ptr_too_small = slab.kmalloc(16);
+  void* ptr_too_small = slab.Alloc(16);
   EXPECT_EQ(ptr_too_small, nullptr)
       << "Should fail to allocate size < 32 bytes";
 
   // 测试大于最大大小
-  void* ptr_too_large = slab.kmalloc(131073);
+  void* ptr_too_large = slab.Alloc(131073);
   EXPECT_EQ(ptr_too_large, nullptr)
       << "Should fail to allocate size > 131072 bytes";
 
   // 测试0大小
-  void* ptr_zero = slab.kmalloc(0);
+  void* ptr_zero = slab.Alloc(0);
   EXPECT_EQ(ptr_zero, nullptr) << "Should fail to allocate 0 bytes";
 
   std::cout << "Boundary condition test passed\n";
@@ -695,7 +695,7 @@ TEST_F(SlabTest, KmallocTest) {
   // 4. 内存写入测试
   std::cout << "4. Memory write test\n";
 
-  void* test_ptr = slab.kmalloc(256);
+  void* test_ptr = slab.Alloc(256);
   ASSERT_NE(test_ptr, nullptr) << "Failed to allocate 256 bytes for write test";
 
   // 写入测试数据
@@ -720,7 +720,7 @@ TEST_F(SlabTest, KmallocTest) {
 
   for (int i = 0; i < num_allocs; ++i) {
     size_t size = 64 + (i % 4) * 64;  // 64, 128, 192, 256 字节（减少变化）
-    void* ptr = slab.kmalloc(size);
+    void* ptr = slab.Alloc(size);
     if (ptr != nullptr) {
       ptrs.push_back(ptr);
     }
@@ -744,7 +744,7 @@ TEST_F(SlabTest, KmallocTest) {
   std::vector<void*> common_ptrs;
 
   for (size_t size : common_sizes) {
-    void* ptr = slab.kmalloc(size);
+    void* ptr = slab.Alloc(size);
     if (ptr != nullptr) {
       common_ptrs.push_back(ptr);
       // 写入一些数据验证内存可用
@@ -769,14 +769,14 @@ TEST_F(SlabTest, KmallocTest) {
 
   std::cout << "Common size allocation test passed\n";
 
-  std::cout << "=== kmalloc tests completed successfully! ===\n";
+  std::cout << "=== Alloc tests completed successfully! ===\n";
 }
 
 /**
  * @brief 测试 find_buffers_cache 功能
  *
  * 测试内容：
- * 1. 查找有效的 kmalloc 分配的对象
+ * 1. 查找有效的 Alloc 分配的对象
  * 2. 查找无效的指针
  * 3. 查找不同大小缓存中的对象
  * 4. 边界条件测试
@@ -789,10 +789,10 @@ TEST_F(SlabTest, FindBuffersCacheTest) {
 
   MySlab slab("slab_find_test", test_memory_, kTestPages);
 
-  // 1. 测试查找通过 kmalloc 分配的对象
+  // 1. 测试查找通过 Alloc 分配的对象
   std::cout << "1. Basic find_buffers_cache test\n";
 
-  void* ptr64 = slab.kmalloc(64);
+  void* ptr64 = slab.Alloc(64);
   ASSERT_NE(ptr64, nullptr) << "Failed to allocate 64 bytes";
 
   auto* cache64 = slab.find_buffers_cache(ptr64);
@@ -805,7 +805,7 @@ TEST_F(SlabTest, FindBuffersCacheTest) {
 
   std::cout << "Found cache: " << cache64->name << " for 64-byte allocation\n";
 
-  void* ptr128 = slab.kmalloc(128);
+  void* ptr128 = slab.Alloc(128);
   ASSERT_NE(ptr128, nullptr) << "Failed to allocate 128 bytes";
 
   auto* cache128 = slab.find_buffers_cache(ptr128);
@@ -853,7 +853,7 @@ TEST_F(SlabTest, FindBuffersCacheTest) {
   std::vector<size_t> test_sizes = {32, 64, 96, 128, 200, 256, 500, 512};
 
   for (size_t size : test_sizes) {
-    void* ptr = slab.kmalloc(size);
+    void* ptr = slab.Alloc(size);
     if (ptr != nullptr) {
       allocations.push_back({ptr, size});
     }
@@ -881,7 +881,7 @@ TEST_F(SlabTest, FindBuffersCacheTest) {
   // 4. 测试指针边界
   std::cout << "4. Pointer boundary test\n";
 
-  void* test_ptr = slab.kmalloc(256);
+  void* test_ptr = slab.Alloc(256);
   ASSERT_NE(test_ptr, nullptr) << "Failed to allocate test object";
 
   auto* found_cache = slab.find_buffers_cache(test_ptr);
@@ -919,7 +919,7 @@ TEST_F(SlabTest, FindBuffersCacheTest) {
   const int num_same_size = 5;
 
   for (int i = 0; i < num_same_size; ++i) {
-    void* ptr = slab.kmalloc(alloc_size);
+    void* ptr = slab.Alloc(alloc_size);
     if (ptr != nullptr) {
       same_size_ptrs.push_back(ptr);
     }
@@ -962,7 +962,7 @@ TEST_F(SlabTest, FindBuffersCacheTest) {
 }
 
 /**
- * @brief 测试 kfree 功能
+ * @brief 测试 Free 功能
  *
  * 测试内容：
  * 1. 基本释放测试
@@ -973,7 +973,7 @@ TEST_F(SlabTest, FindBuffersCacheTest) {
  * 6. 释放后的内存状态验证
  */
 TEST_F(SlabTest, KfreeTest) {
-  std::cout << "\n=== Starting kfree tests ===\n";
+  std::cout << "\n=== Starting Free tests ===\n";
 
   using MyBuddy = Buddy<TestLogger>;
   using MySlab = Slab<MyBuddy, TestLogger, TestLock>;
@@ -981,9 +981,9 @@ TEST_F(SlabTest, KfreeTest) {
   MySlab slab("slab_kfree_test", test_memory_, kTestPages);
 
   // 1. 基本释放测试
-  std::cout << "1. Basic kfree test\n";
+  std::cout << "1. Basic Free test\n";
 
-  void* ptr64 = slab.kmalloc(64);
+  void* ptr64 = slab.Alloc(64);
   ASSERT_NE(ptr64, nullptr) << "Failed to allocate 64 bytes";
 
   // 写入一些数据验证内存可用
@@ -991,43 +991,43 @@ TEST_F(SlabTest, KfreeTest) {
 
   // 验证能找到对应的缓存
   auto* cache_before = slab.find_buffers_cache(ptr64);
-  ASSERT_NE(cache_before, nullptr) << "Should find cache before kfree";
+  ASSERT_NE(cache_before, nullptr) << "Should find cache before Free";
 
   // 记录释放前的状态
   auto active_before = cache_before->num_active;
 
   // 释放内存
-  slab.kfree(ptr64);
+  slab.Free(ptr64);
 
   // 验证释放后缓存的活跃对象数量减少
   EXPECT_LT(cache_before->num_active, active_before)
-      << "Active count should decrease after kfree";
+      << "Active count should decrease after Free";
 
   std::cout << "Active objects before: " << active_before
             << ", after: " << cache_before->num_active << "\n";
-  std::cout << "Basic kfree test passed\n";
+  std::cout << "Basic Free test passed\n";
 
   // 2. 释放 nullptr 测试
-  std::cout << "2. kfree nullptr test\n";
+  std::cout << "2. Free nullptr test\n";
 
   // 这应该不会崩溃或产生错误
-  slab.kfree(nullptr);
+  slab.Free(nullptr);
 
-  std::cout << "kfree nullptr test passed\n";
+  std::cout << "Free nullptr test passed\n";
 
   // 3. 释放无效指针测试
-  std::cout << "3. kfree invalid pointer test\n";
+  std::cout << "3. Free invalid pointer test\n";
 
   // 测试无效指针（不会崩溃，但也不会释放任何内存）
   void* invalid_ptr = reinterpret_cast<void*>(0x12345678);
-  slab.kfree(invalid_ptr);
+  slab.Free(invalid_ptr);
 
   // 测试指向测试内存范围外的指针
   char* out_of_range =
       static_cast<char*>(test_memory_) + kTestMemorySize + 1000;
-  slab.kfree(out_of_range);
+  slab.Free(out_of_range);
 
-  std::cout << "kfree invalid pointer test passed\n";
+  std::cout << "Free invalid pointer test passed\n";
 
   // 4. 分配后立即释放测试
   std::cout << "4. Allocate and immediate free test\n";
@@ -1035,13 +1035,13 @@ TEST_F(SlabTest, KfreeTest) {
   std::vector<size_t> test_sizes = {32, 64, 128, 256, 512, 1024};
 
   for (size_t size : test_sizes) {
-    void* ptr = slab.kmalloc(size);
+    void* ptr = slab.Alloc(size);
     if (ptr != nullptr) {
       // 写入数据验证内存可用
       memset(ptr, static_cast<int>(size & 0xFF), size);
 
       // 立即释放
-      slab.kfree(ptr);
+      slab.Free(ptr);
 
       std::cout << "Successfully allocated and freed " << size << " bytes\n";
     } else {
@@ -1061,7 +1061,7 @@ TEST_F(SlabTest, KfreeTest) {
   for (int cycle = 0; cycle < num_cycles; ++cycle) {
     // 分配一些内存
     for (int i = 0; i < 5; ++i) {
-      void* ptr = slab.kmalloc(alloc_size);
+      void* ptr = slab.Alloc(alloc_size);
       if (ptr != nullptr) {
         ptrs.push_back(ptr);
         // 写入数据
@@ -1072,14 +1072,14 @@ TEST_F(SlabTest, KfreeTest) {
     // 释放一半内存
     size_t to_free = ptrs.size() / 2;
     for (size_t i = 0; i < to_free; ++i) {
-      slab.kfree(ptrs.back());
+      slab.Free(ptrs.back());
       ptrs.pop_back();
     }
   }
 
   // 释放剩余的所有内存
   for (void* ptr : ptrs) {
-    slab.kfree(ptr);
+    slab.Free(ptr);
   }
 
   std::cout << "Completed " << num_cycles << " allocation/free cycles\n";
@@ -1088,7 +1088,7 @@ TEST_F(SlabTest, KfreeTest) {
   // 6. 释放后的内存状态验证
   std::cout << "6. Memory state after free test\n";
 
-  void* test_ptr = slab.kmalloc(256);
+  void* test_ptr = slab.Alloc(256);
   ASSERT_NE(test_ptr, nullptr) << "Failed to allocate test memory";
 
   auto* cache = slab.find_buffers_cache(test_ptr);
@@ -1097,20 +1097,20 @@ TEST_F(SlabTest, KfreeTest) {
   auto active_before_final = cache->num_active;
 
   // 释放内存
-  slab.kfree(test_ptr);
+  slab.Free(test_ptr);
 
   // 验证活跃对象数量减少
   EXPECT_LT(cache->num_active, active_before_final)
-      << "Active count should decrease after final kfree";
+      << "Active count should decrease after final Free";
 
   // 尝试再次查找已释放的指针（应该仍然能找到缓存，但不应该再次释放）
   auto* cache_after = slab.find_buffers_cache(test_ptr);
   if (cache_after != nullptr) {
-    std::cout << "Cache still findable after kfree (expected)\n";
+    std::cout << "Cache still findable after Free (expected)\n";
   }
 
   // 双重释放测试（应该是安全的，不会崩溃）
-  slab.kfree(test_ptr);
+  slab.Free(test_ptr);
 
   std::cout << "Memory state after free test passed\n";
 
@@ -1123,7 +1123,7 @@ TEST_F(SlabTest, KfreeTest) {
   // 大量分配
   for (int i = 0; i < 20; ++i) {
     size_t size = sizes[i % sizes.size()];
-    void* ptr = slab.kmalloc(size);
+    void* ptr = slab.Alloc(size);
     if (ptr != nullptr) {
       bulk_ptrs.push_back({ptr, size});
       // 写入唯一标识
@@ -1139,13 +1139,13 @@ TEST_F(SlabTest, KfreeTest) {
   std::shuffle(bulk_ptrs.begin(), bulk_ptrs.end(), g);
 
   for (const auto& [ptr, size] : bulk_ptrs) {
-    slab.kfree(ptr);
+    slab.Free(ptr);
   }
 
   std::cout << "Freed all " << bulk_ptrs.size() << " objects\n";
   std::cout << "Bulk allocate and free test passed\n";
 
-  std::cout << "=== kfree tests completed successfully! ===\n";
+  std::cout << "=== Free tests completed successfully! ===\n";
 }
 
 /**

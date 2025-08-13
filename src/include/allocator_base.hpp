@@ -95,7 +95,7 @@ class AllocatorBase {
    * @param  addr            要释放的地址
    * @param  length          要释放的长度
    */
-  void Free(void* addr, size_t length) {
+  void Free(void* addr, size_t length = 0) {
     LockGuard guard(lock_);
     FreeImpl(addr, length);
   }
@@ -129,7 +129,7 @@ class AllocatorBase {
    * @param  length          要释放的长度
    */
   virtual void FreeImpl([[maybe_unused]] void* addr,
-                        [[maybe_unused]] size_t length) {}
+                        [[maybe_unused]] size_t length = 0) {}
 
   /**
    * @brief 记录日志信息

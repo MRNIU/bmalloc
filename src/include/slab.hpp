@@ -738,49 +738,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
   }
 
   /**
-   * 分配小内存缓冲区 - 通用分配接口
-   *
-   * @param size 请求的内存大小（字节）
-   * @return 成功返回内存指针，失败返回nullptr
-   *
-   * 功能：
-   * 1. 将请求大小向上舍入到2的幂次方
-   * 2. 创建或查找对应大小的cache（命名为"size-XXX"）
-   * 3. 从cache中分配对象
-   *
-   * 支持的大小范围：32字节到131072字节
-   */
-  void *kmalloc(size_t size) {
-    if (size < 32 || size > 131072) {
-      return nullptr;
-    }
-
-    // 将size向上舍入到最近的2的幂次方
-    // int j = 1 << (int)(ceil(log2(size)));
-    size_t j = 32;
-    while (j < size) {
-      j <<= 1;
-    }
-
-    char num[7];
-    void *buff = nullptr;
-
-    // 生成cache名称，格式为"size-XXX"
-    char name[20];
-    strcpy(name, "size-");
-    itoa(j, num);
-    strcat(name, num);
-
-    // 创建或获取对应大小的cache
-    kmem_cache_t *buffCachep = kmem_cache_create(name, j, nullptr, nullptr);
-
-    // 从cache中分配对象
-    buff = kmem_cache_alloc(buffCachep);
-
-    return buff;
-  }
-
-  /**
    * 查找包含指定对象的小内存缓冲区cache
    *
    * @param objp 对象指针
@@ -829,37 +786,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
 
     return nullptr;
-  }
-
-  /**
-   * 释放小内存缓冲区 - 通用释放接口
-   *
-   * @param objp 要释放的对象指针
-   *
-   * 功能：
-   * 1. 查找包含该对象的小内存cache
-   * 2. 释放对象到对应的cache
-   * 3. 尝试收缩cache以节省内存
-   */
-  void kfree(const void *objp) {
-    if (objp == nullptr) {
-      return;
-    }
-
-    // 查找包含该对象的cache
-    kmem_cache_t *buffCachep = find_buffers_cache(objp);
-
-    if (buffCachep == nullptr) {
-      return;
-    }
-
-    // 释放对象
-    kmem_cache_free(buffCachep, (void *)objp);
-
-    // 如果cache有空闲slab，尝试收缩以节省内存
-    if (buffCachep->slabs_free != nullptr) {
-      kmem_cache_shrink(buffCachep);
-    }
   }
 
   /**
@@ -1162,10 +1088,12 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
         Log("NullPointer argument passed to func kmem_cache_error\n");
         break;
       case 5:
-        Log("Cache passed by func kmem_cache_destroy does not exists in kmem_cache\n");
+        Log("Cache passed by func kmem_cache_destroy does not exists in "
+            "kmem_cache\n");
         break;
       case 6:
-        Log("Object passed by func kmem_cache_free does not exists in kmem_cache\n");
+        Log("Object passed by func kmem_cache_free does not exists in "
+            "kmem_cache\n");
         break;
       case 7:
         Log("Invalid pointer passed for object dealocation\n");
@@ -1214,12 +1142,50 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
   /**
    * @brief 分配指定页数的内存
-   * @param page_count 要分配的页数
+   * @param bytes 要分配的页数
    * @return void* 分配的内存起始地址，失败时返回0
    */
-  [[nodiscard]] auto AllocImpl(size_t page_count) -> void * override {
-    (void)page_count;
-    return nullptr;
+  /**
+   * 分配小内存缓冲区 - 通用分配接口
+   *
+   * @param size 请求的内存大小（字节）
+   * @return 成功返回内存指针，失败返回nullptr
+   *
+   * 功能：
+   * 1. 将请求大小向上舍入到2的幂次方
+   * 2. 创建或查找对应大小的cache（命名为"size-XXX"）
+   * 3. 从cache中分配对象
+   *
+   * 支持的大小范围：32字节到131072字节
+   */
+  [[nodiscard]] auto AllocImpl(size_t bytes) -> void * override {
+    if (bytes < 32 || bytes > 131072) {
+      return nullptr;
+    }
+
+    // 将size向上舍入到最近的2的幂次方
+    // int j = 1 << (int)(ceil(log2(bytes)));
+    size_t j = 32;
+    while (j < bytes) {
+      j <<= 1;
+    }
+
+    char num[7];
+    void *buff = nullptr;
+
+    // 生成cache名称，格式为"size-XXX"
+    char name[20];
+    strcpy(name, "size-");
+    itoa(j, num);
+    strcat(name, num);
+
+    // 创建或获取对应大小的cache
+    kmem_cache_t *buffCachep = kmem_cache_create(name, j, nullptr, nullptr);
+
+    // 从cache中分配对象
+    buff = kmem_cache_alloc(buffCachep);
+
+    return buff;
   }
 
   /**
@@ -1227,10 +1193,36 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
    * @param addr 要释放的内存起始地址
    * @param page_count 要释放的页数
    */
-  void FreeImpl(void *addr, size_t page_count) override {
-    (void)addr;
-    (void)page_count;
-    return;
+
+  /**
+   * 释放小内存缓冲区 - 通用释放接口
+   *
+   * @param objp 要释放的对象指针
+   *
+   * 功能：
+   * 1. 查找包含该对象的小内存cache
+   * 2. 释放对象到对应的cache
+   * 3. 尝试收缩cache以节省内存
+   */
+  void FreeImpl(void *addr, size_t) override {
+    if (addr == nullptr) {
+      return;
+    }
+
+    // 查找包含该对象的cache
+    kmem_cache_t *buffCachep = find_buffers_cache(addr);
+
+    if (buffCachep == nullptr) {
+      return;
+    }
+
+    // 释放对象
+    kmem_cache_free(buffCachep, (void *)addr);
+
+    // 如果cache有空闲slab，尝试收缩以节省内存
+    if (buffCachep->slabs_free != nullptr) {
+      kmem_cache_shrink(buffCachep);
+    }
   }
 };
 
