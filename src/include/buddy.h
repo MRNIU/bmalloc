@@ -49,10 +49,12 @@ class Buddy : public AllocatorBase {
    * @param start_addr 管理的内存起始地址
    * @param total_pages 管理的总页数
    * @param log_func printf 风格的日志函数指针（可选）
+   * @param lock 锁接口指针（可选，默认使用无操作锁）
    * @note 内部会将length_设置为最大阶数级别(log2(total_pages)+1)，而不是页数
    */
   explicit Buddy(const char* name, void* start_addr, size_t total_pages,
-                 int (*log_func)(const char*, ...) = nullptr);
+                 int (*log_func)(const char*, ...) = nullptr,
+                 LockBase* lock = nullptr);
 
   /// @name 构造/析构函数
   /// @{

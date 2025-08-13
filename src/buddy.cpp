@@ -26,8 +26,8 @@ static __always_inline size_t log2(size_t value) {
 namespace bmalloc {
 
 Buddy::Buddy(const char* name, void* start_addr, size_t total_pages,
-             int (*log_func)(const char*, ...))
-    : AllocatorBase(name, start_addr, log2(total_pages) + 1, log_func) {
+             int (*log_func)(const char*, ...), LockBase* lock)
+    : AllocatorBase(name, start_addr, log2(total_pages) + 1, log_func, lock) {
   Log("Buddy allocator '%s' initializing: start_addr=%p, total_pages=%zu, "
       "max_order=%zu\n",
       name, start_addr, total_pages, length_ - 1);
