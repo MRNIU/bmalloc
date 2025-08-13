@@ -124,3 +124,87 @@ TEST_F(SlabTest, DifferentTemplateParameterCombinations) {
 
   std::cout << "All template parameter combinations work correctly!\n";
 }
+
+/**
+ * @brief 测试 kmem_cache_create 函数
+ */
+TEST_F(SlabTest, KmemCacheCreateTest) {
+  // 使用简单的配置
+  using MyBuddy = Buddy<TestLogger>;
+  using MySlab = Slab<MyBuddy, TestLogger>;
+
+  MySlab slab("test_slab", test_memory_, kTestPages);
+
+  // 测试构造函数和析构函数
+  auto ctor = [](void* ptr) {
+    // 简单的构造函数，将内存初始化为0
+    memset(ptr, 0, sizeof(int));
+  };
+
+  auto dtor = [](void* ptr) {
+    // 简单的析构函数
+    (void)ptr;  // 避免未使用参数警告
+  };
+
+  // 1. 测试正常创建 cache
+  auto cache1 = slab.kmem_cache_create("test_cache_1", sizeof(int), ctor, dtor);
+  ASSERT_NE(cache1, nullptr);
+  EXPECT_STREQ(cache1->name, "test_cache_1");
+  EXPECT_EQ(cache1->objectSize, sizeof(int));
+  EXPECT_EQ(cache1->ctor, ctor);
+  EXPECT_EQ(cache1->dtor, dtor);
+  EXPECT_EQ(cache1->num_active, 0);
+  EXPECT_GT(cache1->objectsInSlab, 0);
+  EXPECT_EQ(cache1->error_code, 0);
+
+  // 2. 测试创建不同大小的 cache
+  auto cache2 =
+      slab.kmem_cache_create("test_cache_2", sizeof(double), nullptr, nullptr);
+  ASSERT_NE(cache2, nullptr);
+  EXPECT_STREQ(cache2->name, "test_cache_2");
+  EXPECT_EQ(cache2->objectSize, sizeof(double));
+  EXPECT_EQ(cache2->ctor, nullptr);
+  EXPECT_EQ(cache2->dtor, nullptr);
+
+  // 3. 测试创建大对象的 cache（需要更高的 order）
+  auto cache3 = slab.kmem_cache_create("large_cache", 8192, nullptr, nullptr);
+  ASSERT_NE(cache3, nullptr);
+  EXPECT_STREQ(cache3->name, "large_cache");
+  EXPECT_EQ(cache3->objectSize, 8192);
+  EXPECT_GT(cache3->order, 0);  // 大对象需要更高的 order
+
+  // 4. 测试重复创建相同的 cache（应该返回已存在的）
+  auto cache1_duplicate =
+      slab.kmem_cache_create("test_cache_1", sizeof(int), ctor, dtor);
+  EXPECT_EQ(cache1_duplicate, cache1);  // 应该返回相同的指针
+
+  // 5. 测试错误情况：空名称
+  auto invalid_cache1 =
+      slab.kmem_cache_create("", sizeof(int), nullptr, nullptr);
+  EXPECT_EQ(invalid_cache1, nullptr);
+  // 由于 cache_cache 是 protected，我们通过返回值判断错误
+
+  // 6. 测试错误情况：nullptr 名称
+  auto invalid_cache2 =
+      slab.kmem_cache_create(nullptr, sizeof(int), nullptr, nullptr);
+  EXPECT_EQ(invalid_cache2, nullptr);
+
+  // 7. 测试错误情况：非法大小
+  auto invalid_cache3 =
+      slab.kmem_cache_create("invalid_size", 0, nullptr, nullptr);
+  EXPECT_EQ(invalid_cache3, nullptr);
+
+  // 8. 测试错误情况：尝试创建与 cache_cache 同名的 cache
+  auto invalid_cache4 =
+      slab.kmem_cache_create("kmem_cache", sizeof(int), nullptr, nullptr);
+  EXPECT_EQ(invalid_cache4, nullptr);
+
+  std::cout << "kmem_cache_create tests completed successfully!\n";
+  std::cout << "Created caches:\n";
+  std::cout << "  - " << cache1->name << " (size: " << cache1->objectSize
+            << ", objects per slab: " << cache1->objectsInSlab << ")\n";
+  std::cout << "  - " << cache2->name << " (size: " << cache2->objectSize
+            << ", objects per slab: " << cache2->objectsInSlab << ")\n";
+  std::cout << "  - " << cache3->name << " (size: " << cache3->objectSize
+            << ", order: " << cache3->order << ")\n";
+}

@@ -105,8 +105,75 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
    */
   explicit Slab(const char *name, void *start_addr, size_t page_count)
       : AllocatorBase<LogFunc, Lock>(name, start_addr, page_count),
-        page_allocator_(name, start_addr, page_count),
-        cache_cache() {}
+        page_allocator_(name, start_addr, page_count) {
+    // 为cache_cache分配第一个slab
+    void *ptr = page_allocator_.Alloc(CACHE_CACHE_ORDER);
+    if (ptr == nullptr) {
+      return;
+    }
+    slab_t *slab = (slab_t *)ptr;
+
+    // 初始化cache_cache的slab链表
+    cache_cache.slabs_free = slab;
+    cache_cache.slabs_full = nullptr;
+    cache_cache.slabs_partial = nullptr;
+
+    // 设置cache_cache的基本属性
+    strcpy(cache_cache.name, "kmem_cache");
+    cache_cache.objectSize = sizeof(kmem_cache_t);
+    cache_cache.order = CACHE_CACHE_ORDER;
+
+    cache_cache.growing = false;
+    cache_cache.ctor = nullptr;
+    cache_cache.dtor = nullptr;
+    cache_cache.error_code = 0;
+    cache_cache.next = nullptr;
+
+    // 初始化slab结构
+    slab->colouroff = 0;
+    slab->freeList = (int *)((char *)ptr + sizeof(slab_t));
+    slab->nextFreeObj = 0;
+    slab->inuse = 0;
+    slab->next = nullptr;
+    slab->prev = nullptr;
+    slab->myCache = &cache_cache;
+
+    // 计算每个slab能容纳的对象数量
+    long memory = (1 << cache_cache.order) * kPageSize;
+    memory -= sizeof(slab_t);
+    int n = 0;
+    while ((long)(memory - sizeof(uint32_t) - cache_cache.objectSize) >= 0) {
+      n++;
+      memory -= sizeof(uint32_t) + cache_cache.objectSize;
+    }
+
+    // 设置对象数组起始位置
+    slab->objects =
+        (void *)((char *)ptr + sizeof(slab_t) + sizeof(uint32_t) * n);
+    kmem_cache_t *list = (kmem_cache_t *)slab->objects;
+
+    // 初始化空闲对象链表
+    for (int i = 0; i < n; i++) {
+      *list[i].name = '\0';
+      new (&list[i].cache_mutex) Lock;
+      slab->freeList[i] = i + 1;
+    }
+
+    // 设置cache_cache的对象统计信息
+    cache_cache.objectsInSlab = n;
+    cache_cache.num_active = 0;
+    cache_cache.num_allocations = n;
+
+    // 设置缓存行对齐参数
+    cache_cache.colour_max = memory / CACHE_L1_LINE_SIZE;
+    if (cache_cache.colour_max > 0)
+      cache_cache.colour_next = 1;
+    else
+      cache_cache.colour_next = 0;
+
+    // 将cache_cache加入全局cache链表
+    allCaches = &cache_cache;
+  }
 
   /// @name 构造/析构函数
   /// @{
@@ -119,8 +186,173 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
   /// @}
 
   kmem_cache_t *kmem_cache_create(const char *name, size_t size,
-                                  void (*ctor)(void *),
-                                  void (*dtor)(void *));  // Allocate cache
+                                  void (*ctor)(void *), void (*dtor)(void *)) {
+    // 参数验证
+    if (name == nullptr || *name == '\0' || (long)size <= 0) {
+      cache_cache.error_code = 1;
+      return nullptr;
+    }
+
+    // 禁止创建与cache_cache同名的cache
+    if (strcmp(name, cache_cache.name) == 0) {
+      cache_cache.error_code = 3;
+      return nullptr;
+    }
+
+    LockGuard guard(cache_cache.cache_mutex);
+
+    kmem_cache_t *ret = nullptr;
+    cache_cache.error_code = 0;  // reset error code
+
+    slab_t *s;
+
+    // 第一种方法：在全局cache链表中查找是否已存在相同的cache
+    ret = allCaches;
+    while (ret != nullptr) {
+      if (strcmp(ret->name, name) == 0 && ret->objectSize == size) {
+        return ret;
+      }
+      ret = ret->next;
+    }
+
+    // cache不存在，需要创建新的
+
+    // 寻找可用的slab来分配kmem_cache_t结构
+    s = cache_cache.slabs_partial;
+    if (s == nullptr) {
+      s = cache_cache.slabs_free;
+    }
+
+    if (s == nullptr)  // 没有足够空间，需要为cache_cache分配更多空间
+    {
+      LockGuard guard(buddy_mutex);
+      void *ptr = page_allocator_.Alloc(CACHE_CACHE_ORDER);
+      if (ptr == nullptr) {
+        cache_cache.error_code = 2;
+        return nullptr;
+      }
+      s = (slab_t *)ptr;
+
+      cache_cache.slabs_partial = s;
+
+      // 设置缓存行对齐偏移
+      s->colouroff = cache_cache.colour_next;
+      cache_cache.colour_next =
+          (cache_cache.colour_next + 1) % (cache_cache.colour_max + 1);
+
+      // 初始化新slab
+      s->freeList = (int *)((char *)ptr + sizeof(slab_t));
+      s->nextFreeObj = 0;
+      s->inuse = 0;
+      s->next = nullptr;
+      s->prev = nullptr;
+      s->myCache = &cache_cache;
+
+      s->objects = (void *)((char *)ptr + sizeof(slab_t) +
+                            sizeof(uint32_t) * cache_cache.objectsInSlab +
+                            CACHE_L1_LINE_SIZE * s->colouroff);
+      kmem_cache_t *list = (kmem_cache_t *)s->objects;
+
+      // 初始化对象数组
+      for (size_t i = 0; i < cache_cache.objectsInSlab; i++) {
+        *list[i].name = '\0';
+        // memcpy(&list[i].cache_mutex, &mutex(), sizeof(mutex));
+        new (&list[i].cache_mutex) Lock;
+        s->freeList[i] = i + 1;
+      }
+      // s->freeList[cache_cache.objectsInSlab - 1] = -1;
+
+      cache_cache.num_allocations += cache_cache.objectsInSlab;
+
+      cache_cache.growing = true;
+    }
+
+    // 从slab中分配一个kmem_cache_t对象
+    kmem_cache_t *list = (kmem_cache_t *)s->objects;
+    ret = &list[s->nextFreeObj];
+    s->nextFreeObj = s->freeList[s->nextFreeObj];
+    s->inuse++;
+    cache_cache.num_active++;
+
+    // 更新slab链表状态
+    if (s == cache_cache.slabs_free) {
+      cache_cache.slabs_free = s->next;
+      if (cache_cache.slabs_free != nullptr) {
+        cache_cache.slabs_free->prev = nullptr;
+      }
+      // from free to partial
+      if (s->inuse != cache_cache.objectsInSlab) {
+        s->next = cache_cache.slabs_partial;
+        if (cache_cache.slabs_partial != nullptr)
+          cache_cache.slabs_partial->prev = s;
+        cache_cache.slabs_partial = s;
+      } else  // from free to full
+      {
+        s->next = cache_cache.slabs_full;
+        if (cache_cache.slabs_full != nullptr) {
+          cache_cache.slabs_full->prev = s;
+        }
+        cache_cache.slabs_full = s;
+      }
+    } else {
+      if (s->inuse == cache_cache.objectsInSlab)  // from partial to full
+      {
+        cache_cache.slabs_partial = s->next;
+        if (cache_cache.slabs_partial != nullptr) {
+          cache_cache.slabs_partial->prev = nullptr;
+        }
+
+        s->next = cache_cache.slabs_full;
+        if (cache_cache.slabs_full != nullptr) {
+          cache_cache.slabs_full->prev = s;
+        }
+        cache_cache.slabs_full = s;
+      }
+    }
+
+    // 初始化新cache
+    strcpy(ret->name, name);
+
+    ret->slabs_full = nullptr;
+    ret->slabs_partial = nullptr;
+    ret->slabs_free = nullptr;
+
+    ret->growing = false;
+    ret->ctor = ctor;
+    ret->dtor = dtor;
+    ret->error_code = 0;
+    ret->next = allCaches;
+    allCaches = ret;
+
+    // 计算新cache的order值（使一个slab能容纳至少一个对象）
+    long memory = kPageSize;
+    int order = 0;
+    while ((long)(memory - sizeof(slab_t) - sizeof(uint32_t) - size) < 0) {
+      order++;
+      memory *= 2;
+    }
+
+    ret->objectSize = size;
+    ret->order = order;
+
+    // 计算每个slab中的对象数量
+    memory -= sizeof(slab_t);
+    int n = 0;
+    while ((long)(memory - sizeof(uint32_t) - size) >= 0) {
+      n++;
+      memory -= sizeof(uint32_t) + size;
+    }
+
+    ret->objectsInSlab = n;
+    ret->num_active = 0;
+    ret->num_allocations = 0;
+
+    // 设置缓存行对齐参数
+    ret->colour_max = memory / CACHE_L1_LINE_SIZE;
+    ret->colour_next = 0;
+
+    return ret;
+  }
 
   int kmem_cache_shrink(kmem_cache_t *cachep);  // Shrink cache
 
