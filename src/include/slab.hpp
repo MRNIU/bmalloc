@@ -47,6 +47,69 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     return *s2 - *s1;
   }
 
+  // 计算字符串长度
+  size_t strlen(const char *s) {
+    if (s == nullptr) return 0;
+    size_t len = 0;
+    while (s[len] != '\0') {
+      len++;
+    }
+    return len;
+  }
+
+  // 计算字符串长度（带最大长度限制）
+  size_t strnlen(const char *s, size_t maxlen) {
+    if (s == nullptr) return 0;
+    size_t len = 0;
+    while (len < maxlen && s[len] != '\0') {
+      len++;
+    }
+    return len;
+  }
+
+  // 比较内存块
+  int memcmp(const void *s1, const void *s2, size_t n) {
+    if (s1 == nullptr || s2 == nullptr) return 0;
+    const unsigned char *p1 = (const unsigned char *)s1;
+    const unsigned char *p2 = (const unsigned char *)s2;
+    for (size_t i = 0; i < n; i++) {
+      if (p1[i] != p2[i]) {
+        return p1[i] - p2[i];
+      }
+    }
+    return 0;
+  }
+
+  // 在字符串中查找子字符串
+  char *strstr(const char *s1, const char *s2) {
+    // 空指针检查
+    if (s1 == nullptr || s2 == nullptr) {
+      return nullptr;
+    }
+
+    // 如果s2是空字符串，返回s1
+    if (*s2 == '\0') {
+      return (char *)s1;
+    }
+
+    size_t l1 = strlen(s1);
+    size_t l2 = strlen(s2);
+
+    // 如果s1比s2短，不可能找到
+    if (l1 < l2) {
+      return nullptr;
+    }
+
+    // 搜索子字符串
+    for (size_t i = 0; i <= l1 - l2; i++) {
+      if (memcmp(s1 + i, s2, l2) == 0) {
+        return (char *)(s1 + i);
+      }
+    }
+
+    return nullptr;
+  }
+
   // 将整数转换为字符串
   char *itoa(size_t value, char *str) {
     if (value == 0) {
@@ -810,7 +873,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     void *ptr;
     cache_cache.error_code = 0;
 
-    // 从allCaches链表中删除cache
+    // 从allCaches链表删除cache
     kmem_cache_t *prev = nullptr, *curr = allCaches;
     while (curr != cachep) {
       prev = curr;

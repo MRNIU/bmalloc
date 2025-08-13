@@ -4,6 +4,8 @@
  * @brief Slab分配器的Google Test测试用例
  */
 
+#include "slab.hpp"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -20,7 +22,6 @@
 #include <vector>
 
 #include "buddy.hpp"
-#include "slab.hpp"
 
 using namespace bmalloc;
 
