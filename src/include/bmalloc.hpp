@@ -12,6 +12,7 @@
 #include "allocator_base.hpp"
 #include "buddy.hpp"
 #include "first_fit.hpp"
+#include "slab.hpp"
 
 namespace bmalloc {
 

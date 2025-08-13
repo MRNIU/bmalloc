@@ -1,7 +1,6 @@
 # Copyright The bmalloc Contributors
 
 add_library(${PROJECT_NAME} STATIC
-        # slab.cpp
         # slub.cpp
         bmalloc.cpp
 )
