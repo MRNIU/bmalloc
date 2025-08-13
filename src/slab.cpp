@@ -619,32 +619,32 @@ ERROR CODES: (error_cod value)
  *
  * 支持的大小范围：32字节到131072字节
  */
-void* AAA::kmalloc(size_t size)  // Alloacate one small memory buffer
-{
-  if (size < 32 || size > 131072) return nullptr;
+// void* AAA::kmalloc(size_t size)  // Alloacate one small memory buffer
+// {
+//   if (size < 32 || size > 131072) return nullptr;
 
-  // 将size向上舍入到最近的2的幂次方
-  // int j = 1 << (int)(ceil(log2(size)));
-  size_t j = 32;
-  while (j < size) j <<= 1;
+//   // 将size向上舍入到最近的2的幂次方
+//   // int j = 1 << (int)(ceil(log2(size)));
+//   size_t j = 32;
+//   while (j < size) j <<= 1;
 
-  char num[7];
-  void* buff = nullptr;
+//   char num[7];
+//   void* buff = nullptr;
 
-  // 生成cache名称，格式为"size-XXX"
-  char name[20];
-  strcpy(name, "size-");
-  sprintf(num, "%ld", j);
-  strcat(name, num);
+//   // 生成cache名称，格式为"size-XXX"
+//   char name[20];
+//   strcpy(name, "size-");
+//   sprintf(num, "%ld", j);
+//   strcat(name, num);
 
-  // 创建或获取对应大小的cache
-  kmem_cache_t* buffCachep = kmem_cache_create(name, j, nullptr, nullptr);
+//   // 创建或获取对应大小的cache
+//   kmem_cache_t* buffCachep = kmem_cache_create(name, j, nullptr, nullptr);
 
-  // 从cache中分配对象
-  buff = kmem_cache_alloc(buffCachep);
+//   // 从cache中分配对象
+//   buff = kmem_cache_alloc(buffCachep);
 
-  return buff;
-}
+//   return buff;
+// }
 
 /**
  * 查找包含指定对象的小内存缓冲区cache

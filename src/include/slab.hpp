@@ -15,6 +15,67 @@ template <class PageAllocator, class LogFunc = std::nullptr_t,
           class Lock = LockBase>
   requires std::derived_from<PageAllocator, AllocatorBase<LogFunc, LockBase>>
 class Slab : public AllocatorBase<LogFunc, Lock> {
+ private:
+  // 复制字符串
+  char *strcpy(char *dest, const char *src) {
+    char *address = dest;
+    while ((*dest++ = *src++) != '\0') {
+      ;
+    }
+    return address;
+  }
+
+  // 连接字符串
+  char *strcat(char *dest, const char *src) {
+    char *add_d = dest;
+    if (dest != 0 && src != 0) {
+      while (*add_d) {
+        add_d++;
+      }
+      while (*src) {
+        *add_d++ = *src++;
+      }
+    }
+    return dest;
+  }
+
+  // 比较字符串
+  int strcmp(const char *s1, const char *s2) {
+    while (*s2 && *s1 && (*s2 == *s1)) {
+      s2++;
+      s1++;
+    }
+    return *s2 - *s1;
+  }
+
+  // 将整数转换为字符串
+  char *itoa(size_t value, char *str) {
+    if (value == 0) {
+      str[0] = '0';
+      str[1] = '\0';
+      return str;
+    }
+
+    int i = 0;
+    size_t temp = value;
+
+    // 先计算数字位数
+    while (temp > 0) {
+      temp /= 10;
+      i++;
+    }
+
+    str[i] = '\0';  // 字符串结束符
+
+    // 从后往前填充数字
+    while (value > 0) {
+      str[--i] = '0' + (value % 10);
+      value /= 10;
+    }
+
+    return str;
+  }
+
  public:
   using AllocatorBase<LogFunc, Lock>::Alloc;
   using AllocatorBase<LogFunc, Lock>::Free;
@@ -623,15 +684,43 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
   }
 
-  void *kmalloc(size_t size);  // Alloacate one small memory buffer
+  void *kmalloc(size_t size) {
+    if (size < 32 || size > 131072) {
+      return nullptr;
+    }
 
-  void kfree(const void *objp);  // Deallocate one small memory buffer
+    // 将size向上舍入到最近的2的幂次方
+    // int j = 1 << (int)(ceil(log2(size)));
+    size_t j = 32;
+    while (j < size) {
+      j <<= 1;
+    }
 
-  void kmem_cache_destroy(kmem_cache_t *cachep);  // Deallocate cache
+    char num[7];
+    void *buff = nullptr;
 
-  void kmem_cache_info(kmem_cache_t *cachep);  // Print cache info
+    // 生成cache名称，格式为"size-XXX"
+    char name[20];
+    strcpy(name, "size-");
+    itoa(j, num);
+    strcat(name, num);
 
-  int kmem_cache_error(kmem_cache_t *cachep);  // Print error message
+    // 创建或获取对应大小的cache
+    kmem_cache_t *buffCachep = kmem_cache_create(name, j, nullptr, nullptr);
+
+    // 从cache中分配对象
+    buff = kmem_cache_alloc(buffCachep);
+
+    return buff;
+  }
+
+  void kfree(const void *objp);
+
+  void kmem_cache_destroy(kmem_cache_t *cachep);
+
+  void kmem_cache_info(kmem_cache_t *cachep);
+
+  int kmem_cache_error(kmem_cache_t *cachep);
   void kmem_cache_allInfo();
 
  protected:
