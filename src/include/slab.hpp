@@ -354,7 +354,30 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     return ret;
   }
 
-  int kmem_cache_shrink(kmem_cache_t *cachep);  // Shrink cache
+  int kmem_cache_shrink(kmem_cache_t *cachep) {
+    if (cachep == nullptr) {
+      return 0;
+    }
+    LockGuard guard(cachep->cache_mutex);
+
+    int blocksFreed = 0;
+    cachep->error_code = 0;
+    // 只有当存在空闲slab且cache不在增长时才收缩
+    if (cachep->slabs_free != nullptr && cachep->growing == false) {
+      LockGuard guard(buddy_mutex);
+      int n = 1 << cachep->order;  // 每个slab包含的内存块数
+      slab_t *s;
+      while (cachep->slabs_free != nullptr) {
+        s = cachep->slabs_free;
+        cachep->slabs_free = s->next;
+        page_allocator_.Free(s, cachep->order);  // 释放slab到buddy分配器
+        blocksFreed += n;
+        cachep->num_allocations -= cachep->objectsInSlab;
+      }
+    }
+    cachep->growing = false;  // 重置增长标志
+    return blocksFreed;
+  }
 
   void *kmem_cache_alloc(
       kmem_cache_t *cachep);  // Allocate one object from cache

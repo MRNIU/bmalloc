@@ -208,3 +208,76 @@ TEST_F(SlabTest, KmemCacheCreateTest) {
   std::cout << "  - " << cache3->name << " (size: " << cache3->objectSize
             << ", order: " << cache3->order << ")\n";
 }
+
+/**
+ * @brief 测试 kmem_cache_shrink 函数
+ */
+TEST_F(SlabTest, KmemCacheShrinkTest) {
+  // 使用简单的配置
+  using MyBuddy = Buddy<TestLogger>;
+  using MySlab = Slab<MyBuddy, TestLogger>;
+  
+  MySlab slab("test_slab", test_memory_, kTestPages);
+  
+  // 1. 测试对 nullptr 的处理
+  int result1 = slab.kmem_cache_shrink(nullptr);
+  EXPECT_EQ(result1, 0); // 对 nullptr 应该返回 0
+  
+  // 2. 创建一个测试缓存
+  auto cache = slab.kmem_cache_create("shrink_test_cache", sizeof(int), nullptr, nullptr);
+  ASSERT_NE(cache, nullptr);
+  
+  std::cout << "Initial cache state:\n";
+  std::cout << "  - num_allocations: " << cache->num_allocations << "\n";
+  std::cout << "  - slabs_free: " << (cache->slabs_free ? "has slabs" : "nullptr") << "\n";
+  std::cout << "  - growing: " << (cache->growing ? "true" : "false") << "\n";
+  
+  // 3. 测试没有空闲 slab 时的收缩（新创建的cache没有分配slab）
+  int result2 = slab.kmem_cache_shrink(cache);
+  EXPECT_GE(result2, 0); // 应该返回非负值
+  
+  // 验证 growing 标志被重置
+  EXPECT_FALSE(cache->growing);
+  
+  std::cout << "After first shrink:\n";
+  std::cout << "  - blocks freed: " << result2 << "\n";
+  std::cout << "  - num_allocations: " << cache->num_allocations << "\n";
+  std::cout << "  - growing: " << (cache->growing ? "true" : "false") << "\n";
+  
+  // 4. 设置 growing 标志并测试
+  cache->growing = true;
+  int result3 = slab.kmem_cache_shrink(cache);
+  EXPECT_GE(result3, 0);
+  EXPECT_FALSE(cache->growing); // growing 标志应该被重置
+  
+  // 5. 测试多次收缩
+  int result4 = slab.kmem_cache_shrink(cache);
+  EXPECT_GE(result4, 0);
+  
+  int result5 = slab.kmem_cache_shrink(cache);
+  EXPECT_GE(result5, 0);
+  
+  std::cout << "Multiple shrink operations completed:\n";
+  std::cout << "  - 2nd shrink freed: " << result4 << " blocks\n";
+  std::cout << "  - 3rd shrink freed: " << result5 << " blocks\n";
+  
+  // 6. 验证缓存仍然有效
+  EXPECT_STREQ(cache->name, "shrink_test_cache");
+  EXPECT_EQ(cache->objectSize, sizeof(int));
+  EXPECT_GT(cache->objectsInSlab, 0);
+  
+  // 7. 创建另一个大对象的缓存来测试不同的 order
+  auto large_cache = slab.kmem_cache_create("large_shrink_test", 4096, nullptr, nullptr);
+  ASSERT_NE(large_cache, nullptr);
+  
+  std::cout << "Large cache created:\n";
+  std::cout << "  - order: " << large_cache->order << "\n";
+  std::cout << "  - objects per slab: " << large_cache->objectsInSlab << "\n";
+  
+  int large_result = slab.kmem_cache_shrink(large_cache);
+  EXPECT_GE(large_result, 0);
+  
+  std::cout << "Large cache shrink result: " << large_result << " blocks freed\n";
+  
+  std::cout << "kmem_cache_shrink tests completed successfully!\n";
+}
