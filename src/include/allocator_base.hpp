@@ -104,7 +104,7 @@ class AllocatorBase {
    * @param  length          要分配的长度
    * @return void*          分配到的地址，失败时返回nullptr
    */
-  [[nodiscard]] auto Alloc([[maybe_unused]] size_t length) -> void* {
+  [[nodiscard]] auto Alloc(size_t length) -> void* {
     LockGuard guard(lock_);
     return AllocImpl(length);
   }
@@ -114,7 +114,7 @@ class AllocatorBase {
    * @param  addr            要释放的地址
    * @param  length          要释放的长度
    */
-  void Free([[maybe_unused]] void* addr, [[maybe_unused]] size_t length) {
+  void Free(void* addr, size_t length) {
     LockGuard guard(lock_);
     FreeImpl(addr, length);
   }

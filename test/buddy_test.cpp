@@ -345,7 +345,7 @@ class BuddyTest : public ::testing::Test {
     return data;
   }
 
-  std::unique_ptr<Buddy> buddy_;
+  std::unique_ptr<BuddyDebugHelper> buddy_;
   void* test_memory_ = nullptr;
   size_t test_memory_size_ = 0;
   size_t test_pages_ = 0;

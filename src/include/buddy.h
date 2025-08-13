@@ -43,6 +43,11 @@ namespace bmalloc {
  */
 class Buddy : public AllocatorBase {
  public:
+  using AllocatorBase::Alloc;
+  using AllocatorBase::Free;
+  using AllocatorBase::GetFreeCount;
+  using AllocatorBase::GetUsedCount;
+
   /**
    * @brief 构造 Buddy 分配器
    * @param name 分配器名称
