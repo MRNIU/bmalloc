@@ -5,16 +5,15 @@
 #ifndef BMALLOC_SRC_INCLUDE_SLAB_HPP_
 #define BMALLOC_SRC_INCLUDE_SLAB_HPP_
 
-#include <cstdlib>
-#include <mutex>
-
 #include "allocator_base.hpp"
 #include "buddy.hpp"
 
 namespace bmalloc {
 using namespace std;
 
-template <class LogFunc = std::nullptr_t, class Lock = LockBase>
+template <class PageAllocator, class LogFunc = std::nullptr_t,
+          class Lock = LockBase>
+  requires std::derived_from<PageAllocator, AllocatorBase<LogFunc, LockBase>>
 class Slab : public AllocatorBase<LogFunc, Lock> {
  public:
   using AllocatorBase<LogFunc, Lock>::Alloc;
@@ -81,7 +80,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // num of total objects in cache - 总对象数量
     unsigned long num_allocations;
     // mutex (uses to lock the cache) - 缓存互斥锁
-    mutex cache_mutex;
+    Lock cache_mutex;
     // order of one slab (one slab has 2^order blocks) - slab的order值
     unsigned int order;
     // maximum multiplier for offset of first object in slab - 最大颜色偏移乘数
@@ -101,17 +100,15 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
   };
 
   /**
-   * @brief 构造First Fit分配器
+   * @brief 构造 Slab 分配器
    * @param name 分配器名称
    * @param start_addr 管理的内存起始地址
    * @param page_count 管理的页数
-   * @param log_func printf 风格的日志函数指针（可选）
    */
   explicit Slab(const char *name, void *start_addr, size_t page_count)
-      : AllocatorBase<LogFunc, Lock>(name, start_addr, page_count) {
-    // 初始化位图为全0 (所有页面空闲)
-    bitmap_.reset();
-  }
+      : AllocatorBase<LogFunc, Lock>(name, start_addr, page_count),
+        page_allocator_(name, start_addr, page_count),
+        cache_cache() {}
 
   /// @name 构造/析构函数
   /// @{
@@ -155,12 +152,11 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
   using AllocatorBase<LogFunc, Lock>::used_count_;
 
   // guarding buddy alocator - 保护buddy分配器的互斥锁
-  mutex buddy_mutex;
+  Lock buddy_mutex;
   // guarding cout - 保护输出的互斥锁
-  mutex cout_mutex;
+  // mutex cout_mutex;
 
-  // 全局Buddy分配器实例，用于底层内存管理
-  Buddy global_buddy;
+  PageAllocator page_allocator_;
 
   // cache_cache: 管理kmem_cache_t结构体的特殊cache
   kmem_cache_t cache_cache;

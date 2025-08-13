@@ -910,7 +910,7 @@ void AAA::kmem_cache_destroy(kmem_cache_t* cachep)  // Deallocate cache
  */
 void AAA::kmem_cache_info(kmem_cache_t* cachep)  // Print cache info
 {
-  lock_guard<mutex> guard1(cout_mutex);
+  // lock_guard<mutex> guard1(cout_mutex);
 
   if (cachep == nullptr) {
     cout << "NullPointer passed as argument" << endl;
@@ -973,7 +973,7 @@ void AAA::kmem_cache_info(kmem_cache_t* cachep)  // Print cache info
  */
 int AAA::kmem_cache_error(kmem_cache_t* cachep)  // Print error message
 {
-  lock_guard<mutex> guard1(cout_mutex);
+  // lock_guard<mutex> guard1(cout_mutex);
 
   if (cachep == nullptr) {
     cout << "Nullpointer argument passed" << endl;
