@@ -6,7 +6,6 @@
 #define BMALLOC_SRC_INCLUDE_SLAB_HPP_
 
 #include "allocator_base.hpp"
-#include "buddy.hpp"
 
 namespace bmalloc {
 
@@ -94,6 +93,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     int error_code;
     // next cache in chain - 下一个cache
     kmem_cache_t *next;
+
+    
   };
 
   /**
@@ -224,7 +225,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     slab_t *s;
 
-    // 第一种方法：在全局cache链表中查找是否已存在相同的cache
+    // 在全局cache链表中查找是否已存在相同的cache
     ret = allCaches;
     while (ret != nullptr) {
       if (strcmp(ret->name, name) == 0 && ret->objectSize == size) {
@@ -234,7 +235,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
 
     // cache不存在，需要创建新的
-
     // 寻找可用的slab来分配kmem_cache_t结构
     s = cache_cache.slabs_partial;
     if (s == nullptr) {
