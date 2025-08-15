@@ -143,6 +143,9 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     int error_code = 0;
     // next cache in chain - 下一个 cache
     kmem_cache_t *next = nullptr;
+
+    /// @todo 添加一个接口，创建新的 slab 用于分配
+    /// 用于替换 `/// @todo 创建 slab_t 部分可以抽象出来` 处的代码
   };
 
   /**
@@ -274,6 +277,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     if (s == nullptr) {
       s = cache_cache.slabs_free;
     }
+
+    /// @todo 创建 slab_t 部分可以抽象出来
     // 没有足够空间，需要为 cache_cache 分配更多空间
     if (s == nullptr) {
       void *ptr = page_allocator_.Alloc(CACHE_CACHE_ORDER);
@@ -282,7 +287,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
         return nullptr;
       }
 
-      /// @todo 创建 slab_t 部分可以抽象出来
       s = new (ptr) slab_t(&cache_cache, ptr, cache_cache.objectsInSlab,
                            cache_cache.colour_next);
 
@@ -440,6 +444,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     if (s == nullptr) {
       s = cachep->slabs_free;
     }
+
+    /// @todo 创建 slab_t 部分可以抽象出来
     // 需要分配新slab
     if (s == nullptr) {
       void *ptr = page_allocator_.Alloc(cachep->order);
@@ -448,7 +454,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
         return nullptr;
       }
 
-      /// @todo 创建 slab_t 部分可以抽象出来
       s = new (ptr)
           slab_t(cachep, ptr, cachep->objectsInSlab, cachep->colour_next);
 
