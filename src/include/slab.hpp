@@ -109,7 +109,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     if (ptr == nullptr) {
       return;
     }
-    // auto *slab = static_cast<slab_t *>(ptr);
+
     auto *slab = new (ptr) slab_t;
 
     // 初始化cache_cache的slab链表
@@ -232,7 +232,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
         cache_cache.error_code = 2;
         return nullptr;
       }
-      s = static_cast<slab_t *>(ptr);
+      s = new (ptr) slab_t;
 
       cache_cache.slabs_partial = s;
 
@@ -244,10 +244,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       // 初始化新slab
       s->freeList =
           reinterpret_cast<int *>(static_cast<char *>(ptr) + sizeof(slab_t));
-      s->nextFreeObj = 0;
-      s->inuse = 0;
-      s->next = nullptr;
-      s->prev = nullptr;
       s->myCache = &cache_cache;
 
       s->objects =
@@ -271,7 +267,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     // 从slab中分配一个kmem_cache_t对象
     auto *list = static_cast<kmem_cache_t *>(s->objects);
-    ret = &list[s->nextFreeObj];
+    ret = new (&list[s->nextFreeObj]) kmem_cache_t;
     s->nextFreeObj = s->freeList[s->nextFreeObj];
     s->inuse++;
     cache_cache.num_active++;
@@ -315,14 +311,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // 初始化新cache
     strcpy(ret->name, name);
 
-    ret->slabs_full = nullptr;
-    ret->slabs_partial = nullptr;
-    ret->slabs_free = nullptr;
-
-    ret->growing = false;
     ret->ctor = ctor;
     ret->dtor = dtor;
-    ret->error_code = 0;
     ret->next = allCaches;
     allCaches = ret;
 
@@ -351,7 +341,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     // 设置缓存行对齐参数
     ret->colour_max = memory / CACHE_L1_LINE_SIZE;
-    ret->colour_next = 0;
 
     return ret;
   }
@@ -429,7 +418,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
         cachep->error_code = 2;
         return nullptr;
       }
-      s = static_cast<slab_t *>(ptr);
+      s = new (ptr) slab_t;
 
       // 新分配的slab将被放入partial链表（因为即将从中分配对象）
       cachep->slabs_partial = s;
@@ -442,10 +431,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       // 初始化slab结构
       s->freeList =
           reinterpret_cast<int *>(static_cast<char *>(ptr) + sizeof(slab_t));
-      s->nextFreeObj = 0;
-      s->inuse = 0;
-      s->next = nullptr;
-      s->prev = nullptr;
       s->myCache = cachep;
 
       // 设置对象数组位置（考虑缓存行对齐）
