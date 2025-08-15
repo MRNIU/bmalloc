@@ -60,41 +60,39 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
    */
   struct kmem_cache_t {
     // list of full slabs - 满slab链表
-    slab_t *slabs_full;
+    slab_t *slabs_full = nullptr;
     // list of partial slabs - 部分使用slab链表
-    slab_t *slabs_partial;
+    slab_t *slabs_partial = nullptr;
     // list of free slabs - 空闲slab链表
-    slab_t *slabs_free;
+    slab_t *slabs_free = nullptr;
     // cache name - 缓存名称
-    char name[CACHE_NAMELEN];
+    char name[CACHE_NAMELEN]{};
     // size of one object - 单个对象大小
-    size_t objectSize;
+    size_t objectSize = 0;
     // num of objects in one slab - 每个slab中的对象数量
-    size_t objectsInSlab;
+    size_t objectsInSlab = 0;
     // num of active objects in cache - 活跃对象数量
-    size_t num_active;
+    size_t num_active = 0;
     // num of total objects in cache - 总对象数量
-    size_t num_allocations;
+    size_t num_allocations = 0;
     // mutex (uses to lock the cache) - 缓存互斥锁
     Lock cache_lock;
     // order of one slab (one slab has 2^order blocks) - slab的order值
-    uint32_t order;
+    uint32_t order = CACHE_CACHE_ORDER;
     // maximum multiplier for offset of first object in slab - 最大颜色偏移乘数
-    uint32_t colour_max;
+    uint32_t colour_max = 0;
     // multiplier for next slab offset - 下一个slab的颜色偏移
-    uint32_t colour_next;
+    uint32_t colour_next = 0;
     // false - cache is not growing / true - cache is growing - 是否正在增长
-    bool growing;
+    bool growing = false;
     // objects constructor - 对象构造函数
-    void (*ctor)(void *);
+    void (*ctor)(void *) = nullptr;
     // objects destructor - 对象析构函数
-    void (*dtor)(void *);
+    void (*dtor)(void *) = nullptr;
     // last error that happened while working with cache - 最后的错误码
-    int error_code;
+    int error_code = 0;
     // next cache in chain - 下一个cache
-    kmem_cache_t *next;
-
-    
+    kmem_cache_t *next = nullptr;
   };
 
   /**
@@ -115,19 +113,10 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     // 初始化cache_cache的slab链表
     cache_cache.slabs_free = slab;
-    cache_cache.slabs_full = nullptr;
-    cache_cache.slabs_partial = nullptr;
 
     // 设置cache_cache的基本属性
     strcpy(cache_cache.name, "kmem_cache");
     cache_cache.objectSize = sizeof(kmem_cache_t);
-    cache_cache.order = CACHE_CACHE_ORDER;
-
-    cache_cache.growing = false;
-    cache_cache.ctor = nullptr;
-    cache_cache.dtor = nullptr;
-    cache_cache.error_code = 0;
-    cache_cache.next = nullptr;
 
     // 初始化slab结构
     slab->colouroff = 0;
@@ -162,7 +151,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     // 设置cache_cache的对象统计信息
     cache_cache.objectsInSlab = n;
-    cache_cache.num_active = 0;
     cache_cache.num_allocations = n;
 
     // 设置缓存行对齐参数
