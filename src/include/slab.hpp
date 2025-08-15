@@ -33,21 +33,21 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
    */
   struct slab_t {
     // offset for this slab - 用于缓存行对齐的偏移量
-    uint32_t colouroff;
+    uint32_t colouroff = 0;
     // starting adress of objects - 对象数组的起始地址
-    void *objects;
+    void *objects = nullptr;
     // list of free objects - 空闲对象索引列表
-    int *freeList;
+    int *freeList = nullptr;
     // next free object - 下一个空闲对象的索引
-    int nextFreeObj;
+    int nextFreeObj = 0;
     // number of active objects in this slab - 当前使用的对象数量
-    uint32_t inuse;
+    uint32_t inuse = 0;
     // next slab in chain - 链表中的下一个slab
-    slab_t *next;
+    slab_t *next = nullptr;
     // previous slab in chain - 链表中的前一个slab
-    slab_t *prev;
+    slab_t *prev = nullptr;
     // cache - owner - 拥有此slab的cache
-    kmem_cache_t *myCache;
+    kmem_cache_t *myCache = nullptr;
   };
 
   /**
@@ -109,7 +109,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     if (ptr == nullptr) {
       return;
     }
-    auto *slab = static_cast<slab_t *>(ptr);
+    // auto *slab = static_cast<slab_t *>(ptr);
+    auto *slab = new (ptr) slab_t;
 
     // 初始化cache_cache的slab链表
     cache_cache.slabs_free = slab;
@@ -119,13 +120,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     cache_cache.objectSize = sizeof(kmem_cache_t);
 
     // 初始化slab结构
-    slab->colouroff = 0;
     slab->freeList =
         reinterpret_cast<int *>(static_cast<char *>(ptr) + sizeof(slab_t));
-    slab->nextFreeObj = 0;
-    slab->inuse = 0;
-    slab->next = nullptr;
-    slab->prev = nullptr;
     slab->myCache = &cache_cache;
 
     // 计算每个slab能容纳的对象数量
@@ -155,10 +151,11 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     // 设置缓存行对齐参数
     cache_cache.colour_max = memory / CACHE_L1_LINE_SIZE;
-    if (cache_cache.colour_max > 0)
+    if (cache_cache.colour_max > 0) {
       cache_cache.colour_next = 1;
-    else
+    } else {
       cache_cache.colour_next = 0;
+    }
 
     // 将cache_cache加入全局cache链表
     allCaches = &cache_cache;
