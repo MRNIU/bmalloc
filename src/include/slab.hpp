@@ -49,6 +49,55 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     slab_t *prev = nullptr;
     // cache - owner - 拥有此slab的cache
     kmem_cache_t *myCache = nullptr;
+
+    /**
+     * @brief slab_t 构造函数
+     * @param cache 拥有此slab的cache指针
+     * @param start_addr slab的内存起始地址
+     * @param object_count 此slab中的对象数量
+     * @param colour_offset 缓存行对齐偏移量
+     */
+    slab_t(kmem_cache_t *cache, void *start_addr, size_t object_count,
+           uint32_t colour_offset)
+        : colouroff(colour_offset),
+          nextFreeObj(0),
+          inuse(0),
+          next(nullptr),
+          prev(nullptr),
+          myCache(cache) {
+      // 设置freeList位置（紧跟在slab_t结构后面）
+      freeList = reinterpret_cast<int *>(static_cast<char *>(start_addr) +
+                                         sizeof(slab_t));
+
+      // 设置对象数组位置（考虑缓存行对齐）
+      objects = static_cast<void *>(
+          static_cast<char *>(start_addr) + sizeof(slab_t) +
+          sizeof(uint32_t) * object_count + CACHE_L1_LINE_SIZE * colouroff);
+
+      // 初始化空闲对象链表
+      for (size_t i = 0; i < object_count; i++) {
+        freeList[i] = i + 1;
+      }
+      // 最后一个对象的索引设为-1，表示链表结束
+      if (object_count > 0) {
+        freeList[object_count - 1] = -1;
+      }
+
+      // 初始化所有对象（调用构造函数）
+      if (cache && cache->ctor) {
+        void *obj = objects;
+        for (size_t i = 0; i < object_count; i++) {
+          cache->ctor(obj);
+          obj =
+              static_cast<void *>(static_cast<char *>(obj) + cache->objectSize);
+        }
+      }
+    }
+
+    /**
+     * @brief 默认构造函数（保持向后兼容）
+     */
+    slab_t() = default;
   };
 
   /**
@@ -232,35 +281,18 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
         cache_cache.error_code = 2;
         return nullptr;
       }
-      s = new (ptr) slab_t;
+
+      /// @todo 创建 slab_t 部分可以抽象出来
+      s = new (ptr) slab_t(&cache_cache, ptr, cache_cache.objectsInSlab,
+                           cache_cache.colour_next);
 
       cache_cache.slabs_partial = s;
 
-      // 设置缓存行对齐偏移
-      s->colouroff = cache_cache.colour_next;
+      // 更新缓存行对齐偏移
       cache_cache.colour_next =
           (cache_cache.colour_next + 1) % (cache_cache.colour_max + 1);
 
-      // 初始化新 slab
-      s->freeList =
-          reinterpret_cast<int *>(static_cast<char *>(ptr) + sizeof(slab_t));
-      s->myCache = &cache_cache;
-
-      s->objects =
-          static_cast<void *>(static_cast<char *>(ptr) + sizeof(slab_t) +
-                              sizeof(uint32_t) * cache_cache.objectsInSlab +
-                              CACHE_L1_LINE_SIZE * s->colouroff);
-      auto *list = static_cast<kmem_cache_t *>(s->objects);
-
-      // 初始化对象数组
-      for (size_t i = 0; i < cache_cache.objectsInSlab; i++) {
-        new (&list[i]) kmem_cache_t;
-        s->freeList[i] = i + 1;
-      }
-      // s->freeList[cache_cache.objectsInSlab - 1] = -1;
-
       cache_cache.num_allocations += cache_cache.objectsInSlab;
-
       cache_cache.growing = true;
     }
 
@@ -415,39 +447,17 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
         cachep->error_code = 2;
         return nullptr;
       }
-      s = new (ptr) slab_t;
+
+      /// @todo 创建 slab_t 部分可以抽象出来
+      s = new (ptr)
+          slab_t(cachep, ptr, cachep->objectsInSlab, cachep->colour_next);
 
       // 新分配的slab将被放入partial链表（因为即将从中分配对象）
       cachep->slabs_partial = s;
 
-      // 设置缓存行对齐偏移
-      s->colouroff = cachep->colour_next;
+      // 更新缓存行对齐偏移
       cachep->colour_next =
           (cachep->colour_next + 1) % (cachep->colour_max + 1);
-
-      // 初始化slab结构
-      s->freeList =
-          reinterpret_cast<int *>(static_cast<char *>(ptr) + sizeof(slab_t));
-      s->myCache = cachep;
-
-      // 设置对象数组位置（考虑缓存行对齐）
-      s->objects =
-          static_cast<void *>(static_cast<char *>(ptr) + sizeof(slab_t) +
-                              sizeof(uint32_t) * cachep->objectsInSlab +
-                              CACHE_L1_LINE_SIZE * s->colouroff);
-      void *obj = s->objects;
-
-      // 初始化所有对象（调用构造函数）并设置空闲链表
-      for (size_t i = 0; i < cachep->objectsInSlab; i++) {
-        // 调用对象构造函数
-        if (cachep->ctor) {
-          cachep->ctor(obj);
-        }
-        obj =
-            static_cast<void *>(static_cast<char *>(obj) + cachep->objectSize);
-        s->freeList[i] = i + 1;
-      }
-      // s->freeList[cachep->objectsInSlab - 1] = -1;
 
       cachep->num_allocations += cachep->objectsInSlab;
       cachep->growing = true;
