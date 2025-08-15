@@ -140,8 +140,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     // 初始化空闲对象链表
     for (int i = 0; i < n; i++) {
-      *list[i].name = '\0';
-      new (&list[i].cache_lock) Lock;
+      new (&list[i]) kmem_cache_t;
       slab->freeList[i] = i + 1;
     }
 
@@ -254,8 +253,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
       // 初始化对象数组
       for (size_t i = 0; i < cache_cache.objectsInSlab; i++) {
-        *list[i].name = '\0';
-        new (&list[i].cache_lock) Lock;
+        new (&list[i]) kmem_cache_t;
         s->freeList[i] = i + 1;
       }
       // s->freeList[cache_cache.objectsInSlab - 1] = -1;
@@ -336,8 +334,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
 
     ret->objectsInSlab = n;
-    ret->num_active = 0;
-    ret->num_allocations = 0;
 
     // 设置缓存行对齐参数
     ret->colour_max = memory / CACHE_L1_LINE_SIZE;
