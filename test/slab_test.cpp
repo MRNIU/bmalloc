@@ -151,19 +151,19 @@ TEST_F(SlabTest, KmemCacheCreateTest) {
   auto cache1 = slab.kmem_cache_create("test_cache_1", sizeof(int), ctor, dtor);
   ASSERT_NE(cache1, nullptr);
   EXPECT_STREQ(cache1->name, "test_cache_1");
-  EXPECT_EQ(cache1->objectSize, sizeof(int));
+  EXPECT_EQ(cache1->objectSize_, sizeof(int));
   EXPECT_EQ(cache1->ctor, ctor);
   EXPECT_EQ(cache1->dtor, dtor);
-  EXPECT_EQ(cache1->num_active, 0);
-  EXPECT_GT(cache1->objectsInSlab, 0);
-  EXPECT_EQ(cache1->error_code, 0);
+  EXPECT_EQ(cache1->num_active_, 0);
+  EXPECT_GT(cache1->objectsInSlab_, 0);
+  EXPECT_EQ(cache1->error_code_, 0);
 
   // 2. 测试创建不同大小的 cache
   auto cache2 =
       slab.kmem_cache_create("test_cache_2", sizeof(double), nullptr, nullptr);
   ASSERT_NE(cache2, nullptr);
   EXPECT_STREQ(cache2->name, "test_cache_2");
-  EXPECT_EQ(cache2->objectSize, sizeof(double));
+  EXPECT_EQ(cache2->objectSize_, sizeof(double));
   EXPECT_EQ(cache2->ctor, nullptr);
   EXPECT_EQ(cache2->dtor, nullptr);
 
@@ -171,7 +171,7 @@ TEST_F(SlabTest, KmemCacheCreateTest) {
   auto cache3 = slab.kmem_cache_create("large_cache", 8192, nullptr, nullptr);
   ASSERT_NE(cache3, nullptr);
   EXPECT_STREQ(cache3->name, "large_cache");
-  EXPECT_EQ(cache3->objectSize, 8192);
+  EXPECT_EQ(cache3->objectSize_, 8192);
   EXPECT_GT(cache3->order, 0);  // 大对象需要更高的 order
 
   // 4. 测试重复创建相同的 cache（应该返回已存在的）
@@ -202,11 +202,11 @@ TEST_F(SlabTest, KmemCacheCreateTest) {
 
   std::cout << "kmem_cache_create tests completed successfully!\n";
   std::cout << "Created caches:\n";
-  std::cout << "  - " << cache1->name << " (size: " << cache1->objectSize
-            << ", objects per slab: " << cache1->objectsInSlab << ")\n";
-  std::cout << "  - " << cache2->name << " (size: " << cache2->objectSize
-            << ", objects per slab: " << cache2->objectsInSlab << ")\n";
-  std::cout << "  - " << cache3->name << " (size: " << cache3->objectSize
+  std::cout << "  - " << cache1->name << " (size: " << cache1->objectSize_
+            << ", objects per slab: " << cache1->objectsInSlab_ << ")\n";
+  std::cout << "  - " << cache2->name << " (size: " << cache2->objectSize_
+            << ", objects per slab: " << cache2->objectsInSlab_ << ")\n";
+  std::cout << "  - " << cache3->name << " (size: " << cache3->objectSize_
             << ", order: " << cache3->order << ")\n";
 }
 
@@ -230,28 +230,28 @@ TEST_F(SlabTest, KmemCacheShrinkTest) {
   ASSERT_NE(cache, nullptr);
 
   std::cout << "Initial cache state:\n";
-  std::cout << "  - num_allocations: " << cache->num_allocations << "\n";
-  std::cout << "  - slabs_free: "
-            << (cache->slabs_free ? "has slabs" : "nullptr") << "\n";
-  std::cout << "  - growing: " << (cache->growing ? "true" : "false") << "\n";
+  std::cout << "  - num_allocations_: " << cache->num_allocations_ << "\n";
+  std::cout << "  - slabs_free_: "
+            << (cache->slabs_free_ ? "has slabs" : "nullptr") << "\n";
+  std::cout << "  - growing_: " << (cache->growing_ ? "true" : "false") << "\n";
 
   // 3. 测试没有空闲 slab 时的收缩（新创建的cache没有分配slab）
   int result2 = slab.kmem_cache_shrink(cache);
   EXPECT_GE(result2, 0);  // 应该返回非负值
 
-  // 验证 growing 标志被重置
-  EXPECT_FALSE(cache->growing);
+  // 验证 growing_ 标志被重置
+  EXPECT_FALSE(cache->growing_);
 
   std::cout << "After first shrink:\n";
   std::cout << "  - blocks freed: " << result2 << "\n";
-  std::cout << "  - num_allocations: " << cache->num_allocations << "\n";
-  std::cout << "  - growing: " << (cache->growing ? "true" : "false") << "\n";
+  std::cout << "  - num_allocations_: " << cache->num_allocations_ << "\n";
+  std::cout << "  - growing_: " << (cache->growing_ ? "true" : "false") << "\n";
 
-  // 4. 设置 growing 标志并测试
-  cache->growing = true;
+  // 4. 设置 growing_ 标志并测试
+  cache->growing_ = true;
   int result3 = slab.kmem_cache_shrink(cache);
   EXPECT_GE(result3, 0);
-  EXPECT_FALSE(cache->growing);  // growing 标志应该被重置
+  EXPECT_FALSE(cache->growing_);  // growing_ 标志应该被重置
 
   // 5. 测试多次收缩
   int result4 = slab.kmem_cache_shrink(cache);
@@ -266,8 +266,8 @@ TEST_F(SlabTest, KmemCacheShrinkTest) {
 
   // 6. 验证缓存仍然有效
   EXPECT_STREQ(cache->name, "shrink_test_cache");
-  EXPECT_EQ(cache->objectSize, sizeof(int));
-  EXPECT_GT(cache->objectsInSlab, 0);
+  EXPECT_EQ(cache->objectSize_, sizeof(int));
+  EXPECT_GT(cache->objectsInSlab_, 0);
 
   // 7. 创建另一个大对象的缓存来测试不同的 order
   auto large_cache =
@@ -276,7 +276,7 @@ TEST_F(SlabTest, KmemCacheShrinkTest) {
 
   std::cout << "Large cache created:\n";
   std::cout << "  - order: " << large_cache->order << "\n";
-  std::cout << "  - objects per slab: " << large_cache->objectsInSlab << "\n";
+  std::cout << "  - objects per slab: " << large_cache->objectsInSlab_ << "\n";
 
   int large_result = slab.kmem_cache_shrink(large_cache);
   EXPECT_GE(large_result, 0);
@@ -307,43 +307,43 @@ TEST_F(SlabTest, KmemCacheAllocTest) {
   ASSERT_NE(cache, nullptr);
 
   std::cout << "Initial cache state:\n";
-  std::cout << "  - num_active: " << cache->num_active << "\n";
-  std::cout << "  - num_allocations: " << cache->num_allocations << "\n";
-  std::cout << "  - objects per slab: " << cache->objectsInSlab << "\n";
-  std::cout << "  - slabs_free: "
-            << (cache->slabs_free ? "has slabs" : "nullptr") << "\n";
-  std::cout << "  - slabs_partial: "
-            << (cache->slabs_partial ? "has slabs" : "nullptr") << "\n";
-  std::cout << "  - slabs_full: "
-            << (cache->slabs_full ? "has slabs" : "nullptr") << "\n";
+  std::cout << "  - num_active_: " << cache->num_active_ << "\n";
+  std::cout << "  - num_allocations_: " << cache->num_allocations_ << "\n";
+  std::cout << "  - objects per slab: " << cache->objectsInSlab_ << "\n";
+  std::cout << "  - slabs_free_: "
+            << (cache->slabs_free_ ? "has slabs" : "nullptr") << "\n";
+  std::cout << "  - slabs_partial_: "
+            << (cache->slabs_partial_ ? "has slabs" : "nullptr") << "\n";
+  std::cout << "  - slabs_full_: "
+            << (cache->slabs_full_ ? "has slabs" : "nullptr") << "\n";
 
   // 3. 测试第一次分配（需要创建新slab）
   void* obj1 = slab.kmem_cache_alloc(cache);
   ASSERT_NE(obj1, nullptr);
-  EXPECT_EQ(cache->num_active, 1);
-  EXPECT_GT(cache->num_allocations, 0);
-  EXPECT_TRUE(cache->growing);  // 第一次分配会设置growing标志
+  EXPECT_EQ(cache->num_active_, 1);
+  EXPECT_GT(cache->num_allocations_, 0);
+  EXPECT_TRUE(cache->growing_);  // 第一次分配会设置growing标志
 
   std::cout << "After first allocation:\n";
-  std::cout << "  - num_active: " << cache->num_active << "\n";
-  std::cout << "  - num_allocations: " << cache->num_allocations << "\n";
+  std::cout << "  - num_active_: " << cache->num_active_ << "\n";
+  std::cout << "  - num_allocations_: " << cache->num_allocations_ << "\n";
   std::cout << "  - object address: " << obj1 << "\n";
-  std::cout << "  - growing: " << (cache->growing ? "true" : "false") << "\n";
+  std::cout << "  - growing_: " << (cache->growing_ ? "true" : "false") << "\n";
 
   // 4. 测试后续分配（使用现有slab）
   void* obj2 = slab.kmem_cache_alloc(cache);
   ASSERT_NE(obj2, nullptr);
   EXPECT_NE(obj1, obj2);  // 应该是不同的地址
-  EXPECT_EQ(cache->num_active, 2);
+  EXPECT_EQ(cache->num_active_, 2);
 
   void* obj3 = slab.kmem_cache_alloc(cache);
   ASSERT_NE(obj3, nullptr);
   EXPECT_NE(obj1, obj3);
   EXPECT_NE(obj2, obj3);
-  EXPECT_EQ(cache->num_active, 3);
+  EXPECT_EQ(cache->num_active_, 3);
 
   std::cout << "After multiple allocations:\n";
-  std::cout << "  - num_active: " << cache->num_active << "\n";
+  std::cout << "  - num_active_: " << cache->num_active_ << "\n";
   std::cout << "  - obj1: " << obj1 << "\n";
   std::cout << "  - obj2: " << obj2 << "\n";
   std::cout << "  - obj3: " << obj3 << "\n";
@@ -354,8 +354,8 @@ TEST_F(SlabTest, KmemCacheAllocTest) {
   uintptr_t addr3 = reinterpret_cast<uintptr_t>(obj3);
 
   // 检查地址差值是否为objectSize的倍数
-  EXPECT_EQ((addr2 - addr1) % cache->objectSize, 0);
-  EXPECT_EQ((addr3 - addr2) % cache->objectSize, 0);
+  EXPECT_EQ((addr2 - addr1) % cache->objectSize_, 0);
+  EXPECT_EQ((addr3 - addr2) % cache->objectSize_, 0);
 
   // 6. 测试带构造函数的缓存
   static int ctor_call_count = 0;
@@ -393,7 +393,7 @@ TEST_F(SlabTest, KmemCacheAllocTest) {
 
   std::cout << "Large object allocation:\n";
   std::cout << "  - cache order: " << large_cache->order << "\n";
-  std::cout << "  - objects per slab: " << large_cache->objectsInSlab << "\n";
+  std::cout << "  - objects per slab: " << large_cache->objectsInSlab_ << "\n";
   std::cout << "  - large_obj1: " << large_obj1 << "\n";
   std::cout << "  - large_obj2: " << large_obj2 << "\n";
 
@@ -406,25 +406,26 @@ TEST_F(SlabTest, KmemCacheAllocTest) {
   ASSERT_NE(full_test_cache, nullptr);
 
   // 分配所有可能的对象
-  for (size_t i = 0; i < full_test_cache->objectsInSlab; i++) {
+  for (size_t i = 0; i < full_test_cache->objectsInSlab_; i++) {
     void* obj = slab.kmem_cache_alloc(full_test_cache);
     ASSERT_NE(obj, nullptr);
     allocated_objects.push_back(obj);
   }
 
-  EXPECT_EQ(full_test_cache->num_active, full_test_cache->objectsInSlab);
+  EXPECT_EQ(full_test_cache->num_active_, full_test_cache->objectsInSlab_);
   std::cout << "Filled slab test:\n";
   std::cout << "  - allocated " << allocated_objects.size() << " objects\n";
-  std::cout << "  - cache num_active: " << full_test_cache->num_active << "\n";
+  std::cout << "  - cache num_active_: " << full_test_cache->num_active_
+            << "\n";
 
   // 9. 再次分配应该创建新的slab
   void* overflow_obj = slab.kmem_cache_alloc(full_test_cache);
   ASSERT_NE(overflow_obj, nullptr);
-  EXPECT_EQ(full_test_cache->num_active, full_test_cache->objectsInSlab + 1);
+  EXPECT_EQ(full_test_cache->num_active_, full_test_cache->objectsInSlab_ + 1);
 
   std::cout << "Overflow allocation:\n";
   std::cout << "  - overflow object: " << overflow_obj << "\n";
-  std::cout << "  - new num_active: " << full_test_cache->num_active << "\n";
+  std::cout << "  - new num_active_: " << full_test_cache->num_active_ << "\n";
 
   std::cout << "kmem_cache_alloc tests completed successfully!\n";
 }
@@ -455,16 +456,16 @@ TEST_F(SlabTest, KmemCacheFreeTest) {
   // 2. 测试基本的分配和释放
   void* obj1 = slab.kmem_cache_alloc(cache);
   ASSERT_NE(obj1, nullptr);
-  EXPECT_EQ(cache->num_active, 1);
+  EXPECT_EQ(cache->num_active_, 1);
 
-  std::cout << "Before free: num_active = " << cache->num_active << "\n";
+  std::cout << "Before free: num_active_ = " << cache->num_active_ << "\n";
 
   // 释放对象
   slab.kmem_cache_free(cache, obj1);
-  EXPECT_EQ(cache->num_active, 0);
-  EXPECT_EQ(cache->error_code, 0);  // 没有错误
+  EXPECT_EQ(cache->num_active_, 0);
+  EXPECT_EQ(cache->error_code_, 0);  // 没有错误
 
-  std::cout << "After free: num_active = " << cache->num_active << "\n";
+  std::cout << "After free: num_active_ = " << cache->num_active_ << "\n";
 
   // 3. 测试多个对象的分配和释放
   std::vector<void*> objects;
@@ -477,25 +478,27 @@ TEST_F(SlabTest, KmemCacheFreeTest) {
     objects.push_back(obj);
   }
 
-  EXPECT_EQ(cache->num_active, num_objects);
+  EXPECT_EQ(cache->num_active_, num_objects);
   std::cout << "Allocated " << num_objects
-            << " objects, num_active = " << cache->num_active << "\n";
+            << " objects, num_active_ = " << cache->num_active_ << "\n";
 
   // 释放一半对象
   for (size_t i = 0; i < num_objects / 2; i++) {
     slab.kmem_cache_free(cache, objects[i]);
   }
 
-  EXPECT_EQ(cache->num_active, num_objects - num_objects / 2);
-  std::cout << "After freeing half: num_active = " << cache->num_active << "\n";
+  EXPECT_EQ(cache->num_active_, num_objects - num_objects / 2);
+  std::cout << "After freeing half: num_active_ = " << cache->num_active_
+            << "\n";
 
   // 释放剩余对象
   for (size_t i = num_objects / 2; i < num_objects; i++) {
     slab.kmem_cache_free(cache, objects[i]);
   }
 
-  EXPECT_EQ(cache->num_active, 0);
-  std::cout << "After freeing all: num_active = " << cache->num_active << "\n";
+  EXPECT_EQ(cache->num_active_, 0);
+  std::cout << "After freeing all: num_active_ = " << cache->num_active_
+            << "\n";
 
   // 4. 测试带析构函数的缓存
   static int dtor_call_count = 0;
@@ -529,28 +532,29 @@ TEST_F(SlabTest, KmemCacheFreeTest) {
 
   // 分配足够的对象填满一个slab
   std::vector<void*> transition_objects;
-  for (size_t i = 0; i < transition_cache->objectsInSlab; i++) {
+  for (size_t i = 0; i < transition_cache->objectsInSlab_; i++) {
     void* obj = slab.kmem_cache_alloc(transition_cache);
     ASSERT_NE(obj, nullptr);
     transition_objects.push_back(obj);
   }
 
-  EXPECT_EQ(transition_cache->num_active, transition_cache->objectsInSlab);
-  std::cout << "Filled slab: num_active = " << transition_cache->num_active
+  EXPECT_EQ(transition_cache->num_active_, transition_cache->objectsInSlab_);
+  std::cout << "Filled slab: num_active_ = " << transition_cache->num_active_
             << "\n";
 
   // 释放一个对象（full -> partial）
   slab.kmem_cache_free(transition_cache, transition_objects[0]);
-  EXPECT_EQ(transition_cache->num_active, transition_cache->objectsInSlab - 1);
+  EXPECT_EQ(transition_cache->num_active_,
+            transition_cache->objectsInSlab_ - 1);
 
   // 释放所有剩余对象（partial -> free）
   for (size_t i = 1; i < transition_objects.size(); i++) {
     slab.kmem_cache_free(transition_cache, transition_objects[i]);
   }
 
-  EXPECT_EQ(transition_cache->num_active, 0);
-  std::cout << "After freeing all transition objects: num_active = "
-            << transition_cache->num_active << "\n";
+  EXPECT_EQ(transition_cache->num_active_, 0);
+  std::cout << "After freeing all transition objects: num_active_ = "
+            << transition_cache->num_active_ << "\n";
 
   // 6. 测试重复分配和释放（内存复用）
   void* reuse_obj1 = slab.kmem_cache_alloc(cache);
@@ -587,9 +591,9 @@ TEST_F(SlabTest, KmemCacheFreeTest) {
   void* invalid_obj = malloc(sizeof(int));  // 不是从slab分配的对象
 
   slab.kmem_cache_free(cache, invalid_obj);
-  EXPECT_NE(cache->error_code, 0);  // 应该有错误
+  EXPECT_NE(cache->error_code_, 0);  // 应该有错误
 
-  std::cout << "Invalid object free test: error_code = " << cache->error_code
+  std::cout << "Invalid object free test: error_code_ = " << cache->error_code_
             << "\n";
 
   free(invalid_obj);
@@ -601,11 +605,11 @@ TEST_F(SlabTest, KmemCacheFreeTest) {
 
   void* large_obj = slab.kmem_cache_alloc(large_cache);
   ASSERT_NE(large_obj, nullptr);
-  EXPECT_EQ(large_cache->num_active, 1);
+  EXPECT_EQ(large_cache->num_active_, 1);
 
   slab.kmem_cache_free(large_cache, large_obj);
-  EXPECT_EQ(large_cache->num_active, 0);
-  EXPECT_EQ(large_cache->error_code, 0);
+  EXPECT_EQ(large_cache->num_active_, 0);
+  EXPECT_EQ(large_cache->error_code_, 0);
 
   std::cout << "Large object free test completed\n";
 
@@ -995,17 +999,17 @@ TEST_F(SlabTest, KfreeTest) {
   ASSERT_NE(cache_before, nullptr) << "Should find cache before Free";
 
   // 记录释放前的状态
-  auto active_before = cache_before->num_active;
+  auto active_before = cache_before->num_active_;
 
   // 释放内存
   slab.Free(ptr64);
 
   // 验证释放后缓存的活跃对象数量减少
-  EXPECT_LT(cache_before->num_active, active_before)
+  EXPECT_LT(cache_before->num_active_, active_before)
       << "Active count should decrease after Free";
 
   std::cout << "Active objects before: " << active_before
-            << ", after: " << cache_before->num_active << "\n";
+            << ", after: " << cache_before->num_active_ << "\n";
   std::cout << "Basic Free test passed\n";
 
   // 2. 释放 nullptr 测试
@@ -1095,13 +1099,13 @@ TEST_F(SlabTest, KfreeTest) {
   auto* cache = slab.find_buffers_cache(test_ptr);
   ASSERT_NE(cache, nullptr) << "Should find cache for test memory";
 
-  auto active_before_final = cache->num_active;
+  auto active_before_final = cache->num_active_;
 
   // 释放内存
   slab.Free(test_ptr);
 
   // 验证活跃对象数量减少
-  EXPECT_LT(cache->num_active, active_before_final)
+  EXPECT_LT(cache->num_active_, active_before_final)
       << "Active count should decrease after final Free";
 
   // 尝试再次查找已释放的指针（应该仍然能找到缓存，但不应该再次释放）
@@ -1185,7 +1189,7 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
   // 验证缓存名称被清空（这是销毁的标志）
   EXPECT_EQ(cache1->name[0], '\0')
       << "Cache name should be cleared after destroy";
-  EXPECT_EQ(cache1->objectSize, 0)
+  EXPECT_EQ(cache1->objectSize_, 0)
       << "Object size should be reset after destroy";
 
   std::cout << "Cache '" << cache_name_before << "' destroyed successfully\n";
@@ -1220,7 +1224,7 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
   std::cout << "Allocated " << allocated_objects.size()
             << " objects before destroy\n";
 
-  auto active_before = cache2->num_active;
+  auto active_before = cache2->num_active_;
 
   // 销毁有活跃对象的缓存
   slab.kmem_cache_destroy(cache2);
@@ -1240,7 +1244,7 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
   ASSERT_NE(cache3, nullptr) << "Failed to create empty cache for test";
 
   // 确保缓存是空的
-  EXPECT_EQ(cache3->num_active, 0) << "Cache should be empty initially";
+  EXPECT_EQ(cache3->num_active_, 0) << "Cache should be empty initially";
 
   // 销毁空缓存
   slab.kmem_cache_destroy(cache3);
@@ -1312,7 +1316,7 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
   // 故意不释放 obj2，测试销毁有未释放对象的缓存
   slab.kmem_cache_alloc(cache4);
 
-  auto active_before_destroy = cache4->num_active;
+  auto active_before_destroy = cache4->num_active_;
   std::cout << "Cache has " << active_before_destroy
             << " active objects before destroy\n";
 
@@ -1321,7 +1325,7 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
 
   // 验证缓存状态
   EXPECT_EQ(cache4->name[0], '\0') << "Cache name should be cleared";
-  EXPECT_EQ(cache4->objectSize, 0) << "Object size should be reset";
+  EXPECT_EQ(cache4->objectSize_, 0) << "Object size should be reset";
 
   std::cout << "Post-destroy state verification test passed\n";
 
