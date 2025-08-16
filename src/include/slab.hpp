@@ -34,21 +34,21 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
    */
   struct slab_t {
     // offset for this slab - 用于缓存行对齐的偏移量
-    uint32_t colouroff = 0;
+    uint32_t colouroff_ = 0;
     // starting adress of objects - 对象数组的起始地址
     void *objects = nullptr;
     // list of free objects - 空闲对象索引列表
-    int *freeList = nullptr;
+    int *freeList_ = nullptr;
     // next free object - 下一个空闲对象的索引
-    int nextFreeObj = 0;
+    int nextFreeObj_ = 0;
     // number of active objects in this slab - 当前使用的对象数量
-    uint32_t inuse = 0;
+    uint32_t inuse_ = 0;
     // next slab in chain - 链表中的下一个slab
-    slab_t *next = nullptr;
+    slab_t *next_ = nullptr;
     // previous slab in chain - 链表中的前一个slab
-    slab_t *prev = nullptr;
+    slab_t *prev_ = nullptr;
     // cache - owner - 拥有此slab的cache
-    kmem_cache_t *myCache = nullptr;
+    kmem_cache_t *myCache_ = nullptr;
 
     /**
      * @brief slab_t 构造函数
@@ -59,28 +59,28 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
      */
     slab_t(kmem_cache_t *cache, void *start_addr, size_t object_count,
            uint32_t colour_offset)
-        : colouroff(colour_offset),
-          nextFreeObj(0),
-          inuse(0),
-          next(nullptr),
-          prev(nullptr),
-          myCache(cache) {
+        : colouroff_(colour_offset),
+          nextFreeObj_(0),
+          inuse_(0),
+          next_(nullptr),
+          prev_(nullptr),
+          myCache_(cache) {
       // 设置freeList位置（紧跟在slab_t结构后面）
-      freeList = reinterpret_cast<int *>(static_cast<char *>(start_addr) +
-                                         sizeof(slab_t));
+      freeList_ = reinterpret_cast<int *>(static_cast<char *>(start_addr) +
+                                          sizeof(slab_t));
 
       // 设置对象数组位置（考虑缓存行对齐）
       objects = static_cast<void *>(
           static_cast<char *>(start_addr) + sizeof(slab_t) +
-          sizeof(uint32_t) * object_count + CACHE_L1_LINE_SIZE * colouroff);
+          sizeof(uint32_t) * object_count + CACHE_L1_LINE_SIZE * colouroff_);
 
       // 初始化空闲对象链表
       for (size_t i = 0; i < object_count; i++) {
-        freeList[i] = i + 1;
+        freeList_[i] = i + 1;
       }
       // 最后一个对象的索引设为-1，表示链表结束
       if (object_count > 0) {
-        freeList[object_count - 1] = -1;
+        freeList_[object_count - 1] = -1;
       }
 
       // 初始化所有对象（调用构造函数）
@@ -142,7 +142,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // last error that happened while working with cache - 最后的错误码
     int error_code_ = 0;
     // next cache in chain - 下一个 cache
-    kmem_cache_t *next = nullptr;
+    kmem_cache_t *next_ = nullptr;
 
     /// @todo 添加一个接口，创建新的 slab 用于分配
     /// 用于替换 `/// @todo 创建 slab_t 部分可以抽象出来` 处的代码
@@ -173,9 +173,9 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     cache_cache.objectSize_ = sizeof(kmem_cache_t);
 
     // 初始化 slab 结构
-    slab->freeList =
+    slab->freeList_ =
         reinterpret_cast<int *>(static_cast<char *>(ptr) + sizeof(slab_t));
-    slab->myCache = &cache_cache;
+    slab->myCache_ = &cache_cache;
 
     // 计算每个 slab 能容纳的对象数量
     long memory = (1 << cache_cache.order) * kPageSize;
@@ -194,7 +194,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // 初始化空闲对象链表
     for (int i = 0; i < n; i++) {
       new (&list[i]) kmem_cache_t;
-      slab->freeList[i] = i + 1;
+      slab->freeList_[i] = i + 1;
     }
 
     // 设置 cache_cache 的对象统计信息
@@ -268,7 +268,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       if (strcmp(ret->name, name) == 0 && ret->objectSize_ == size) {
         return ret;
       }
-      ret = ret->next;
+      ret = ret->next_;
     }
 
     // cache 不存在，需要创建新的
@@ -302,42 +302,42 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     // 从slab中分配一个 kmem_cache_t 对象
     auto *list = static_cast<kmem_cache_t *>(s->objects);
-    ret = new (&list[s->nextFreeObj]) kmem_cache_t;
-    s->nextFreeObj = s->freeList[s->nextFreeObj];
-    s->inuse++;
+    ret = new (&list[s->nextFreeObj_]) kmem_cache_t;
+    s->nextFreeObj_ = s->freeList_[s->nextFreeObj_];
+    s->inuse_++;
     cache_cache.num_active_++;
 
     // 更新 slab 链表状态
     if (s == cache_cache.slabs_free_) {
-      cache_cache.slabs_free_ = s->next;
+      cache_cache.slabs_free_ = s->next_;
       if (cache_cache.slabs_free_ != nullptr) {
-        cache_cache.slabs_free_->prev = nullptr;
+        cache_cache.slabs_free_->prev_ = nullptr;
       }
       // from free to partial
-      if (s->inuse != cache_cache.objectsInSlab_) {
-        s->next = cache_cache.slabs_partial_;
+      if (s->inuse_ != cache_cache.objectsInSlab_) {
+        s->next_ = cache_cache.slabs_partial_;
         if (cache_cache.slabs_partial_ != nullptr)
-          cache_cache.slabs_partial_->prev = s;
+          cache_cache.slabs_partial_->prev_ = s;
         cache_cache.slabs_partial_ = s;
       } else {
         // from free to full
-        s->next = cache_cache.slabs_full_;
+        s->next_ = cache_cache.slabs_full_;
         if (cache_cache.slabs_full_ != nullptr) {
-          cache_cache.slabs_full_->prev = s;
+          cache_cache.slabs_full_->prev_ = s;
         }
         cache_cache.slabs_full_ = s;
       }
     } else {
       // from partial to full
-      if (s->inuse == cache_cache.objectsInSlab_) {
-        cache_cache.slabs_partial_ = s->next;
+      if (s->inuse_ == cache_cache.objectsInSlab_) {
+        cache_cache.slabs_partial_ = s->next_;
         if (cache_cache.slabs_partial_ != nullptr) {
-          cache_cache.slabs_partial_->prev = nullptr;
+          cache_cache.slabs_partial_->prev_ = nullptr;
         }
 
-        s->next = cache_cache.slabs_full_;
+        s->next_ = cache_cache.slabs_full_;
         if (cache_cache.slabs_full_ != nullptr) {
-          cache_cache.slabs_full_->prev = s;
+          cache_cache.slabs_full_->prev_ = s;
         }
         cache_cache.slabs_full_ = s;
       }
@@ -348,7 +348,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     ret->ctor = ctor;
     ret->dtor = dtor;
-    ret->next = allCaches;
+    ret->next_ = allCaches;
     allCaches = ret;
 
     // 计算新 cache 的 order 值（使一个 slab 能容纳至少一个对象）
@@ -404,7 +404,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       slab_t *s;
       while (cachep->slabs_free_ != nullptr) {
         s = cachep->slabs_free_;
-        cachep->slabs_free_ = s->next;
+        cachep->slabs_free_ = s->next_;
         // 释放 slab 到 buddy 分配器
         page_allocator_.Free(s, cachep->order);
         blocksFreed += n;
@@ -470,44 +470,44 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     // 从slab中分配对象
     retObject = static_cast<void *>(static_cast<char *>(s->objects) +
-                                    s->nextFreeObj * cachep->objectSize_);
-    s->nextFreeObj = s->freeList[s->nextFreeObj];
-    s->inuse++;
+                                    s->nextFreeObj_ * cachep->objectSize_);
+    s->nextFreeObj_ = s->freeList_[s->nextFreeObj_];
+    s->inuse_++;
     cachep->num_active_++;
 
     // 更新slab链表状态
     if (s == cachep->slabs_free_) {
       // 从free链表中移除
-      cachep->slabs_free_ = s->next;
+      cachep->slabs_free_ = s->next_;
       if (cachep->slabs_free_ != nullptr) {
-        cachep->slabs_free_->prev = nullptr;
+        cachep->slabs_free_->prev_ = nullptr;
       }
       // 移动到partial链表
-      if (s->inuse != cachep->objectsInSlab_) {
-        s->next = cachep->slabs_partial_;
+      if (s->inuse_ != cachep->objectsInSlab_) {
+        s->next_ = cachep->slabs_partial_;
         if (cachep->slabs_partial_ != nullptr) {
-          cachep->slabs_partial_->prev = s;
+          cachep->slabs_partial_->prev_ = s;
         }
         cachep->slabs_partial_ = s;
       } else {
         // 移动到full链表
-        s->next = cachep->slabs_full_;
+        s->next_ = cachep->slabs_full_;
         if (cachep->slabs_full_ != nullptr) {
-          cachep->slabs_full_->prev = s;
+          cachep->slabs_full_->prev_ = s;
         }
         cachep->slabs_full_ = s;
       }
     } else {
       // from partial to full
-      if (s->inuse == cachep->objectsInSlab_) {
-        cachep->slabs_partial_ = s->next;
+      if (s->inuse_ == cachep->objectsInSlab_) {
+        cachep->slabs_partial_ = s->next_;
         if (cachep->slabs_partial_ != nullptr) {
-          cachep->slabs_partial_->prev = nullptr;
+          cachep->slabs_partial_->prev_ = nullptr;
         }
 
-        s->next = cachep->slabs_full_;
+        s->next_ = cachep->slabs_full_;
         if (cachep->slabs_full_ != nullptr) {
-          cachep->slabs_full_->prev = s;
+          cachep->slabs_full_->prev_ = s;
         }
         cachep->slabs_full_ = s;
       }
@@ -552,7 +552,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
                      static_cast<char *>(static_cast<void *>(s)) + slabSize)) {
         break;
       }
-      s = s->next;
+      s = s->next_;
     }
 
     // 如果在full链表中没找到，在partial链表中查找
@@ -565,7 +565,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
                                    slabSize)) {
           break;
         }
-        s = s->next;
+        s = s->next_;
       }
     }
 
@@ -576,7 +576,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
 
     // 找到slab，将对象返回到slab中
-    s->inuse--;
+    s->inuse_--;
     cachep->num_active_--;
 
     // 计算对象在数组中的索引
@@ -591,8 +591,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
 
     // 将对象加入空闲链表
-    s->freeList[i] = s->nextFreeObj;
-    s->nextFreeObj = i;
+    s->freeList_[i] = s->nextFreeObj_;
+    s->nextFreeObj_ = i;
 
     // 调用析构函数
     if (cachep->dtor != nullptr) {
@@ -605,60 +605,60 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       slab_t *prev, *next;
 
       // 从full链表中删除slab
-      prev = s->prev;
-      next = s->next;
-      s->prev = nullptr;
+      prev = s->prev_;
+      next = s->next_;
+      s->prev_ = nullptr;
 
       if (prev != nullptr) {
-        prev->next = next;
+        prev->next_ = next;
       }
       if (next != nullptr) {
-        next->prev = prev;
+        next->prev_ = prev;
       }
       if (cachep->slabs_full_ == s) {
         cachep->slabs_full_ = next;
       }
 
       // 插入到partial链表
-      if (s->inuse != 0) {
-        s->next = cachep->slabs_partial_;
+      if (s->inuse_ != 0) {
+        s->next_ = cachep->slabs_partial_;
         if (cachep->slabs_partial_ != nullptr) {
-          cachep->slabs_partial_->prev = s;
+          cachep->slabs_partial_->prev_ = s;
         }
         cachep->slabs_partial_ = s;
       } else {
         // 插入到free链表
-        s->next = cachep->slabs_free_;
+        s->next_ = cachep->slabs_free_;
         if (cachep->slabs_free_ != nullptr) {
-          cachep->slabs_free_->prev = s;
+          cachep->slabs_free_->prev_ = s;
         }
         cachep->slabs_free_ = s;
       }
     } else {
       // slab原本在partial链表中
       // 现在变成完全空闲
-      if (s->inuse == 0) {
+      if (s->inuse_ == 0) {
         slab_t *prev, *next;
 
         // 从partial链表中删除slab
-        prev = s->prev;
-        next = s->next;
-        s->prev = nullptr;
+        prev = s->prev_;
+        next = s->next_;
+        s->prev_ = nullptr;
 
         if (prev != nullptr) {
-          prev->next = next;
+          prev->next_ = next;
         }
         if (next != nullptr) {
-          next->prev = prev;
+          next->prev_ = prev;
         }
         if (cachep->slabs_partial_ == s) {
           cachep->slabs_partial_ = next;
         }
 
         // 插入到free链表
-        s->next = cachep->slabs_free_;
+        s->next_ = cachep->slabs_free_;
         if (cachep->slabs_free_ != nullptr) {
-          cachep->slabs_free_->prev = s;
+          cachep->slabs_free_->prev_ = s;
         }
         cachep->slabs_free_ = s;
       }
@@ -697,7 +697,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
             return curr;
           }
 
-          s = s->next;
+          s = s->next_;
         }
 
         // 在partial slab中查找
@@ -711,10 +711,10 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
             return curr;
           }
 
-          s = s->next;
+          s = s->next_;
         }
       }
-      curr = curr->next;
+      curr = curr->next_;
     }
 
     return nullptr;
@@ -749,7 +749,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     kmem_cache_t *prev = nullptr, *curr = allCaches;
     while (curr != cachep) {
       prev = curr;
-      curr = curr->next;
+      curr = curr->next_;
     }
     // cache不在cache链中（意味着对象也不在cache_cache中）
     if (curr == nullptr) {
@@ -758,11 +758,11 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
 
     if (prev == nullptr) {
-      allCaches = allCaches->next;
+      allCaches = allCaches->next_;
     } else {
-      prev->next = curr->next;
+      prev->next_ = curr->next_;
     }
-    curr->next = nullptr;
+    curr->next_ = nullptr;
 
     // 在cache_cache中查找拥有该cache对象的slab
     int slabSize = kPageSize * (1 << cache_cache.order);
@@ -776,7 +776,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
                                   slabSize)) {
         break;
       }
-      s = s->next;
+      s = s->next_;
     }
 
     if (s == nullptr) {
@@ -790,7 +790,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
                     static_cast<char *>(static_cast<void *>(s)) + slabSize)) {
           break;
         }
-        s = s->next;
+        s = s->next_;
       }
     }
     // 在cache_cache中没找到拥有该cache的slab
@@ -802,11 +802,11 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // 找到拥有该cache的slab
 
     // 重置cache字段并更新cache_cache字段
-    s->inuse--;
+    s->inuse_--;
     cache_cache.num_active_--;
     int i = cachep - static_cast<kmem_cache_t *>(s->objects);
-    s->freeList[i] = s->nextFreeObj;
-    s->nextFreeObj = i;
+    s->freeList_[i] = s->nextFreeObj_;
+    s->nextFreeObj_ = i;
     // 清空cache名称
     *cachep->name = '\0';
     cachep->objectSize_ = 0;
@@ -817,7 +817,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     slab_t *freeTemp = cachep->slabs_full_;
     while (freeTemp != nullptr) {
       ptr = freeTemp;
-      freeTemp = freeTemp->next;
+      freeTemp = freeTemp->next_;
       page_allocator_.Free(ptr, cachep->order);
     }
 
@@ -825,7 +825,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     freeTemp = cachep->slabs_partial_;
     while (freeTemp != nullptr) {
       ptr = freeTemp;
-      freeTemp = freeTemp->next;
+      freeTemp = freeTemp->next_;
       page_allocator_.Free(ptr, cachep->order);
     }
 
@@ -833,7 +833,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     freeTemp = cachep->slabs_free_;
     while (freeTemp != nullptr) {
       ptr = freeTemp;
-      freeTemp = freeTemp->next;
+      freeTemp = freeTemp->next_;
       page_allocator_.Free(ptr, cachep->order);
     }
 
@@ -843,58 +843,58 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       slab_t *prev, *next;
 
       // 从full链表中删除slab
-      prev = s->prev;
-      next = s->next;
-      s->prev = nullptr;
+      prev = s->prev_;
+      next = s->next_;
+      s->prev_ = nullptr;
 
       if (prev != nullptr) {
-        prev->next = next;
+        prev->next_ = next;
       }
       if (next != nullptr) {
-        next->prev = prev;
+        next->prev_ = prev;
       }
       if (cache_cache.slabs_full_ == s) {
         cache_cache.slabs_full_ = next;
       }
       // 插入到partial链表
-      if (s->inuse != 0) {
-        s->next = cache_cache.slabs_partial_;
+      if (s->inuse_ != 0) {
+        s->next_ = cache_cache.slabs_partial_;
         if (cache_cache.slabs_partial_ != nullptr) {
-          cache_cache.slabs_partial_->prev = s;
+          cache_cache.slabs_partial_->prev_ = s;
         }
         cache_cache.slabs_partial_ = s;
       } else {
         // 插入到free链表
-        s->next = cache_cache.slabs_free_;
+        s->next_ = cache_cache.slabs_free_;
         if (cache_cache.slabs_free_ != nullptr) {
-          cache_cache.slabs_free_->prev = s;
+          cache_cache.slabs_free_->prev_ = s;
         }
         cache_cache.slabs_free_ = s;
       }
     } else {
       // slab原本在partial链表中
-      if (s->inuse == 0) {
+      if (s->inuse_ == 0) {
         slab_t *prev, *next;
 
         // 从partial链表中删除slab
-        prev = s->prev;
-        next = s->next;
-        s->prev = nullptr;
+        prev = s->prev_;
+        next = s->next_;
+        s->prev_ = nullptr;
 
         if (prev != nullptr) {
-          prev->next = next;
+          prev->next_ = next;
         }
         if (next != nullptr) {
-          next->prev = prev;
+          next->prev_ = prev;
         }
         if (cache_cache.slabs_partial_ == s) {
           cache_cache.slabs_partial_ = next;
         }
 
         // 插入到free链表
-        s->next = cache_cache.slabs_free_;
+        s->next_ = cache_cache.slabs_free_;
         if (cache_cache.slabs_free_ != nullptr) {
-          cache_cache.slabs_free_->prev = s;
+          cache_cache.slabs_free_->prev_ = s;
         }
         cache_cache.slabs_free_ = s;
       }
@@ -906,16 +906,16 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       i = 0;
       while (s != nullptr) {
         i++;
-        s = s->next;
+        s = s->next_;
       }
 
       // 保留一个空闲slab，释放其余的
       while (i > 1) {
         i--;
         s = cache_cache.slabs_free_;
-        cache_cache.slabs_free_ = cache_cache.slabs_free_->next;
-        s->next = nullptr;
-        cache_cache.slabs_free_->prev = nullptr;
+        cache_cache.slabs_free_ = cache_cache.slabs_free_->next_;
+        s->next_ = nullptr;
+        cache_cache.slabs_free_->prev_ = nullptr;
         page_allocator_.Free(s, cache_cache.order);
         cache_cache.num_allocations_ -= cache_cache.objectsInSlab_;
       }
@@ -946,21 +946,21 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     slab_t *s = cachep->slabs_free_;
     while (s != nullptr) {
       i++;
-      s = s->next;
+      s = s->next_;
     }
 
     // 统计partial slab数量
     s = cachep->slabs_partial_;
     while (s != nullptr) {
       i++;
-      s = s->next;
+      s = s->next_;
     }
 
     // 统计full slab数量
     s = cachep->slabs_full_;
     while (s != nullptr) {
       i++;
-      s = s->next;
+      s = s->next_;
     }
 
     // 计算cache总大小（以内存块为单位）
@@ -1050,7 +1050,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     while (curr != nullptr) {
       kmem_cache_info(curr);
       Log("\n");
-      curr = curr->next;
+      curr = curr->next_;
     }
   }
 
