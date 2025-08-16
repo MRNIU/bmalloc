@@ -213,26 +213,30 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       }
     }
 
-    bool is_in_slabs(const void *addr, const slab_t *slabs) {
+    bool is_in_full(const void *addr) const {
+      return is_in_slabs(addr, slabs_full_);
+    }
+
+    bool is_in_partial(const void *addr) const {
+      return is_in_slabs(addr, slabs_partial_);
+    }
+
+   private:
+    bool is_in_slabs(const void *addr, const slab_t *slabs) const {
       auto slab_size = kPageSize * (1 << order_);
       // 在 full 链表中查找包含指定地址的 slab
       auto slab = slabs;
       while (slab != nullptr) {
-        if (addr > slab &&
-            addr < static_cast<const void *>(
-                       static_cast<const char *>(static_cast<const void *>(slab)) +
-                       slab_size)) {
+        if (addr > slab && addr < static_cast<const void *>(
+                                      static_cast<const char *>(
+                                          static_cast<const void *>(slab)) +
+                                      slab_size)) {
           return true;
         }
         slab = slab->next_;
       }
 
       return false;
-    }
-
-    bool is_in_full(const void *addr) { return is_in_slabs(addr, slabs_full_); }
-    bool is_in_partial(const void *addr) {
-      return is_in_slabs(addr, slabs_partial_);
     }
   };
 
