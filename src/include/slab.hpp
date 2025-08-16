@@ -176,6 +176,45 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     /// @todo 添加一个接口，创建新的 slab 用于分配
     /// 用于替换 `/// @todo 创建 slab_t 部分可以抽象出来` 处的代码
+
+    void add_slab(slab_t *slab) {
+      // 更新 slab 链表状态
+      if (slab == slabs_free_) {
+        slabs_free_ = slab->next_;
+        if (slabs_free_ != nullptr) {
+          slabs_free_->prev_ = nullptr;
+        }
+        // from free to partial
+        if (slab->inuse_ != objectsInSlab_) {
+          slab->next_ = slabs_partial_;
+          if (slabs_partial_ != nullptr) {
+            slabs_partial_->prev_ = slab;
+          }
+          slabs_partial_ = slab;
+        } else {
+          // from free to full
+          slab->next_ = slabs_full_;
+          if (slabs_full_ != nullptr) {
+            slabs_full_->prev_ = slab;
+          }
+          slabs_full_ = slab;
+        }
+      } else {
+        // from partial to full
+        if (slab->inuse_ == objectsInSlab_) {
+          slabs_partial_ = slab->next_;
+          if (slabs_partial_ != nullptr) {
+            slabs_partial_->prev_ = nullptr;
+          }
+
+          slab->next_ = slabs_full_;
+          if (slabs_full_ != nullptr) {
+            slabs_full_->prev_ = slab;
+          }
+          slabs_full_ = slab;
+        }
+      }
+    }
   };
 
   /**
@@ -339,41 +378,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     slab->inuse_++;
     cache_cache.num_active_++;
 
-    // 更新 slab 链表状态
-    if (slab == cache_cache.slabs_free_) {
-      cache_cache.slabs_free_ = slab->next_;
-      if (cache_cache.slabs_free_ != nullptr) {
-        cache_cache.slabs_free_->prev_ = nullptr;
-      }
-      // from free to partial
-      if (slab->inuse_ != cache_cache.objectsInSlab_) {
-        slab->next_ = cache_cache.slabs_partial_;
-        if (cache_cache.slabs_partial_ != nullptr)
-          cache_cache.slabs_partial_->prev_ = slab;
-        cache_cache.slabs_partial_ = slab;
-      } else {
-        // from free to full
-        slab->next_ = cache_cache.slabs_full_;
-        if (cache_cache.slabs_full_ != nullptr) {
-          cache_cache.slabs_full_->prev_ = slab;
-        }
-        cache_cache.slabs_full_ = slab;
-      }
-    } else {
-      // from partial to full
-      if (slab->inuse_ == cache_cache.objectsInSlab_) {
-        cache_cache.slabs_partial_ = slab->next_;
-        if (cache_cache.slabs_partial_ != nullptr) {
-          cache_cache.slabs_partial_->prev_ = nullptr;
-        }
-
-        slab->next_ = cache_cache.slabs_full_;
-        if (cache_cache.slabs_full_ != nullptr) {
-          cache_cache.slabs_full_->prev_ = slab;
-        }
-        cache_cache.slabs_full_ = slab;
-      }
-    }
+    cache_cache.add_slab(slab);
 
     return ret;
   }
@@ -476,42 +481,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     cachep->num_active_++;
 
     // 更新slab链表状态
-    if (slab == cachep->slabs_free_) {
-      // 从free链表中移除
-      cachep->slabs_free_ = slab->next_;
-      if (cachep->slabs_free_ != nullptr) {
-        cachep->slabs_free_->prev_ = nullptr;
-      }
-      // 移动到partial链表
-      if (slab->inuse_ != cachep->objectsInSlab_) {
-        slab->next_ = cachep->slabs_partial_;
-        if (cachep->slabs_partial_ != nullptr) {
-          cachep->slabs_partial_->prev_ = slab;
-        }
-        cachep->slabs_partial_ = slab;
-      } else {
-        // 移动到full链表
-        slab->next_ = cachep->slabs_full_;
-        if (cachep->slabs_full_ != nullptr) {
-          cachep->slabs_full_->prev_ = slab;
-        }
-        cachep->slabs_full_ = slab;
-      }
-    } else {
-      // from partial to full
-      if (slab->inuse_ == cachep->objectsInSlab_) {
-        cachep->slabs_partial_ = slab->next_;
-        if (cachep->slabs_partial_ != nullptr) {
-          cachep->slabs_partial_->prev_ = nullptr;
-        }
-
-        slab->next_ = cachep->slabs_full_;
-        if (cachep->slabs_full_ != nullptr) {
-          cachep->slabs_full_->prev_ = slab;
-        }
-        cachep->slabs_full_ = slab;
-      }
-    }
+    cachep->add_slab(slab);
 
     return retObject;
   }
