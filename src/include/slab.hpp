@@ -128,7 +128,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // mutex (uses to lock the cache) - 缓存互斥锁
     Lock cache_lock_;
     // order of one slab (one slab has 2^order blocks) - slab 的 order 值
-    uint32_t order = CACHE_CACHE_ORDER;
+    uint32_t order_ = CACHE_CACHE_ORDER;
     // maximum multiplier for offset of first object in slab - 最大颜色偏移乘数
     uint32_t colour_max_ = 0;
     // multiplier for next slab offset - 下一个 slab 的颜色偏移
@@ -143,6 +143,36 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     int error_code_ = 0;
     // next cache in chain - 下一个 cache
     kmem_cache_t *next_ = nullptr;
+
+    kmem_cache_t() = default;
+    explicit kmem_cache_t(const char *name, size_t size, void (*ctor)(void *),
+                          void (*dtor)(void *))
+        : ctor_(ctor), dtor_(dtor), next_(nullptr) {
+      strcpy(name_, name);
+
+      // 计算新 cache 的 order 值（使一个 slab 能容纳至少一个对象）
+      long memory = kPageSize;
+      int order = 0;
+      while ((long)(memory - sizeof(slab_t) - sizeof(uint32_t) - size) < 0) {
+        order++;
+        memory *= 2;
+      }
+
+      objectSize_ = size;
+      order_ = order;
+
+      // 计算每个 slab 中的对象数量
+      memory -= sizeof(slab_t);
+      int n = 0;
+      while ((long)(memory - sizeof(uint32_t) - size) >= 0) {
+        n++;
+        memory -= sizeof(uint32_t) + size;
+      }
+      objectsInSlab_ = n;
+
+      // 设置缓存行对齐参数
+      colour_max_ = memory / CACHE_L1_LINE_SIZE;
+    }
 
     /// @todo 添加一个接口，创建新的 slab 用于分配
     /// 用于替换 `/// @todo 创建 slab_t 部分可以抽象出来` 处的代码
@@ -178,7 +208,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     slab->myCache_ = &cache_cache;
 
     // 计算每个 slab 能容纳的对象数量
-    long memory = (1 << cache_cache.order) * kPageSize;
+    long memory = (1 << cache_cache.order_) * kPageSize;
     memory -= sizeof(slab_t);
     int n = 0;
     while ((long)(memory - sizeof(uint32_t) - cache_cache.objectSize_) >= 0) {
@@ -256,14 +286,11 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     LockGuard guard(cache_cache.cache_lock_);
 
-    kmem_cache_t *ret = nullptr;
     // reset error code
     cache_cache.error_code_ = 0;
 
-    slab_t *slab;
-
     // 在全局 cache 链表中查找是否已存在相同的 cache
-    ret = allCaches;
+    auto ret = allCaches;
     while (ret != nullptr) {
       if (strcmp(ret->name_, name) == 0 && ret->objectSize_ == size) {
         return ret;
@@ -273,7 +300,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     // cache 不存在，需要创建新的
     // 寻找可用的 slab 来分配 kmem_cache_t 结构
-    slab = cache_cache.slabs_partial_;
+    auto slab = cache_cache.slabs_partial_;
     if (slab == nullptr) {
       slab = cache_cache.slabs_free_;
     }
@@ -281,7 +308,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     /// @todo 创建 slab_t 部分可以抽象出来
     // 没有足够空间，需要为 cache_cache 分配更多空间
     if (slab == nullptr) {
-      void *ptr = page_allocator_.Alloc(CACHE_CACHE_ORDER);
+      auto ptr = page_allocator_.Alloc(CACHE_CACHE_ORDER);
       if (ptr == nullptr) {
         cache_cache.error_code_ = 2;
         return nullptr;
@@ -302,7 +329,12 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     // 从slab中分配一个 kmem_cache_t 对象
     auto *list = static_cast<kmem_cache_t *>(slab->objects);
-    ret = new (&list[slab->nextFreeObj_]) kmem_cache_t;
+
+    // 初始化新 cache
+    ret = new (&list[slab->nextFreeObj_]) kmem_cache_t(name, size, ctor, dtor);
+    ret->next_ = allCaches;
+    allCaches = ret;
+
     slab->nextFreeObj_ = slab->freeList_[slab->nextFreeObj_];
     slab->inuse_++;
     cache_cache.num_active_++;
@@ -343,38 +375,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       }
     }
 
-    // 初始化新 cache
-    strcpy(ret->name_, name);
-
-    ret->ctor_ = ctor;
-    ret->dtor_ = dtor;
-    ret->next_ = allCaches;
-    allCaches = ret;
-
-    // 计算新 cache 的 order 值（使一个 slab 能容纳至少一个对象）
-    long memory = kPageSize;
-    int order = 0;
-    while ((long)(memory - sizeof(slab_t) - sizeof(uint32_t) - size) < 0) {
-      order++;
-      memory *= 2;
-    }
-
-    ret->objectSize_ = size;
-    ret->order = order;
-
-    // 计算每个 slab 中的对象数量
-    memory -= sizeof(slab_t);
-    int n = 0;
-    while ((long)(memory - sizeof(uint32_t) - size) >= 0) {
-      n++;
-      memory -= sizeof(uint32_t) + size;
-    }
-
-    ret->objectsInSlab_ = n;
-
-    // 设置缓存行对齐参数
-    ret->colour_max_ = memory / CACHE_L1_LINE_SIZE;
-
     return ret;
   }
 
@@ -400,13 +400,13 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // 只有当存在空闲 slab 且 cache 不在增长时才收缩
     if (cachep->slabs_free_ != nullptr && cachep->growing_ == false) {
       // 每个 slab 包含的内存块数
-      int n = 1 << cachep->order;
+      int n = 1 << cachep->order_;
       slab_t *slab;
       while (cachep->slabs_free_ != nullptr) {
         slab = cachep->slabs_free_;
         cachep->slabs_free_ = slab->next_;
         // 释放 slab 到 buddy 分配器
-        page_allocator_.Free(slab, cachep->order);
+        page_allocator_.Free(slab, cachep->order_);
         blocksFreed += n;
         cachep->num_allocations_ -= cachep->objectsInSlab_;
       }
@@ -448,7 +448,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     /// @todo 创建 slab_t 部分可以抽象出来
     // 需要分配新slab
     if (slab == nullptr) {
-      void *ptr = page_allocator_.Alloc(cachep->order);
+      void *ptr = page_allocator_.Alloc(cachep->order_);
       if (ptr == nullptr) {
         cachep->error_code_ = 2;
         return nullptr;
@@ -540,7 +540,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     slab_t *slab;
 
     // 查找对象所属的slab
-    int slabSize = kPageSize * (1 << cachep->order);
+    int slabSize = kPageSize * (1 << cachep->order_);
     // 标记slab是否在full链表中
     bool inFullList = true;
 
@@ -689,7 +689,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       if (strstr(curr->name_, "size-") != nullptr) {
         // 在full slab中查找
         slab = curr->slabs_full_;
-        int slabSize = kPageSize * (1 << curr->order);
+        int slabSize = kPageSize * (1 << curr->order_);
         while (slab != nullptr) {
           // 找到包含对象的cache
           if (objp > slab &&
@@ -767,7 +767,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     curr->next_ = nullptr;
 
     // 在cache_cache中查找拥有该cache对象的slab
-    int slabSize = kPageSize * (1 << cache_cache.order);
+    int slabSize = kPageSize * (1 << cache_cache.order_);
     // 标记slab是否在full链表中
     bool inFullList = true;
     slab = cache_cache.slabs_full_;
@@ -821,7 +821,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     while (freeTemp != nullptr) {
       ptr = freeTemp;
       freeTemp = freeTemp->next_;
-      page_allocator_.Free(ptr, cachep->order);
+      page_allocator_.Free(ptr, cachep->order_);
     }
 
     // 释放partial slab链表
@@ -829,7 +829,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     while (freeTemp != nullptr) {
       ptr = freeTemp;
       freeTemp = freeTemp->next_;
-      page_allocator_.Free(ptr, cachep->order);
+      page_allocator_.Free(ptr, cachep->order_);
     }
 
     // 释放free slab链表
@@ -837,7 +837,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     while (freeTemp != nullptr) {
       ptr = freeTemp;
       freeTemp = freeTemp->next_;
-      page_allocator_.Free(ptr, cachep->order);
+      page_allocator_.Free(ptr, cachep->order_);
     }
 
     // 检查cache_cache中的slab现在是否为空闲或部分使用状态
@@ -919,7 +919,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
         cache_cache.slabs_free_ = cache_cache.slabs_free_->next_;
         slab->next_ = nullptr;
         cache_cache.slabs_free_->prev_ = nullptr;
-        page_allocator_.Free(slab, cache_cache.order);
+        page_allocator_.Free(slab, cache_cache.order_);
         cache_cache.num_allocations_ -= cache_cache.objectsInSlab_;
       }
     }
@@ -967,7 +967,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
 
     // 计算cache总大小（以内存块为单位）
-    uint32_t cacheSize = i * (1 << cachep->order);
+    uint32_t cacheSize = i * (1 << cachep->order_);
 
     // 计算使用率百分比
     double perc = 0;

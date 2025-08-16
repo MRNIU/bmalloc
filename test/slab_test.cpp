@@ -172,7 +172,7 @@ TEST_F(SlabTest, KmemCacheCreateTest) {
   ASSERT_NE(cache3, nullptr);
   EXPECT_STREQ(cache3->name_, "large_cache");
   EXPECT_EQ(cache3->objectSize_, 8192);
-  EXPECT_GT(cache3->order, 0);  // 大对象需要更高的 order
+  EXPECT_GT(cache3->order_, 0);  // 大对象需要更高的 order
 
   // 4. 测试重复创建相同的 cache（应该返回已存在的）
   auto cache1_duplicate =
@@ -207,7 +207,7 @@ TEST_F(SlabTest, KmemCacheCreateTest) {
   std::cout << "  - " << cache2->name_ << " (size: " << cache2->objectSize_
             << ", objects per slab: " << cache2->objectsInSlab_ << ")\n";
   std::cout << "  - " << cache3->name_ << " (size: " << cache3->objectSize_
-            << ", order: " << cache3->order << ")\n";
+            << ", order: " << cache3->order_ << ")\n";
 }
 
 /**
@@ -275,7 +275,7 @@ TEST_F(SlabTest, KmemCacheShrinkTest) {
   ASSERT_NE(large_cache, nullptr);
 
   std::cout << "Large cache created:\n";
-  std::cout << "  - order: " << large_cache->order << "\n";
+  std::cout << "  - order: " << large_cache->order_ << "\n";
   std::cout << "  - objects per slab: " << large_cache->objectsInSlab_ << "\n";
 
   int large_result = slab.kmem_cache_shrink(large_cache);
@@ -392,7 +392,7 @@ TEST_F(SlabTest, KmemCacheAllocTest) {
   EXPECT_NE(large_obj1, large_obj2);
 
   std::cout << "Large object allocation:\n";
-  std::cout << "  - cache order: " << large_cache->order << "\n";
+  std::cout << "  - cache order: " << large_cache->order_ << "\n";
   std::cout << "  - objects per slab: " << large_cache->objectsInSlab_ << "\n";
   std::cout << "  - large_obj1: " << large_obj1 << "\n";
   std::cout << "  - large_obj2: " << large_obj2 << "\n";
