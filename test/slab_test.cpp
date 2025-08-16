@@ -150,10 +150,10 @@ TEST_F(SlabTest, KmemCacheCreateTest) {
   // 1. 测试正常创建 cache
   auto cache1 = slab.kmem_cache_create("test_cache_1", sizeof(int), ctor, dtor);
   ASSERT_NE(cache1, nullptr);
-  EXPECT_STREQ(cache1->name, "test_cache_1");
+  EXPECT_STREQ(cache1->name_, "test_cache_1");
   EXPECT_EQ(cache1->objectSize_, sizeof(int));
-  EXPECT_EQ(cache1->ctor, ctor);
-  EXPECT_EQ(cache1->dtor, dtor);
+  EXPECT_EQ(cache1->ctor_, ctor);
+  EXPECT_EQ(cache1->dtor_, dtor);
   EXPECT_EQ(cache1->num_active_, 0);
   EXPECT_GT(cache1->objectsInSlab_, 0);
   EXPECT_EQ(cache1->error_code_, 0);
@@ -162,15 +162,15 @@ TEST_F(SlabTest, KmemCacheCreateTest) {
   auto cache2 =
       slab.kmem_cache_create("test_cache_2", sizeof(double), nullptr, nullptr);
   ASSERT_NE(cache2, nullptr);
-  EXPECT_STREQ(cache2->name, "test_cache_2");
+  EXPECT_STREQ(cache2->name_, "test_cache_2");
   EXPECT_EQ(cache2->objectSize_, sizeof(double));
-  EXPECT_EQ(cache2->ctor, nullptr);
-  EXPECT_EQ(cache2->dtor, nullptr);
+  EXPECT_EQ(cache2->ctor_, nullptr);
+  EXPECT_EQ(cache2->dtor_, nullptr);
 
   // 3. 测试创建大对象的 cache（需要更高的 order）
   auto cache3 = slab.kmem_cache_create("large_cache", 8192, nullptr, nullptr);
   ASSERT_NE(cache3, nullptr);
-  EXPECT_STREQ(cache3->name, "large_cache");
+  EXPECT_STREQ(cache3->name_, "large_cache");
   EXPECT_EQ(cache3->objectSize_, 8192);
   EXPECT_GT(cache3->order, 0);  // 大对象需要更高的 order
 
@@ -202,11 +202,11 @@ TEST_F(SlabTest, KmemCacheCreateTest) {
 
   std::cout << "kmem_cache_create tests completed successfully!\n";
   std::cout << "Created caches:\n";
-  std::cout << "  - " << cache1->name << " (size: " << cache1->objectSize_
+  std::cout << "  - " << cache1->name_ << " (size: " << cache1->objectSize_
             << ", objects per slab: " << cache1->objectsInSlab_ << ")\n";
-  std::cout << "  - " << cache2->name << " (size: " << cache2->objectSize_
+  std::cout << "  - " << cache2->name_ << " (size: " << cache2->objectSize_
             << ", objects per slab: " << cache2->objectsInSlab_ << ")\n";
-  std::cout << "  - " << cache3->name << " (size: " << cache3->objectSize_
+  std::cout << "  - " << cache3->name_ << " (size: " << cache3->objectSize_
             << ", order: " << cache3->order << ")\n";
 }
 
@@ -265,7 +265,7 @@ TEST_F(SlabTest, KmemCacheShrinkTest) {
   std::cout << "  - 3rd shrink freed: " << result5 << " blocks\n";
 
   // 6. 验证缓存仍然有效
-  EXPECT_STREQ(cache->name, "shrink_test_cache");
+  EXPECT_STREQ(cache->name_, "shrink_test_cache");
   EXPECT_EQ(cache->objectSize_, sizeof(int));
   EXPECT_GT(cache->objectsInSlab_, 0);
 
@@ -805,10 +805,10 @@ TEST_F(SlabTest, FindBuffersCacheTest) {
       << "Should find cache for valid 64-byte allocation";
 
   // 验证找到的缓存名称包含 "size-"
-  EXPECT_NE(strstr(cache64->name, "size-"), nullptr)
+  EXPECT_NE(strstr(cache64->name_, "size-"), nullptr)
       << "Cache name should contain 'size-'";
 
-  std::cout << "Found cache: " << cache64->name << " for 64-byte allocation\n";
+  std::cout << "Found cache: " << cache64->name_ << " for 64-byte allocation\n";
 
   void* ptr128 = slab.Alloc(128);
   ASSERT_NE(ptr128, nullptr) << "Failed to allocate 128 bytes";
@@ -817,11 +817,11 @@ TEST_F(SlabTest, FindBuffersCacheTest) {
   ASSERT_NE(cache128, nullptr)
       << "Should find cache for valid 128-byte allocation";
 
-  std::cout << "Found cache: " << cache128->name
+  std::cout << "Found cache: " << cache128->name_
             << " for 128-byte allocation\n";
 
   // 验证不同大小的对象找到不同的缓存（除非它们使用相同的2的幂大小）
-  if (strcmp(cache64->name, cache128->name) != 0) {
+  if (strcmp(cache64->name_, cache128->name_) != 0) {
     std::cout << "Different caches for different sizes (as expected)\n";
   } else {
     std::cout << "Same cache used for both sizes (power-of-2 alignment)\n";
@@ -874,11 +874,11 @@ TEST_F(SlabTest, FindBuffersCacheTest) {
         << "Should find cache for " << size << "-byte allocation";
 
     // 验证缓存名称
-    EXPECT_NE(strstr(cache->name, "size-"), nullptr)
+    EXPECT_NE(strstr(cache->name_, "size-"), nullptr)
         << "Cache name should contain 'size-' for " << size
         << "-byte allocation";
 
-    std::cout << "Size " << size << " -> Cache: " << cache->name << "\n";
+    std::cout << "Size " << size << " -> Cache: " << cache->name_ << "\n";
   }
 
   std::cout << "Multiple allocation sizes test passed\n";
@@ -952,7 +952,7 @@ TEST_F(SlabTest, FindBuffersCacheTest) {
     if (unique_caches.size() == 1) {
       std::cout << "All " << same_size_ptrs.size()
                 << " same-size allocations use same cache: "
-                << first_cache->name << "\n";
+                << first_cache->name_ << "\n";
     } else {
       std::cout << "All " << same_size_ptrs.size()
                 << " same-size allocations found caches ("
@@ -1178,16 +1178,16 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
   auto* cache1 =
       slab.kmem_cache_create("destroy_test_1", sizeof(int), nullptr, nullptr);
   ASSERT_NE(cache1, nullptr) << "Failed to create cache for destroy test";
-  EXPECT_STREQ(cache1->name, "destroy_test_1");
+  EXPECT_STREQ(cache1->name_, "destroy_test_1");
 
   // 记录销毁前的名称
-  std::string cache_name_before(cache1->name);
+  std::string cache_name_before(cache1->name_);
 
   // 销毁缓存
   slab.kmem_cache_destroy(cache1);
 
   // 验证缓存名称被清空（这是销毁的标志）
-  EXPECT_EQ(cache1->name[0], '\0')
+  EXPECT_EQ(cache1->name_[0], '\0')
       << "Cache name should be cleared after destroy";
   EXPECT_EQ(cache1->objectSize_, 0)
       << "Object size should be reset after destroy";
@@ -1230,7 +1230,7 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
   slab.kmem_cache_destroy(cache2);
 
   // 验证缓存被销毁
-  EXPECT_EQ(cache2->name[0], '\0')
+  EXPECT_EQ(cache2->name_[0], '\0')
       << "Cache name should be cleared even with active objects";
 
   std::cout << "Cache with " << active_before << " active objects destroyed\n";
@@ -1250,7 +1250,7 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
   slab.kmem_cache_destroy(cache3);
 
   // 验证销毁成功
-  EXPECT_EQ(cache3->name[0], '\0')
+  EXPECT_EQ(cache3->name_[0], '\0')
       << "Empty cache name should be cleared after destroy";
 
   std::cout << "Empty cache destroyed successfully\n";
@@ -1288,12 +1288,12 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
 
   // 销毁所有缓存
   for (const auto& [cache, name] : caches_to_destroy) {
-    EXPECT_STRNE(cache->name, "")
+    EXPECT_STRNE(cache->name_, "")
         << "Cache name should not be empty before destroy";
 
     slab.kmem_cache_destroy(cache);
 
-    EXPECT_EQ(cache->name[0], '\0')
+    EXPECT_EQ(cache->name_[0], '\0')
         << "Cache " << name << " should be destroyed";
     std::cout << "Destroyed cache: " << name << "\n";
   }
@@ -1324,7 +1324,7 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
   slab.kmem_cache_destroy(cache4);
 
   // 验证缓存状态
-  EXPECT_EQ(cache4->name[0], '\0') << "Cache name should be cleared";
+  EXPECT_EQ(cache4->name_[0], '\0') << "Cache name should be cleared";
   EXPECT_EQ(cache4->objectSize_, 0) << "Object size should be reset";
 
   std::cout << "Post-destroy state verification test passed\n";
@@ -1337,7 +1337,7 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
       slab.kmem_cache_create("immediate_destroy", 64, nullptr, nullptr);
   if (cache5 != nullptr) {
     slab.kmem_cache_destroy(cache5);
-    EXPECT_EQ(cache5->name[0], '\0')
+    EXPECT_EQ(cache5->name_[0], '\0')
         << "Immediately destroyed cache should be cleared";
     std::cout << "Immediate destroy test passed\n";
   }
@@ -1347,7 +1347,7 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
       slab.kmem_cache_create("double_destroy", 128, nullptr, nullptr);
   if (cache6 != nullptr) {
     slab.kmem_cache_destroy(cache6);
-    EXPECT_EQ(cache6->name[0], '\0') << "First destroy should clear name";
+    EXPECT_EQ(cache6->name_[0], '\0') << "First destroy should clear name";
 
     // 第二次销毁（应该是安全的，因为名称已经为空）
     slab.kmem_cache_destroy(cache6);

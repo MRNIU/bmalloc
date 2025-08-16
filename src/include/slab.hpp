@@ -84,10 +84,10 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       }
 
       // 初始化所有对象（调用构造函数）
-      if (cache && cache->ctor) {
+      if (cache && cache->ctor_) {
         void *obj = objects;
         for (size_t i = 0; i < object_count; i++) {
-          cache->ctor(obj);
+          cache->ctor_(obj);
           obj = static_cast<void *>(static_cast<char *>(obj) +
                                     cache->objectSize_);
         }
@@ -115,8 +115,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     slab_t *slabs_partial_ = nullptr;
     // list of free slabs - 空闲 slab 链表
     slab_t *slabs_free_ = nullptr;
-    // cache name - 缓存名称
-    char name[CACHE_NAMELEN]{};
+    // cache name_ - 缓存名称
+    char name_[CACHE_NAMELEN]{};
     // size of one object - 单个对象大小
     size_t objectSize_ = 0;
     // num of objects in one slab - 每个 slab 中的对象数量
@@ -136,9 +136,9 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // false - cache is not growing_ / true - cache is growing_ - 是否正在增长
     bool growing_ = false;
     // objects constructor - 对象构造函数
-    void (*ctor)(void *) = nullptr;
+    void (*ctor_)(void *) = nullptr;
     // objects destructor - 对象析构函数
-    void (*dtor)(void *) = nullptr;
+    void (*dtor_)(void *) = nullptr;
     // last error that happened while working with cache - 最后的错误码
     int error_code_ = 0;
     // next cache in chain - 下一个 cache
@@ -169,7 +169,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     cache_cache.slabs_free_ = slab;
 
     // 设置 cache_cache 的基本属性
-    strcpy(cache_cache.name, "kmem_cache");
+    strcpy(cache_cache.name_, "kmem_cache");
     cache_cache.objectSize_ = sizeof(kmem_cache_t);
 
     // 初始化 slab 结构
@@ -249,7 +249,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
 
     // 禁止创建与 cache_cache 同名的 cache
-    if (strcmp(name, cache_cache.name) == 0) {
+    if (strcmp(name, cache_cache.name_) == 0) {
       cache_cache.error_code_ = 3;
       return nullptr;
     }
@@ -265,7 +265,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // 在全局 cache 链表中查找是否已存在相同的 cache
     ret = allCaches;
     while (ret != nullptr) {
-      if (strcmp(ret->name, name) == 0 && ret->objectSize_ == size) {
+      if (strcmp(ret->name_, name) == 0 && ret->objectSize_ == size) {
         return ret;
       }
       ret = ret->next_;
@@ -344,10 +344,10 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
 
     // 初始化新 cache
-    strcpy(ret->name, name);
+    strcpy(ret->name_, name);
 
-    ret->ctor = ctor;
-    ret->dtor = dtor;
+    ret->ctor_ = ctor;
+    ret->dtor_ = dtor;
     ret->next_ = allCaches;
     allCaches = ret;
 
@@ -430,7 +430,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
    * 5. 调用对象构造函数（如果存在）
    */
   void *kmem_cache_alloc(kmem_cache_t *cachep) {
-    if (cachep == nullptr || *cachep->name == '\0') {
+    if (cachep == nullptr || *cachep->name_ == '\0') {
       return nullptr;
     }
 
@@ -530,7 +530,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
    * 5. 更新slab链表状态（full->partial->free）
    */
   void kmem_cache_free(kmem_cache_t *cachep, void *objp) {
-    if (cachep == nullptr || *cachep->name == '\0' || objp == nullptr) {
+    if (cachep == nullptr || *cachep->name_ == '\0' || objp == nullptr) {
       return;
     }
 
@@ -595,8 +595,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     s->nextFreeObj_ = i;
 
     // 调用析构函数
-    if (cachep->dtor != nullptr) {
-      cachep->dtor(objp);
+    if (cachep->dtor_ != nullptr) {
+      cachep->dtor_(objp);
     }
 
     // 检查slab现在是否为空闲或部分使用状态，并更新链表
@@ -684,7 +684,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     while (curr != nullptr) {
       // 找到小内存缓冲区cache
-      if (strstr(curr->name, "size-") != nullptr) {
+      if (strstr(curr->name_, "size-") != nullptr) {
         // 在full slab中查找
         s = curr->slabs_full_;
         int slabSize = kPageSize * (1 << curr->order);
@@ -733,7 +733,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
    * 5. 清理cache_cache中多余的空闲slab
    */
   void kmem_cache_destroy(kmem_cache_t *cachep) {
-    if (cachep == nullptr || *cachep->name == '\0') {
+    if (cachep == nullptr || *cachep->name_ == '\0') {
       return;
     }
 
@@ -808,7 +808,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     s->freeList_[i] = s->nextFreeObj_;
     s->nextFreeObj_ = i;
     // 清空cache名称
-    *cachep->name = '\0';
+    *cachep->name_ = '\0';
     cachep->objectSize_ = 0;
 
     // 释放cache中使用的所有slab
@@ -974,7 +974,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     // 打印cache信息
     Log("*** CACHE INFO: ***\n");
-    Log("Name:\t\t\t\t%s\n", cachep->name);
+    Log("Name:\t\t\t\t%s\n", cachep->name_);
     Log("Size of one object (in bytes):\t%zu\n", cachep->objectSize_);
     Log("Size of cache (in blocks):\t%d\n", cacheSize);
     Log("Number of slabs:\t\t%d\n", i);
