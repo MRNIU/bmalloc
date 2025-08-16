@@ -649,19 +649,19 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       return;
     }
 
-    // 获取三个互斥锁：cache锁、cache_cache锁、buddy锁
     LockGuard guard1(cachep->cache_lock_);
     LockGuard guard2(cache_cache_.cache_lock_);
 
     cache_cache_.error_code_ = 0;
 
-    // 从allCaches链表删除cache
-    kmem_cache_t *prev = nullptr, *curr = all_kmem_cache_;
+    // 从 allCaches 链表删除 cache
+    kmem_cache_t *prev = nullptr;
+    kmem_cache_t *curr = all_kmem_cache_;
     while (curr != cachep) {
       prev = curr;
       curr = curr->next_;
     }
-    // cache不在cache链中（意味着对象也不在cache_cache中）
+    // cache 不在 cache 链中（意味着对象也不在cache_cache中）
     if (curr == nullptr) {
       cache_cache_.error_code_ = 5;
       return;
