@@ -411,33 +411,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     cachep->error_code_ = 0;
 
-    // 查找可用的slab：优先使用部分使用的slab，然后是空闲slab
-    auto slab = cachep->slabs_partial_;
-    if (slab == nullptr) {
-      slab = cachep->slabs_free_;
-    }
-
-    // 需要分配新slab
-    if (slab == nullptr) {
-      void *ptr = page_allocator_.Alloc(cachep->order_);
-      if (ptr == nullptr) {
-        cachep->error_code_ = 2;
-        return nullptr;
-      }
-
-      slab = new (ptr)
-          slab_t(cachep, ptr, cachep->objectsInSlab_, cachep->colour_next_);
-
-      // 新分配的slab将被放入partial链表（因为即将从中分配对象）
-      cachep->slabs_partial_ = slab;
-
-      // 更新缓存行对齐偏移
-      cachep->colour_next_ =
-          (cachep->colour_next_ + 1) % (cachep->colour_max_ + 1);
-
-      cachep->num_allocations_ += cachep->objectsInSlab_;
-      cachep->growing_ = true;
-    }
+    auto slab = find_alloc_slab(*cachep);
 
     // 从slab中分配对象
     auto retObject =
@@ -447,8 +421,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     slab->nextFreeObj_ = slab->freeList_[slab->nextFreeObj_];
     slab->inuse_++;
     cachep->num_active_++;
-
-    // 更新slab链表状态
     cachep->add_slab(slab);
 
     return retObject;
@@ -1238,6 +1210,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       slab = new (ptr) slab_t(&kmem_cache, ptr, kmem_cache.objectsInSlab_,
                               kmem_cache.colour_next_);
 
+      // 新分配的slab将被放入partial链表（因为即将从中分配对象）
       kmem_cache.slabs_partial_ = slab;
 
       // 更新缓存行对齐偏移
