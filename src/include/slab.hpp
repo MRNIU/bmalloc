@@ -212,6 +212,35 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
         }
       }
     }
+
+    bool is_in_full_or_part(const void *addr) {
+      auto slab_size = kPageSize * (1 << order_);
+      // 在 full 链表中查找包含指定地址的 slab
+      auto slab = slabs_full_;
+      while (slab != nullptr) {
+        if (addr > slab &&
+            addr < static_cast<void *>(
+                       static_cast<char *>(static_cast<void *>(slab)) +
+                       slab_size)) {
+          return true;
+        }
+        slab = slab->next_;
+      }
+
+      // 在 partial 链表中查找包含指定地址的 slab
+      slab = slabs_partial_;
+      while (slab != nullptr) {
+        if (addr > slab &&
+            addr < static_cast<void *>(
+                       static_cast<char *>(static_cast<void *>(slab)) +
+                       slab_size)) {
+          return true;
+        }
+        slab = slab->next_;
+      }
+
+      return false;
+    }
   };
 
   /**
@@ -447,7 +476,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     LockGuard guard(cachep->cache_lock_);
 
     cachep->error_code_ = 0;
-    slab_t *slab;
 
     // 查找对象所属的slab
     int slabSize = kPageSize * (1 << cachep->order_);
@@ -455,7 +483,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     bool inFullList = true;
 
     // 首先在full链表中查找
-    slab = cachep->slabs_full_;
+    auto slab = cachep->slabs_full_;
     while (slab != nullptr) {
       if (objp > slab &&
           objp <
@@ -596,33 +624,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     while (curr != nullptr) {
       // 找到小内存缓冲区cache
       if (strstr(curr->name_, "size-") != nullptr) {
-        // 在full slab中查找
-        auto slab = curr->slabs_full_;
-        auto slabSize = kPageSize * (1 << curr->order_);
-        while (slab != nullptr) {
-          // 找到包含对象的cache
-          if (objp > slab &&
-              objp < static_cast<const void *>(
-                         static_cast<char *>(static_cast<void *>(slab)) +
-                         slabSize)) {
-            return curr;
-          }
-
-          slab = slab->next_;
-        }
-
-        // 在partial slab中查找
-        slab = curr->slabs_partial_;
-        while (slab != nullptr) {
-          // 找到包含对象的cache
-          if (objp > slab &&
-              objp < static_cast<const void *>(
-                         static_cast<char *>(static_cast<void *>(slab)) +
-                         slabSize)) {
-            return curr;
-          }
-
-          slab = slab->next_;
+        if (curr->is_in_full_or_part(objp) == true) {
+          return curr;
         }
       }
       curr = curr->next_;
@@ -1175,8 +1178,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
 
     // 查找包含该对象的cache
-    kmem_cache_t *buffCachep = find_buffers_cache(addr);
-
+    auto buffCachep = find_buffers_cache(addr);
     if (buffCachep == nullptr) {
       return;
     }
@@ -1184,7 +1186,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // 释放对象
     kmem_cache_free(buffCachep, addr);
 
-    // 如果cache有空闲slab，尝试收缩以节省内存
+    // 如果 cache 有空闲 slab, 尝试收缩以节省内存
     if (buffCachep->slabs_free_ != nullptr) {
       kmem_cache_shrink(buffCachep);
     }
