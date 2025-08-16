@@ -174,9 +174,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       colour_max_ = memory / CACHE_L1_LINE_SIZE;
     }
 
-    /// @todo 添加一个接口，创建新的 slab 用于分配
-    /// 用于替换 `/// @todo 创建 slab_t 部分可以抽象出来` 处的代码
-
     void add_slab(slab_t *slab) {
       // 更新 slab 链表状态
       if (slab == slabs_free_) {
@@ -337,38 +334,10 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       ret = ret->next_;
     }
 
-    // cache 不存在，需要创建新的
-    // 寻找可用的 slab 来分配 kmem_cache_t 结构
-    auto slab = cache_cache.slabs_partial_;
-    if (slab == nullptr) {
-      slab = cache_cache.slabs_free_;
-    }
-
-    /// @todo 创建 slab_t 部分可以抽象出来
-    // 没有足够空间，需要为 cache_cache 分配更多空间
-    if (slab == nullptr) {
-      auto ptr = page_allocator_.Alloc(CACHE_CACHE_ORDER);
-      if (ptr == nullptr) {
-        cache_cache.error_code_ = 2;
-        return nullptr;
-      }
-
-      slab = new (ptr) slab_t(&cache_cache, ptr, cache_cache.objectsInSlab_,
-                              cache_cache.colour_next_);
-
-      cache_cache.slabs_partial_ = slab;
-
-      // 更新缓存行对齐偏移
-      cache_cache.colour_next_ =
-          (cache_cache.colour_next_ + 1) % (cache_cache.colour_max_ + 1);
-
-      cache_cache.num_allocations_ += cache_cache.objectsInSlab_;
-      cache_cache.growing_ = true;
-    }
+    auto slab = find_alloc_slab(cache_cache);
 
     // 从slab中分配一个 kmem_cache_t 对象
     auto *list = static_cast<kmem_cache_t *>(slab->objects);
-
     // 初始化新 cache
     ret = new (&list[slab->nextFreeObj_]) kmem_cache_t(name, size, ctor, dtor);
     ret->next_ = allCaches;
@@ -377,7 +346,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     slab->nextFreeObj_ = slab->freeList_[slab->nextFreeObj_];
     slab->inuse_++;
     cache_cache.num_active_++;
-
     cache_cache.add_slab(slab);
 
     return ret;
@@ -441,16 +409,14 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     LockGuard guard(cachep->cache_lock_);
 
-    void *retObject = nullptr;
     cachep->error_code_ = 0;
 
     // 查找可用的slab：优先使用部分使用的slab，然后是空闲slab
-    slab_t *slab = cachep->slabs_partial_;
+    auto slab = cachep->slabs_partial_;
     if (slab == nullptr) {
       slab = cachep->slabs_free_;
     }
 
-    /// @todo 创建 slab_t 部分可以抽象出来
     // 需要分配新slab
     if (slab == nullptr) {
       void *ptr = page_allocator_.Alloc(cachep->order_);
@@ -474,8 +440,10 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
 
     // 从slab中分配对象
-    retObject = static_cast<void *>(static_cast<char *>(slab->objects) +
-                                    slab->nextFreeObj_ * cachep->objectSize_);
+    auto retObject =
+        static_cast<void *>(static_cast<char *>(slab->objects) +
+                            slab->nextFreeObj_ * cachep->objectSize_);
+
     slab->nextFreeObj_ = slab->freeList_[slab->nextFreeObj_];
     slab->inuse_++;
     cachep->num_active_++;
@@ -1249,6 +1217,38 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     if (buffCachep->slabs_free_ != nullptr) {
       kmem_cache_shrink(buffCachep);
     }
+  }
+
+  slab_t *find_alloc_slab(kmem_cache_t &kmem_cache) {
+    // cache 不存在，需要创建新的
+    // 寻找可用的 slab 来分配 kmem_cache_t 结构
+    auto slab = kmem_cache.slabs_partial_;
+    if (slab == nullptr) {
+      slab = kmem_cache.slabs_free_;
+    }
+
+    // 没有足够空间，需要为 kmem_cache 分配更多空间
+    if (slab == nullptr) {
+      auto ptr = page_allocator_.Alloc(CACHE_CACHE_ORDER);
+      if (ptr == nullptr) {
+        kmem_cache.error_code_ = 2;
+        return nullptr;
+      }
+
+      slab = new (ptr) slab_t(&kmem_cache, ptr, kmem_cache.objectsInSlab_,
+                              kmem_cache.colour_next_);
+
+      kmem_cache.slabs_partial_ = slab;
+
+      // 更新缓存行对齐偏移
+      kmem_cache.colour_next_ =
+          (kmem_cache.colour_next_ + 1) % (kmem_cache.colour_max_ + 1);
+
+      kmem_cache.num_allocations_ += kmem_cache.objectsInSlab_;
+      kmem_cache.growing_ = true;
+    }
+
+    return slab;
   }
 };
 
