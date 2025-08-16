@@ -690,14 +690,12 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       return;
     }
 
-    // 找到拥有该cache的slab
-
     // 重置cache字段并更新cache_cache字段
     slab->inuse_--;
     cache_cache_.num_active_--;
-    int i = cachep - static_cast<kmem_cache_t *>(slab->objects);
-    slab->freeList_[i] = slab->nextFreeObj_;
-    slab->nextFreeObj_ = i;
+    auto free_idx = cachep - static_cast<kmem_cache_t *>(slab->objects);
+    slab->freeList_[free_idx] = slab->nextFreeObj_;
+    slab->nextFreeObj_ = free_idx;
     // 清空cache名称
     *cachep->name_ = '\0';
     cachep->objectSize_ = 0;
@@ -791,16 +789,16 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       }
     }
 
-    // 如果free链表中有多个slab，释放多余的slab以节省内存
+    // 如果 free 链表中有多个 slab，释放多余的 slab 以节省内存
     if (cache_cache_.slabs_free_ != nullptr) {
       slab = cache_cache_.slabs_free_;
-      i = 0;
+      auto i = 0;
       while (slab != nullptr) {
         i++;
         slab = slab->next_;
       }
 
-      // 保留一个空闲slab，释放其余的
+      // 保留一个空闲 slab，释放其余的
       while (i > 1) {
         i--;
         slab = cache_cache_.slabs_free_;
