@@ -213,16 +213,16 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       }
     }
 
-    bool is_in_full(const void *addr) const {
-      return is_in_slabs(addr, slabs_full_);
+    slab_t *find_slab_in_full(const void *addr) const {
+      return find_slab_in_slabs(addr, slabs_full_);
     }
 
-    bool is_in_partial(const void *addr) const {
-      return is_in_slabs(addr, slabs_partial_);
+    slab_t *find_slab_in_partial(const void *addr) const {
+      return find_slab_in_slabs(addr, slabs_partial_);
     }
 
    private:
-    bool is_in_slabs(const void *addr, const slab_t *slabs) const {
+    slab_t *find_slab_in_slabs(const void *addr, const slab_t *slabs) const {
       auto slab_size = kPageSize * (1 << order_);
       // 在 full 链表中查找包含指定地址的 slab
       auto slab = slabs;
@@ -231,12 +231,12 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
                                       static_cast<const char *>(
                                           static_cast<const void *>(slab)) +
                                       slab_size)) {
-          return true;
+          return const_cast<slab_t *>(slab);
         }
         slab = slab->next_;
       }
 
-      return false;
+      return nullptr;
     }
   };
 
@@ -621,7 +621,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     while (curr != nullptr) {
       // 找到小内存缓冲区cache
       if (strstr(curr->name_, "size-") != nullptr) {
-        if (curr->is_in_full(objp) || curr->is_in_partial(objp)) {
+        if (curr->find_slab_in_full(objp) != nullptr ||
+            curr->find_slab_in_partial(objp) != nullptr) {
           return curr;
         }
       }
@@ -673,37 +674,17 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
     curr->next_ = nullptr;
 
-    // 在cache_cache中查找拥有该cache对象的slab
-    int slabSize = kPageSize * (1 << cache_cache_.order_);
+    // 在 cache_cache 中查找拥有该 cache 对象的 slab
     // 标记slab是否在full链表中
     bool inFullList = true;
-    auto slab = cache_cache_.slabs_full_;
-    while (slab != nullptr) {
-      if (static_cast<const void *>(cachep) > static_cast<void *>(slab) &&
-          static_cast<const void *>(cachep) <
-              static_cast<void *>(
-                  static_cast<char *>(static_cast<void *>(slab)) + slabSize)) {
-        break;
-      }
-      slab = slab->next_;
-    }
+    auto slab = cache_cache_.find_slab_in_full(cachep);
 
     if (slab == nullptr) {
-      // slab在partial链表中
       inFullList = false;
-      slab = cache_cache_.slabs_partial_;
-      while (slab != nullptr) {
-        if (static_cast<const void *>(cachep) > static_cast<void *>(slab) &&
-            static_cast<const void *>(cachep) <
-                static_cast<void *>(
-                    static_cast<char *>(static_cast<void *>(slab)) +
-                    slabSize)) {
-          break;
-        }
-        slab = slab->next_;
-      }
+      slab = cache_cache_.find_slab_in_partial(cachep);
     }
-    // 在cache_cache中没找到拥有该cache的slab
+
+    // 在 cache_cache 中没找到拥有该 cache 的 slab
     if (slab == nullptr) {
       cache_cache_.error_code_ = 5;
       return;
