@@ -213,26 +213,14 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       }
     }
 
-    bool is_in_full_or_part(const void *addr) {
+    bool is_in_slabs(const void *addr, const slab_t *slabs) {
       auto slab_size = kPageSize * (1 << order_);
       // 在 full 链表中查找包含指定地址的 slab
-      auto slab = slabs_full_;
+      auto slab = slabs;
       while (slab != nullptr) {
         if (addr > slab &&
-            addr < static_cast<void *>(
-                       static_cast<char *>(static_cast<void *>(slab)) +
-                       slab_size)) {
-          return true;
-        }
-        slab = slab->next_;
-      }
-
-      // 在 partial 链表中查找包含指定地址的 slab
-      slab = slabs_partial_;
-      while (slab != nullptr) {
-        if (addr > slab &&
-            addr < static_cast<void *>(
-                       static_cast<char *>(static_cast<void *>(slab)) +
+            addr < static_cast<const void *>(
+                       static_cast<const char *>(static_cast<const void *>(slab)) +
                        slab_size)) {
           return true;
         }
@@ -240,6 +228,11 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       }
 
       return false;
+    }
+
+    bool is_in_full(const void *addr) { return is_in_slabs(addr, slabs_full_); }
+    bool is_in_partial(const void *addr) {
+      return is_in_slabs(addr, slabs_partial_);
     }
   };
 
@@ -624,7 +617,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     while (curr != nullptr) {
       // 找到小内存缓冲区cache
       if (strstr(curr->name_, "size-") != nullptr) {
-        if (curr->is_in_full_or_part(objp) == true) {
+        if (curr->is_in_full(objp) || curr->is_in_partial(objp)) {
           return curr;
         }
       }
@@ -655,8 +648,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     LockGuard guard1(cachep->cache_lock_);
     LockGuard guard2(cache_cache_.cache_lock_);
 
-    slab_t *slab;
-    void *ptr;
     cache_cache_.error_code_ = 0;
 
     // 从allCaches链表删除cache
@@ -682,7 +673,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     int slabSize = kPageSize * (1 << cache_cache_.order_);
     // 标记slab是否在full链表中
     bool inFullList = true;
-    slab = cache_cache_.slabs_full_;
+    auto slab = cache_cache_.slabs_full_;
     while (slab != nullptr) {
       if (static_cast<const void *>(cachep) > static_cast<void *>(slab) &&
           static_cast<const void *>(cachep) <
@@ -731,7 +722,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // 释放full slab链表
     slab_t *freeTemp = cachep->slabs_full_;
     while (freeTemp != nullptr) {
-      ptr = freeTemp;
+      auto ptr = freeTemp;
       freeTemp = freeTemp->next_;
       page_allocator_.Free(ptr, cachep->order_);
     }
@@ -739,7 +730,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // 释放partial slab链表
     freeTemp = cachep->slabs_partial_;
     while (freeTemp != nullptr) {
-      ptr = freeTemp;
+      auto ptr = freeTemp;
       freeTemp = freeTemp->next_;
       page_allocator_.Free(ptr, cachep->order_);
     }
@@ -747,7 +738,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // 释放free slab链表
     freeTemp = cachep->slabs_free_;
     while (freeTemp != nullptr) {
-      ptr = freeTemp;
+      auto ptr = freeTemp;
       freeTemp = freeTemp->next_;
       page_allocator_.Free(ptr, cachep->order_);
     }
