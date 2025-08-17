@@ -221,6 +221,30 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       return find_slab_in_slabs(addr, slabs_partial_);
     }
 
+    void from_partial_to_free(slab_t *slab) {
+      // 从partial链表中删除slab
+      auto prev = slab->prev_;
+      auto next = slab->next_;
+      slab->prev_ = nullptr;
+
+      if (prev != nullptr) {
+        prev->next_ = next;
+      }
+      if (next != nullptr) {
+        next->prev_ = prev;
+      }
+      if (slabs_partial_ == slab) {
+        slabs_partial_ = next;
+      }
+
+      // 插入到free链表
+      slab->next_ = slabs_free_;
+      if (slabs_free_ != nullptr) {
+        slabs_free_->prev_ = slab;
+      }
+      slabs_free_ = slab;
+    }
+
    private:
     slab_t *find_slab_in_slabs(const void *addr, const slab_t *slabs) const {
       auto slab_size = kPageSize * (1 << order_);
@@ -554,29 +578,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       // slab原本在partial链表中
       // 现在变成完全空闲
       if (slab->inuse_ == 0) {
-        slab_t *prev, *next;
-
-        // 从partial链表中删除slab
-        prev = slab->prev_;
-        next = slab->next_;
-        slab->prev_ = nullptr;
-
-        if (prev != nullptr) {
-          prev->next_ = next;
-        }
-        if (next != nullptr) {
-          next->prev_ = prev;
-        }
-        if (cachep->slabs_partial_ == slab) {
-          cachep->slabs_partial_ = next;
-        }
-
-        // 插入到free链表
-        slab->next_ = cachep->slabs_free_;
-        if (cachep->slabs_free_ != nullptr) {
-          cachep->slabs_free_->prev_ = slab;
-        }
-        cachep->slabs_free_ = slab;
+        cachep->from_partial_to_free(slab);
       }
     }
   }
@@ -740,29 +742,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     } else {
       // slab原本在partial链表中
       if (slab->inuse_ == 0) {
-        slab_t *prev, *next;
-
-        // 从partial链表中删除slab
-        prev = slab->prev_;
-        next = slab->next_;
-        slab->prev_ = nullptr;
-
-        if (prev != nullptr) {
-          prev->next_ = next;
-        }
-        if (next != nullptr) {
-          next->prev_ = prev;
-        }
-        if (cache_cache_.slabs_partial_ == slab) {
-          cache_cache_.slabs_partial_ = next;
-        }
-
-        // 插入到free链表
-        slab->next_ = cache_cache_.slabs_free_;
-        if (cache_cache_.slabs_free_ != nullptr) {
-          cache_cache_.slabs_free_->prev_ = slab;
-        }
-        cache_cache_.slabs_free_ = slab;
+        cachep->from_partial_to_free(slab);
       }
     }
 
