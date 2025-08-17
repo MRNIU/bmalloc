@@ -245,6 +245,39 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       slabs_free_ = slab;
     }
 
+    void from_full_to_partial(slab_t *slab) {
+      // 从full链表中删除slab
+      auto prev = slab->prev_;
+      auto next = slab->next_;
+      slab->prev_ = nullptr;
+
+      if (prev != nullptr) {
+        prev->next_ = next;
+      }
+      if (next != nullptr) {
+        next->prev_ = prev;
+      }
+      if (slabs_full_ == slab) {
+        slabs_full_ = next;
+      }
+
+      // 插入到partial链表
+      if (slab->inuse_ != 0) {
+        slab->next_ = slabs_partial_;
+        if (slabs_partial_ != nullptr) {
+          slabs_partial_->prev_ = slab;
+        }
+        slabs_partial_ = slab;
+      } else {
+        // 插入到free链表
+        slab->next_ = slabs_free_;
+        if (slabs_free_ != nullptr) {
+          slabs_free_->prev_ = slab;
+        }
+        slabs_free_ = slab;
+      }
+    }
+
    private:
     slab_t *find_slab_in_slabs(const void *addr, const slab_t *slabs) const {
       auto slab_size = kPageSize * (1 << order_);
@@ -544,36 +577,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // 检查slab现在是否为空闲或部分使用状态，并更新链表
     // slab原本在full链表中
     if (inFullList) {
-      // 从full链表中删除slab
-      auto prev = slab->prev_;
-      auto next = slab->next_;
-      slab->prev_ = nullptr;
-
-      if (prev != nullptr) {
-        prev->next_ = next;
-      }
-      if (next != nullptr) {
-        next->prev_ = prev;
-      }
-      if (cachep->slabs_full_ == slab) {
-        cachep->slabs_full_ = next;
-      }
-
-      // 插入到partial链表
-      if (slab->inuse_ != 0) {
-        slab->next_ = cachep->slabs_partial_;
-        if (cachep->slabs_partial_ != nullptr) {
-          cachep->slabs_partial_->prev_ = slab;
-        }
-        cachep->slabs_partial_ = slab;
-      } else {
-        // 插入到free链表
-        slab->next_ = cachep->slabs_free_;
-        if (cachep->slabs_free_ != nullptr) {
-          cachep->slabs_free_->prev_ = slab;
-        }
-        cachep->slabs_free_ = slab;
-      }
+      cachep->from_full_to_partial(slab);
     } else {
       // slab原本在partial链表中
       // 现在变成完全空闲
@@ -710,39 +714,11 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // 检查cache_cache中的slab现在是否为空闲或部分使用状态
     // slab原本在full链表中
     if (inFullList) {
-      // 从full链表中删除slab
-      auto prev = slab->prev_;
-      auto next = slab->next_;
-      slab->prev_ = nullptr;
-
-      if (prev != nullptr) {
-        prev->next_ = next;
-      }
-      if (next != nullptr) {
-        next->prev_ = prev;
-      }
-      if (cache_cache_.slabs_full_ == slab) {
-        cache_cache_.slabs_full_ = next;
-      }
-      // 插入到partial链表
-      if (slab->inuse_ != 0) {
-        slab->next_ = cache_cache_.slabs_partial_;
-        if (cache_cache_.slabs_partial_ != nullptr) {
-          cache_cache_.slabs_partial_->prev_ = slab;
-        }
-        cache_cache_.slabs_partial_ = slab;
-      } else {
-        // 插入到free链表
-        slab->next_ = cache_cache_.slabs_free_;
-        if (cache_cache_.slabs_free_ != nullptr) {
-          cache_cache_.slabs_free_->prev_ = slab;
-        }
-        cache_cache_.slabs_free_ = slab;
-      }
+      cache_cache_.from_full_to_partial(slab);
     } else {
       // slab原本在partial链表中
       if (slab->inuse_ == 0) {
-        cachep->from_partial_to_free(slab);
+        cache_cache_.from_partial_to_free(slab);
       }
     }
 
