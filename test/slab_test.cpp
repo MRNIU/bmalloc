@@ -127,7 +127,7 @@ TEST_F(SlabTest, DifferentTemplateParameterCombinations) {
 }
 
 /**
- * @brief 测试 kmem_cache_create 函数
+ * @brief 测试 find_create_kmem_cache 函数
  */
 TEST_F(SlabTest, KmemCacheCreateTest) {
   // 使用简单的配置
@@ -148,7 +148,7 @@ TEST_F(SlabTest, KmemCacheCreateTest) {
   };
 
   // 1. 测试正常创建 cache
-  auto cache1 = slab.kmem_cache_create("test_cache_1", sizeof(int), ctor, dtor);
+  auto cache1 = slab.find_create_kmem_cache("test_cache_1", sizeof(int), ctor, dtor);
   ASSERT_NE(cache1, nullptr);
   EXPECT_STREQ(cache1->name_, "test_cache_1");
   EXPECT_EQ(cache1->objectSize_, sizeof(int));
@@ -160,7 +160,7 @@ TEST_F(SlabTest, KmemCacheCreateTest) {
 
   // 2. 测试创建不同大小的 cache
   auto cache2 =
-      slab.kmem_cache_create("test_cache_2", sizeof(double), nullptr, nullptr);
+      slab.find_create_kmem_cache("test_cache_2", sizeof(double), nullptr, nullptr);
   ASSERT_NE(cache2, nullptr);
   EXPECT_STREQ(cache2->name_, "test_cache_2");
   EXPECT_EQ(cache2->objectSize_, sizeof(double));
@@ -168,7 +168,7 @@ TEST_F(SlabTest, KmemCacheCreateTest) {
   EXPECT_EQ(cache2->dtor_, nullptr);
 
   // 3. 测试创建大对象的 cache（需要更高的 order）
-  auto cache3 = slab.kmem_cache_create("large_cache", 8192, nullptr, nullptr);
+  auto cache3 = slab.find_create_kmem_cache("large_cache", 8192, nullptr, nullptr);
   ASSERT_NE(cache3, nullptr);
   EXPECT_STREQ(cache3->name_, "large_cache");
   EXPECT_EQ(cache3->objectSize_, 8192);
@@ -176,31 +176,31 @@ TEST_F(SlabTest, KmemCacheCreateTest) {
 
   // 4. 测试重复创建相同的 cache（应该返回已存在的）
   auto cache1_duplicate =
-      slab.kmem_cache_create("test_cache_1", sizeof(int), ctor, dtor);
+      slab.find_create_kmem_cache("test_cache_1", sizeof(int), ctor, dtor);
   EXPECT_EQ(cache1_duplicate, cache1);  // 应该返回相同的指针
 
   // 5. 测试错误情况：空名称
   auto invalid_cache1 =
-      slab.kmem_cache_create("", sizeof(int), nullptr, nullptr);
+      slab.find_create_kmem_cache("", sizeof(int), nullptr, nullptr);
   EXPECT_EQ(invalid_cache1, nullptr);
   // 由于 cache_cache 是 protected，我们通过返回值判断错误
 
   // 6. 测试错误情况：nullptr 名称
   auto invalid_cache2 =
-      slab.kmem_cache_create(nullptr, sizeof(int), nullptr, nullptr);
+      slab.find_create_kmem_cache(nullptr, sizeof(int), nullptr, nullptr);
   EXPECT_EQ(invalid_cache2, nullptr);
 
   // 7. 测试错误情况：非法大小
   auto invalid_cache3 =
-      slab.kmem_cache_create("invalid_size", 0, nullptr, nullptr);
+      slab.find_create_kmem_cache("invalid_size", 0, nullptr, nullptr);
   EXPECT_EQ(invalid_cache3, nullptr);
 
   // 8. 测试错误情况：尝试创建与 cache_cache 同名的 cache
   auto invalid_cache4 =
-      slab.kmem_cache_create("kmem_cache", sizeof(int), nullptr, nullptr);
+      slab.find_create_kmem_cache("kmem_cache", sizeof(int), nullptr, nullptr);
   EXPECT_EQ(invalid_cache4, nullptr);
 
-  std::cout << "kmem_cache_create tests completed successfully!\n";
+  std::cout << "find_create_kmem_cache tests completed successfully!\n";
   std::cout << "Created caches:\n";
   std::cout << "  - " << cache1->name_ << " (size: " << cache1->objectSize_
             << ", objects per slab: " << cache1->objectsInSlab_ << ")\n";
@@ -225,7 +225,7 @@ TEST_F(SlabTest, KmemCacheShrinkTest) {
   EXPECT_EQ(result1, 0);  // 对 nullptr 应该返回 0
 
   // 2. 创建一个测试缓存
-  auto cache = slab.kmem_cache_create("shrink_test_cache", sizeof(int), nullptr,
+  auto cache = slab.find_create_kmem_cache("shrink_test_cache", sizeof(int), nullptr,
                                       nullptr);
   ASSERT_NE(cache, nullptr);
 
@@ -271,7 +271,7 @@ TEST_F(SlabTest, KmemCacheShrinkTest) {
 
   // 7. 创建另一个大对象的缓存来测试不同的 order
   auto large_cache =
-      slab.kmem_cache_create("large_shrink_test", 4096, nullptr, nullptr);
+      slab.find_create_kmem_cache("large_shrink_test", 4096, nullptr, nullptr);
   ASSERT_NE(large_cache, nullptr);
 
   std::cout << "Large cache created:\n";
@@ -303,7 +303,7 @@ TEST_F(SlabTest, KmemCacheAllocTest) {
 
   // 2. 创建一个测试缓存
   auto cache =
-      slab.kmem_cache_create("alloc_test_cache", sizeof(int), nullptr, nullptr);
+      slab.find_create_kmem_cache("alloc_test_cache", sizeof(int), nullptr, nullptr);
   ASSERT_NE(cache, nullptr);
 
   std::cout << "Initial cache state:\n";
@@ -365,7 +365,7 @@ TEST_F(SlabTest, KmemCacheAllocTest) {
   };
 
   auto cache_with_ctor =
-      slab.kmem_cache_create("ctor_cache", sizeof(int), ctor, nullptr);
+      slab.find_create_kmem_cache("ctor_cache", sizeof(int), ctor, nullptr);
   ASSERT_NE(cache_with_ctor, nullptr);
 
   int initial_ctor_calls = ctor_call_count;
@@ -381,7 +381,7 @@ TEST_F(SlabTest, KmemCacheAllocTest) {
 
   // 7. 测试大对象分配
   auto large_cache =
-      slab.kmem_cache_create("large_alloc_test", 2048, nullptr, nullptr);
+      slab.find_create_kmem_cache("large_alloc_test", 2048, nullptr, nullptr);
   ASSERT_NE(large_cache, nullptr);
 
   void* large_obj1 = slab.kmem_cache_alloc(large_cache);
@@ -401,7 +401,7 @@ TEST_F(SlabTest, KmemCacheAllocTest) {
   std::vector<void*> allocated_objects;
 
   // 清空之前的分配并重新创建缓存
-  auto full_test_cache = slab.kmem_cache_create(
+  auto full_test_cache = slab.find_create_kmem_cache(
       "full_test_cache", sizeof(double), nullptr, nullptr);
   ASSERT_NE(full_test_cache, nullptr);
 
@@ -442,7 +442,7 @@ TEST_F(SlabTest, KmemCacheFreeTest) {
 
   // 1. 测试对 nullptr 的处理
   auto cache =
-      slab.kmem_cache_create("free_test_cache", sizeof(int), nullptr, nullptr);
+      slab.find_create_kmem_cache("free_test_cache", sizeof(int), nullptr, nullptr);
   ASSERT_NE(cache, nullptr);
 
   // 测试 nullptr cache
@@ -508,7 +508,7 @@ TEST_F(SlabTest, KmemCacheFreeTest) {
   };
 
   auto cache_with_dtor =
-      slab.kmem_cache_create("dtor_cache", sizeof(int), nullptr, dtor);
+      slab.find_create_kmem_cache("dtor_cache", sizeof(int), nullptr, dtor);
   ASSERT_NE(cache_with_dtor, nullptr);
 
   void* dtor_obj = slab.kmem_cache_alloc(cache_with_dtor);
@@ -526,7 +526,7 @@ TEST_F(SlabTest, KmemCacheFreeTest) {
             << ", value = " << *(int*)dtor_obj << "\n";
 
   // 5. 测试 slab 状态转换（full -> partial -> free）
-  auto transition_cache = slab.kmem_cache_create(
+  auto transition_cache = slab.find_create_kmem_cache(
       "transition_cache", sizeof(double), nullptr, nullptr);
   ASSERT_NE(transition_cache, nullptr);
 
@@ -600,7 +600,7 @@ TEST_F(SlabTest, KmemCacheFreeTest) {
 
   // 8. 测试大对象的释放
   auto large_cache =
-      slab.kmem_cache_create("large_free_test", 1024, nullptr, nullptr);
+      slab.find_create_kmem_cache("large_free_test", 1024, nullptr, nullptr);
   ASSERT_NE(large_cache, nullptr);
 
   void* large_obj = slab.kmem_cache_alloc(large_cache);
@@ -1176,7 +1176,7 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
   std::cout << "1. Basic cache destroy test\n";
 
   auto* cache1 =
-      slab.kmem_cache_create("destroy_test_1", sizeof(int), nullptr, nullptr);
+      slab.find_create_kmem_cache("destroy_test_1", sizeof(int), nullptr, nullptr);
   ASSERT_NE(cache1, nullptr) << "Failed to create cache for destroy test";
   EXPECT_STREQ(cache1->name_, "destroy_test_1");
 
@@ -1206,7 +1206,7 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
   // 3. 销毁有分配对象的缓存测试
   std::cout << "3. Destroy cache with allocated objects test\n";
 
-  auto* cache2 = slab.kmem_cache_create("destroy_test_2", 64, nullptr, nullptr);
+  auto* cache2 = slab.find_create_kmem_cache("destroy_test_2", 64, nullptr, nullptr);
   ASSERT_NE(cache2, nullptr)
       << "Failed to create cache for allocated objects test";
 
@@ -1240,7 +1240,7 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
   std::cout << "4. Destroy empty cache test\n";
 
   auto* cache3 =
-      slab.kmem_cache_create("destroy_test_3", 128, nullptr, nullptr);
+      slab.find_create_kmem_cache("destroy_test_3", 128, nullptr, nullptr);
   ASSERT_NE(cache3, nullptr) << "Failed to create empty cache for test";
 
   // 确保缓存是空的
@@ -1269,7 +1269,7 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
       {"multi_destroy_512", 512}};
 
   for (const auto& [name, size] : cache_specs) {
-    auto* cache = slab.kmem_cache_create(name.c_str(), size, nullptr, nullptr);
+    auto* cache = slab.find_create_kmem_cache(name.c_str(), size, nullptr, nullptr);
     if (cache != nullptr) {
       caches_to_destroy.push_back({cache, name});
 
@@ -1304,7 +1304,7 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
   std::cout << "6. Post-destroy state verification test\n";
 
   auto* cache4 =
-      slab.kmem_cache_create("verify_destroy", 256, nullptr, nullptr);
+      slab.find_create_kmem_cache("verify_destroy", 256, nullptr, nullptr);
   ASSERT_NE(cache4, nullptr) << "Failed to create cache for verification test";
 
   // 分配和释放一些对象
@@ -1334,7 +1334,7 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
 
   // 创建一个缓存然后立即销毁
   auto* cache5 =
-      slab.kmem_cache_create("immediate_destroy", 64, nullptr, nullptr);
+      slab.find_create_kmem_cache("immediate_destroy", 64, nullptr, nullptr);
   if (cache5 != nullptr) {
     slab.kmem_cache_destroy(cache5);
     EXPECT_EQ(cache5->name_[0], '\0')
@@ -1344,7 +1344,7 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
 
   // 尝试多次销毁同一个缓存（第二次应该是安全的）
   auto* cache6 =
-      slab.kmem_cache_create("double_destroy", 128, nullptr, nullptr);
+      slab.find_create_kmem_cache("double_destroy", 128, nullptr, nullptr);
   if (cache6 != nullptr) {
     slab.kmem_cache_destroy(cache6);
     EXPECT_EQ(cache6->name_[0], '\0') << "First destroy should clear name";

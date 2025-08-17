@@ -213,14 +213,17 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       }
     }
 
+    // 在 full 链表中寻找指定 slab
     slab_t *find_slab_in_full(const void *addr) const {
       return find_slab_in_slabs(addr, slabs_full_);
     }
 
+    // 在 partial 链表中寻找指定 slab
     slab_t *find_slab_in_partial(const void *addr) const {
       return find_slab_in_slabs(addr, slabs_partial_);
     }
 
+    // 将指定 slab 从 partial 链表移动到 free 链表
     void from_partial_to_free(slab_t *slab) {
       // 从partial链表中删除slab
       auto prev = slab->prev_;
@@ -245,6 +248,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       slabs_free_ = slab;
     }
 
+    // 将指定 slab 从 full 链表移动到 partial 链表
     void from_full_to_partial(slab_t *slab) {
       // 从full链表中删除slab
       auto prev = slab->prev_;
@@ -279,9 +283,9 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
 
    private:
+    // 在指定链表中寻找指定 slab
     slab_t *find_slab_in_slabs(const void *addr, const slab_t *slabs) const {
       auto slab_size = kPageSize * (1 << order_);
-      // 在 full 链表中查找包含指定地址的 slab
       auto slab = slabs;
       while (slab != nullptr) {
         if (addr > slab && addr < static_cast<const void *>(
@@ -389,8 +393,9 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
    * 5. 计算每个 slab 能容纳的对象数量
    * 6. 设置缓存行对齐参数
    */
-  kmem_cache_t *kmem_cache_create(const char *name, size_t size,
-                                  void (*ctor)(void *), void (*dtor)(void *)) {
+  kmem_cache_t *find_create_kmem_cache(const char *name, size_t size,
+                                       void (*ctor)(void *),
+                                       void (*dtor)(void *)) {
     // 参数验证
     if (name == nullptr || *name == '\0' || (long)size <= 0) {
       cache_cache_.error_code_ = 1;
@@ -417,8 +422,8 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       ret = ret->next_;
     }
 
+    // 没有找到则新分配一个
     auto slab = find_alloc_slab(cache_cache_);
-
     // 从slab中分配一个 kmem_cache_t 对象
     auto *list = static_cast<kmem_cache_t *>(slab->objects);
     // 初始化新 cache
@@ -833,7 +838,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     Log("ERROR: ");
     switch (error_code_) {
       case 1:
-        Log("Invalid arguments passed in function kmem_cache_create\n");
+        Log("Invalid arguments passed in function find_create_kmem_cache\n");
         break;
       case 2:
         Log("No enough space for allocating new slab\n");
@@ -1055,7 +1060,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     strcat(name, num);
 
     // 创建或获取对应大小的cache
-    kmem_cache_t *buffCachep = kmem_cache_create(name, j, nullptr, nullptr);
+    auto buffCachep = find_create_kmem_cache(name, j, nullptr, nullptr);
 
     // 从cache中分配对象
     buff = kmem_cache_alloc(buffCachep);
@@ -1099,6 +1104,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
   }
 
+  // 在指定 kmem_cache_t 中寻找一个可用的 slab，如果没有找到则新分配一个
   slab_t *find_alloc_slab(kmem_cache_t &kmem_cache) {
     // cache 不存在，需要创建新的
     // 寻找可用的 slab 来分配 kmem_cache_t 结构
