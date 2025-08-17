@@ -474,36 +474,16 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     cachep->error_code_ = 0;
 
-    // 查找对象所属的slab
-    int slabSize = kPageSize * (1 << cachep->order_);
     // 标记slab是否在full链表中
     bool inFullList = true;
 
     // 首先在full链表中查找
-    auto slab = cachep->slabs_full_;
-    while (slab != nullptr) {
-      if (objp > slab &&
-          objp <
-              static_cast<void *>(
-                  static_cast<char *>(static_cast<void *>(slab)) + slabSize)) {
-        break;
-      }
-      slab = slab->next_;
-    }
+    auto slab = cachep->find_slab_in_full(objp);
 
     // 如果在full链表中没找到，在partial链表中查找
     if (slab == nullptr) {
       inFullList = false;
-      slab = cachep->slabs_partial_;
-      while (slab != nullptr) {
-        if (objp > slab &&
-            objp < static_cast<void *>(
-                       static_cast<char *>(static_cast<void *>(slab)) +
-                       slabSize)) {
-          break;
-        }
-        slab = slab->next_;
-      }
+      slab = cachep->find_slab_in_partial(objp);
     }
 
     // 没找到对应的slab
@@ -517,19 +497,20 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     cachep->num_active_--;
 
     // 计算对象在数组中的索引
-    int i = (static_cast<char *>(objp) - static_cast<char *>(slab->objects)) /
-            cachep->objectSize_;
+    auto free_idx =
+        (static_cast<char *>(objp) - static_cast<char *>(slab->objects)) /
+        cachep->objectSize_;
 
     // 验证对象地址是否对齐
     if (objp != static_cast<void *>(static_cast<char *>(slab->objects) +
-                                    i * cachep->objectSize_)) {
+                                    free_idx * cachep->objectSize_)) {
       cachep->error_code_ = 7;
       return;
     }
 
     // 将对象加入空闲链表
-    slab->freeList_[i] = slab->nextFreeObj_;
-    slab->nextFreeObj_ = i;
+    slab->freeList_[free_idx] = slab->nextFreeObj_;
+    slab->nextFreeObj_ = free_idx;
 
     // 调用析构函数
     if (cachep->dtor_ != nullptr) {
@@ -539,11 +520,9 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // 检查slab现在是否为空闲或部分使用状态，并更新链表
     // slab原本在full链表中
     if (inFullList) {
-      slab_t *prev, *next;
-
       // 从full链表中删除slab
-      prev = slab->prev_;
-      next = slab->next_;
+      auto prev = slab->prev_;
+      auto next = slab->next_;
       slab->prev_ = nullptr;
 
       if (prev != nullptr) {
@@ -729,11 +708,9 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // 检查cache_cache中的slab现在是否为空闲或部分使用状态
     // slab原本在full链表中
     if (inFullList) {
-      slab_t *prev, *next;
-
       // 从full链表中删除slab
-      prev = slab->prev_;
-      next = slab->next_;
+      auto prev = slab->prev_;
+      auto next = slab->next_;
       slab->prev_ = nullptr;
 
       if (prev != nullptr) {
