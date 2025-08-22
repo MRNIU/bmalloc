@@ -240,7 +240,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
         slabs_partial_ = next;
       }
 
-      // 插入到free链表
+      // 插入到 free 链表
       slab->next_ = slabs_free_;
       if (slabs_free_ != nullptr) {
         slabs_free_->prev_ = slab;
@@ -1059,7 +1059,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     itoa(j, num);
     strcat(name, num);
 
-    // 创建或获取对应大小的cache
+    // 创建或获取对应大小的 cache
     auto buffCachep = find_create_kmem_cache(name, j, nullptr, nullptr);
 
     // 从cache中分配对象
