@@ -6,9 +6,11 @@
 #define BMALLOC_SRC_INCLUDE_DOUBLY_LINKED_LIST_HPP_
 
 #include <cstddef>
+#include <initializer_list>
 #include <iterator>
 #include <limits>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 
 namespace bmalloc {
@@ -55,6 +57,15 @@ class DoublyLinkedList {
      */
     explicit Node(T&& value)
         : data(std::move(value)), next(nullptr), prev(nullptr) {}
+
+    /**
+     * @brief 节点原地构造函数
+     * @tparam Args 构造参数类型
+     * @param args 构造参数
+     */
+    template <typename... Args>
+    explicit Node(Args&&... args)
+        : data(std::forward<Args>(args)...), next(nullptr), prev(nullptr) {}
   };
 
   Node* head_;   ///< 链表头节点指针
@@ -74,6 +85,8 @@ class DoublyLinkedList {
   // 迭代器类前向声明
   class iterator;
   class const_iterator;
+  using reverse_iterator = std::reverse_iterator<iterator>;
+  using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
   /**
    * @class iterator
@@ -92,18 +105,22 @@ class DoublyLinkedList {
 
    private:
     Node* current_;  ///< 当前指向的节点
+    const DoublyLinkedList*
+        container_;  ///< 指向容器的指针，用于处理end()迭代器
 
    public:
     /**
      * @brief 默认构造函数
      */
-    iterator() : current_(nullptr) {}
+    iterator() : current_(nullptr), container_(nullptr) {}
 
     /**
      * @brief 迭代器构造函数
      * @param node 指向的节点
+     * @param container 指向容器的指针
      */
-    explicit iterator(Node* node) : current_(node) {}
+    explicit iterator(Node* node, const DoublyLinkedList* container = nullptr)
+        : current_(node), container_(container) {}
 
     /**
      * @brief 解引用操作符
@@ -155,10 +172,9 @@ class DoublyLinkedList {
     iterator& operator--() {
       if (current_) {
         current_ = current_->prev;
-      } else {
+      } else if (container_ && container_->tail_) {
         // 如果当前是nullptr（end迭代器），移动到尾节点
-        // 需要通过友元关系访问容器
-        // 这里暂时保持原有逻辑，实际使用中需要谨慎
+        current_ = container_->tail_;
       }
       return *this;
     }
@@ -215,6 +231,12 @@ class DoublyLinkedList {
      */
     Node* get_node() const { return current_; }
 
+    /**
+     * @brief 获取容器指针（内部使用）
+     * @return 容器指针
+     */
+    const DoublyLinkedList* get_container() const { return container_; }
+
     friend class DoublyLinkedList;
     friend class const_iterator;
   };
@@ -236,24 +258,30 @@ class DoublyLinkedList {
 
    private:
     const Node* current_;  ///< 当前指向的节点
+    const DoublyLinkedList*
+        container_;  ///< 指向容器的指针，用于处理end()迭代器
 
    public:
     /**
      * @brief 默认构造函数
      */
-    const_iterator() : current_(nullptr) {}
+    const_iterator() : current_(nullptr), container_(nullptr) {}
 
     /**
      * @brief 常量迭代器构造函数
      * @param node 指向的节点
+     * @param container 指向容器的指针
      */
-    explicit const_iterator(const Node* node) : current_(node) {}
+    explicit const_iterator(const Node* node,
+                            const DoublyLinkedList* container = nullptr)
+        : current_(node), container_(container) {}
 
     /**
      * @brief 从普通迭代器构造常量迭代器
      * @param it 普通迭代器
      */
-    const_iterator(const iterator& it) : current_(it.get_node()) {}
+    const_iterator(const iterator& it)
+        : current_(it.get_node()), container_(it.get_container()) {}
 
     /**
      * @brief 解引用操作符
@@ -304,7 +332,12 @@ class DoublyLinkedList {
      * @return 递减后的迭代器引用
      */
     const_iterator& operator--() {
-      if (current_) current_ = current_->prev;
+      if (current_) {
+        current_ = current_->prev;
+      } else if (container_ && container_->tail_) {
+        // 如果当前是nullptr（end迭代器），移动到尾节点
+        current_ = container_->tail_;
+      }
       return *this;
     }
 
@@ -402,6 +435,19 @@ class DoublyLinkedList {
   }
 
   /**
+   * @brief 初始化列表构造函数
+   * @param ilist 初始化列表
+   *
+   * @details 使用初始化列表中的元素创建链表
+   */
+  DoublyLinkedList(std::initializer_list<T> ilist)
+      : head_(nullptr), tail_(nullptr), size_(0) {
+    for (const auto& item : ilist) {
+      push_back(item);
+    }
+  }
+
+  /**
    * @brief 析构函数
    *
    * @details 自动释放所有节点的内存
@@ -441,6 +487,19 @@ class DoublyLinkedList {
       other.head_ = nullptr;
       other.tail_ = nullptr;
       other.size_ = 0;
+    }
+    return *this;
+  }
+
+  /**
+   * @brief 初始化列表赋值操作符
+   * @param ilist 初始化列表
+   * @return 当前链表的引用
+   */
+  DoublyLinkedList& operator=(std::initializer_list<T> ilist) {
+    clear();
+    for (const auto& item : ilist) {
+      push_back(item);
     }
     return *this;
   }
@@ -640,52 +699,191 @@ class DoublyLinkedList {
       pop_front();
     }
   }
-  /// @}
-
-  /// @name 查找操作
-  /// @{
 
   /**
-   * @brief 查找指定值的第一个出现位置
-   * @param value 要查找的值
-   * @return 指向找到元素的迭代器，如果未找到返回end()
+   * @brief 在指定位置插入元素
+   * @param pos 插入位置的迭代器
+   * @param value 要插入的元素值
+   * @return 指向插入元素的迭代器
    *
-   * @details 时间复杂度: O(n)
+   * @details 时间复杂度: O(1)
    */
-  iterator find(const T& value) {
-    for (auto it = this->begin(); it != this->end(); ++it) {
-      if (*it == value) {
-        return it;
-      }
+  iterator insert(iterator pos, const T& value) {
+    if (pos == begin()) {
+      push_front(value);
+      return begin();
+    } else if (pos == end()) {
+      push_back(value);
+      return iterator(tail_, this);
+    } else {
+      Node* new_node = new Node(value);
+      Node* pos_node = pos.get_node();
+
+      new_node->next = pos_node;
+      new_node->prev = pos_node->prev;
+      pos_node->prev->next = new_node;
+      pos_node->prev = new_node;
+
+      ++size_;
+      return iterator(new_node, this);
     }
-    return this->end();
   }
 
   /**
-   * @brief 查找指定值的第一个出现位置（常量版本）
-   * @param value 要查找的值
-   * @return 指向找到元素的常量迭代器，如果未找到返回end()
+   * @brief 在指定位置插入元素（移动语义）
+   * @param pos 插入位置的迭代器
+   * @param value 要插入的元素值（右值引用）
+   * @return 指向插入元素的迭代器
    *
-   * @details 时间复杂度: O(n)
+   * @details 时间复杂度: O(1)
    */
-  const_iterator find(const T& value) const {
-    for (auto it = this->begin(); it != this->end(); ++it) {
-      if (*it == value) {
-        return it;
-      }
+  iterator insert(iterator pos, T&& value) {
+    if (pos == begin()) {
+      push_front(std::move(value));
+      return begin();
+    } else if (pos == end()) {
+      push_back(std::move(value));
+      return iterator(tail_, this);
+    } else {
+      Node* new_node = new Node(std::move(value));
+      Node* pos_node = pos.get_node();
+
+      new_node->next = pos_node;
+      new_node->prev = pos_node->prev;
+      pos_node->prev->next = new_node;
+      pos_node->prev = new_node;
+
+      ++size_;
+      return iterator(new_node, this);
     }
-    return this->end();
   }
 
   /**
-   * @brief 检查链表是否包含指定值
-   * @param value 要查找的值
-   * @return 如果包含返回true，否则返回false
+   * @brief 在指定位置插入多个相同元素
+   * @param pos 插入位置的迭代器
+   * @param count 插入元素的数量
+   * @param value 要插入的元素值
+   * @return 指向第一个插入元素的迭代器
    *
-   * @details 时间复杂度: O(n)
+   * @details 时间复杂度: O(count)
    */
-  bool contains(const T& value) const {
-    return this->find(value) != this->end();
+  iterator insert(iterator pos, size_type count, const T& value) {
+    if (count == 0) return pos;
+
+    iterator result = insert(pos, value);
+    for (size_type i = 1; i < count; ++i) {
+      insert(pos, value);
+    }
+    return result;
+  }
+
+  /**
+   * @brief 在指定位置插入范围内的元素
+   * @tparam InputIt 输入迭代器类型
+   * @param pos 插入位置的迭代器
+   * @param first 范围起始迭代器
+   * @param last 范围结束迭代器
+   * @return 指向第一个插入元素的迭代器
+   *
+   * @details 时间复杂度: O(n)，其中n是插入的元素数量
+   */
+  template <typename InputIt>
+  typename std::enable_if<!std::is_integral<InputIt>::value, iterator>::type
+  insert(iterator pos, InputIt first, InputIt last) {
+    if (first == last) return pos;
+
+    iterator result = insert(pos, *first);
+    ++first;
+    while (first != last) {
+      insert(pos, *first);
+      ++first;
+    }
+    return result;
+  }
+
+  /**
+   * @brief 在指定位置插入初始化列表中的元素
+   * @param pos 插入位置的迭代器
+   * @param ilist 初始化列表
+   * @return 指向第一个插入元素的迭代器
+   *
+   * @details 时间复杂度: O(n)，其中n是插入的元素数量
+   */
+  iterator insert(iterator pos, std::initializer_list<T> ilist) {
+    return insert(pos, ilist.begin(), ilist.end());
+  }
+
+  /**
+   * @brief 在链表头部原地构造元素
+   * @tparam Args 构造参数类型
+   * @param args 构造参数
+   * @return 对新插入元素的引用
+   */
+  template <typename... Args>
+  reference emplace_front(Args&&... args) {
+    Node* new_node = new Node(std::forward<Args>(args)...);
+
+    if (empty()) {
+      head_ = tail_ = new_node;
+    } else {
+      new_node->next = head_;
+      head_->prev = new_node;
+      head_ = new_node;
+    }
+
+    ++size_;
+    return new_node->data;
+  }
+
+  /**
+   * @brief 在链表尾部原地构造元素
+   * @tparam Args 构造参数类型
+   * @param args 构造参数
+   * @return 对新插入元素的引用
+   */
+  template <typename... Args>
+  reference emplace_back(Args&&... args) {
+    Node* new_node = new Node(std::forward<Args>(args)...);
+
+    if (empty()) {
+      head_ = tail_ = new_node;
+    } else {
+      tail_->next = new_node;
+      new_node->prev = tail_;
+      tail_ = new_node;
+    }
+
+    ++size_;
+    return new_node->data;
+  }
+
+  /**
+   * @brief 在指定位置原地构造元素
+   * @tparam Args 构造参数类型
+   * @param pos 插入位置的迭代器
+   * @param args 构造参数
+   * @return 指向新插入元素的迭代器
+   */
+  template <typename... Args>
+  iterator emplace(iterator pos, Args&&... args) {
+    if (pos == begin()) {
+      emplace_front(std::forward<Args>(args)...);
+      return begin();
+    } else if (pos == end()) {
+      emplace_back(std::forward<Args>(args)...);
+      return iterator(tail_, this);
+    } else {
+      Node* new_node = new Node(std::forward<Args>(args)...);
+      Node* pos_node = pos.get_node();
+
+      new_node->next = pos_node;
+      new_node->prev = pos_node->prev;
+      pos_node->prev->next = new_node;
+      pos_node->prev = new_node;
+
+      ++size_;
+      return iterator(new_node, this);
+    }
   }
   /// @}
 
@@ -696,37 +894,81 @@ class DoublyLinkedList {
    * @brief 获取指向第一个元素的迭代器
    * @return 指向第一个元素的迭代器
    */
-  iterator begin() { return iterator(head_); }
+  iterator begin() { return iterator(head_, this); }
 
   /**
    * @brief 获取指向第一个元素的常量迭代器
    * @return 指向第一个元素的常量迭代器
    */
-  const_iterator begin() const { return const_iterator(head_); }
+  const_iterator begin() const { return const_iterator(head_, this); }
 
   /**
    * @brief 获取指向第一个元素的常量迭代器
    * @return 指向第一个元素的常量迭代器
    */
-  const_iterator cbegin() const { return const_iterator(head_); }
+  const_iterator cbegin() const { return const_iterator(head_, this); }
 
   /**
    * @brief 获取指向尾后位置的迭代器
    * @return 指向尾后位置的迭代器
    */
-  iterator end() { return iterator(nullptr); }
+  iterator end() { return iterator(nullptr, this); }
 
   /**
    * @brief 获取指向尾后位置的常量迭代器
    * @return 指向尾后位置的常量迭代器
    */
-  const_iterator end() const { return const_iterator(nullptr); }
+  const_iterator end() const { return const_iterator(nullptr, this); }
 
   /**
    * @brief 获取指向尾后位置的常量迭代器
    * @return 指向尾后位置的常量迭代器
    */
-  const_iterator cend() const { return const_iterator(nullptr); }
+  const_iterator cend() const { return const_iterator(nullptr, this); }
+
+  /**
+   * @brief 获取指向最后一个元素的反向迭代器
+   * @return 指向最后一个元素的反向迭代器
+   */
+  reverse_iterator rbegin() { return reverse_iterator(end()); }
+
+  /**
+   * @brief 获取指向最后一个元素的常量反向迭代器
+   * @return 指向最后一个元素的常量反向迭代器
+   */
+  const_reverse_iterator rbegin() const {
+    return const_reverse_iterator(end());
+  }
+
+  /**
+   * @brief 获取指向最后一个元素的常量反向迭代器
+   * @return 指向最后一个元素的常量反向迭代器
+   */
+  const_reverse_iterator crbegin() const {
+    return const_reverse_iterator(cend());
+  }
+
+  /**
+   * @brief 获取指向首前位置的反向迭代器
+   * @return 指向首前位置的反向迭代器
+   */
+  reverse_iterator rend() { return reverse_iterator(begin()); }
+
+  /**
+   * @brief 获取指向首前位置的常量反向迭代器
+   * @return 指向首前位置的常量反向迭代器
+   */
+  const_reverse_iterator rend() const {
+    return const_reverse_iterator(begin());
+  }
+
+  /**
+   * @brief 获取指向首前位置的常量反向迭代器
+   * @return 指向首前位置的常量反向迭代器
+   */
+  const_reverse_iterator crend() const {
+    return const_reverse_iterator(cbegin());
+  }
   /// @}
 
   /// @name 实用函数
@@ -765,30 +1007,22 @@ class DoublyLinkedList {
     delete node_to_delete;
     --size_;
 
-    return iterator(next_node);
+    return iterator(next_node, this);
   }
 
   /**
-   * @brief 移除所有等于指定值的元素
-   * @param value 要移除的值
-   * @return 移除的元素数量
+   * @brief 删除指定范围的元素
+   * @param first 范围起始迭代器
+   * @param last 范围结束迭代器
+   * @return 指向被删除范围之后元素的迭代器
    *
-   * @details 时间复杂度: O(n)
+   * @details 时间复杂度: O(n)，其中n是删除的元素数量
    */
-  size_t remove(const T& value) {
-    size_t removed_count = 0;
-    auto it = this->begin();
-
-    while (it != this->end()) {
-      if (*it == value) {
-        it = this->erase(it);
-        ++removed_count;
-      } else {
-        ++it;
-      }
+  iterator erase(iterator first, iterator last) {
+    while (first != last) {
+      first = erase(first);
     }
-
-    return removed_count;
+    return last;
   }
 
   /**

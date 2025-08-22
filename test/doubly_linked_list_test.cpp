@@ -36,6 +36,23 @@ TEST_F(DoublyLinkedListTest, DefaultConstructor) {
   EXPECT_EQ(int_list.begin(), int_list.end());
 }
 
+// 测试初始化列表构造函数
+TEST_F(DoublyLinkedListTest, InitializerListConstructor) {
+  DoublyLinkedList<int> list{1, 2, 3, 4, 5};
+
+  EXPECT_EQ(list.size(), 5);
+  EXPECT_EQ(list.front(), 1);
+  EXPECT_EQ(list.back(), 5);
+
+  // 验证所有元素
+  std::vector<int> expected = {1, 2, 3, 4, 5};
+  std::vector<int> actual;
+  for (const auto& value : list) {
+    actual.push_back(value);
+  }
+  EXPECT_EQ(actual, expected);
+}
+
 // 测试 push_back 和 push_front
 TEST_F(DoublyLinkedListTest, PushOperations) {
   // 测试 push_back
@@ -322,73 +339,130 @@ TEST_F(DoublyLinkedListTest, Clear) {
   EXPECT_EQ(int_list.begin(), int_list.end());
 }
 
-// 测试 find 操作
-TEST_F(DoublyLinkedListTest, FindOperations) {
-  // 添加元素
-  for (int i = 1; i <= 5; ++i) {
-    int_list.push_back(i);
-  }
+// 测试初始化列表赋值操作符
+TEST_F(DoublyLinkedListTest, InitializerListAssignment) {
+  int_list = {10, 20, 30};
 
-  // 测试找到元素
-  auto it = int_list.find(3);
-  EXPECT_NE(it, int_list.end());
-  EXPECT_EQ(*it, 3);
+  EXPECT_EQ(int_list.size(), 3);
+  EXPECT_EQ(int_list.front(), 10);
+  EXPECT_EQ(int_list.back(), 30);
 
-  // 测试找不到元素
-  auto not_found = int_list.find(10);
-  EXPECT_EQ(not_found, int_list.end());
-
-  // 测试常量版本
-  const auto& const_list = int_list;
-  auto const_it = const_list.find(2);
-  EXPECT_NE(const_it, const_list.end());
-  EXPECT_EQ(*const_it, 2);
+  // 测试重新赋值
+  int_list = {100, 200};
+  EXPECT_EQ(int_list.size(), 2);
+  EXPECT_EQ(int_list.front(), 100);
+  EXPECT_EQ(int_list.back(), 200);
 }
 
-// 测试 contains 操作
-TEST_F(DoublyLinkedListTest, Contains) {
-  // 添加元素
-  for (int i = 1; i <= 5; ++i) {
-    int_list.push_back(i);
-  }
+// 测试emplace操作
+TEST_F(DoublyLinkedListTest, EmplaceOperations) {
+  // 测试emplace_front
+  int_list.emplace_front(1);
+  EXPECT_EQ(int_list.size(), 1);
+  EXPECT_EQ(int_list.front(), 1);
 
-  EXPECT_TRUE(int_list.contains(1));
-  EXPECT_TRUE(int_list.contains(3));
-  EXPECT_TRUE(int_list.contains(5));
-  EXPECT_FALSE(int_list.contains(0));
-  EXPECT_FALSE(int_list.contains(10));
-  EXPECT_FALSE(int_list.contains(-1));
+  // 测试emplace_back
+  int_list.emplace_back(3);
+  EXPECT_EQ(int_list.size(), 2);
+  EXPECT_EQ(int_list.back(), 3);
+
+  // 测试emplace在中间位置
+  auto it = int_list.begin();
+  ++it;  // 指向end()之前的位置
+  auto inserted_it = int_list.emplace(it, 2);
+
+  EXPECT_EQ(int_list.size(), 3);
+  EXPECT_EQ(*inserted_it, 2);
+
+  // 验证顺序
+  std::vector<int> expected = {1, 2, 3};
+  std::vector<int> actual;
+  for (const auto& value : int_list) {
+    actual.push_back(value);
+  }
+  EXPECT_EQ(actual, expected);
 }
 
-// 测试 remove 操作
-TEST_F(DoublyLinkedListTest, Remove) {
-  // 添加元素，包括重复元素
+// 测试insert操作的各种变体
+TEST_F(DoublyLinkedListTest, InsertOperations) {
   int_list.push_back(1);
-  int_list.push_back(2);
-  int_list.push_back(3);
-  int_list.push_back(2);
-  int_list.push_back(4);
-  int_list.push_back(2);
+  int_list.push_back(5);
 
+  auto it = int_list.begin();
+  ++it;  // 指向5的位置
+
+  // 测试单个元素插入
+  auto inserted_it = int_list.insert(it, 3);
+  EXPECT_EQ(*inserted_it, 3);
+  EXPECT_EQ(int_list.size(), 3);
+
+  // 测试多个相同元素插入
+  inserted_it = int_list.insert(it, 2, 2);
+  EXPECT_EQ(*inserted_it, 2);
+  EXPECT_EQ(int_list.size(), 5);
+
+  // 测试初始化列表插入
+  inserted_it = int_list.insert(it, {4});
+  EXPECT_EQ(*inserted_it, 4);
   EXPECT_EQ(int_list.size(), 6);
 
-  // 移除所有的2
-  size_t removed = int_list.remove(2);
-  EXPECT_EQ(removed, 3);
+  // 验证最终顺序: 1, 3, 2, 2, 4, 5
+  std::vector<int> expected = {1, 3, 2, 2, 4, 5};
+  std::vector<int> actual;
+  for (const auto& value : int_list) {
+    actual.push_back(value);
+  }
+  EXPECT_EQ(actual, expected);
+}
+
+// 测试反向迭代器
+TEST_F(DoublyLinkedListTest, ReverseIterators) {
+  for (int i = 1; i <= 5; ++i) {
+    int_list.push_back(i);
+  }
+
+  // 测试反向迭代
+  std::vector<int> expected = {5, 4, 3, 2, 1};
+  std::vector<int> actual;
+
+  for (auto it = int_list.rbegin(); it != int_list.rend(); ++it) {
+    actual.push_back(*it);
+  }
+  EXPECT_EQ(actual, expected);
+
+  // 测试常量反向迭代器
+  const auto& const_list = int_list;
+  actual.clear();
+  for (auto it = const_list.crbegin(); it != const_list.crend(); ++it) {
+    actual.push_back(*it);
+  }
+  EXPECT_EQ(actual, expected);
+}
+
+// 测试范围erase
+TEST_F(DoublyLinkedListTest, RangeErase) {
+  for (int i = 1; i <= 5; ++i) {
+    int_list.push_back(i);
+  }
+
+  auto first = int_list.begin();
+  ++first;  // 指向2
+  auto last = first;
+  ++last;
+  ++last;  // 指向4之后的位置
+
+  auto result = int_list.erase(first, last);
+
   EXPECT_EQ(int_list.size(), 3);
+  EXPECT_EQ(*result, 4);  // 应该指向被删除范围后的元素
 
-  // 验证2已被完全移除
-  EXPECT_FALSE(int_list.contains(2));
-
-  // 验证其他元素仍然存在
-  EXPECT_TRUE(int_list.contains(1));
-  EXPECT_TRUE(int_list.contains(3));
-  EXPECT_TRUE(int_list.contains(4));
-
-  // 移除不存在的元素
-  size_t not_removed = int_list.remove(10);
-  EXPECT_EQ(not_removed, 0);
-  EXPECT_EQ(int_list.size(), 3);
+  // 验证剩余元素: 1, 4, 5
+  std::vector<int> expected = {1, 4, 5};
+  std::vector<int> actual;
+  for (const auto& value : int_list) {
+    actual.push_back(value);
+  }
+  EXPECT_EQ(actual, expected);
 }
 
 // 测试 erase 操作
@@ -465,6 +539,10 @@ TEST_F(DoublyLinkedListTest, STLAlgorithmCompatibility) {
   EXPECT_NE(it, int_list.end());
   EXPECT_EQ(*it, 3);
 
+  // 测试找不到元素
+  auto not_found = std::find(int_list.begin(), int_list.end(), 10);
+  EXPECT_EQ(not_found, int_list.end());
+
   // 测试 std::count
   int_list.push_back(3);  // 添加重复元素
   auto count = std::count(int_list.begin(), int_list.end(), 3);
@@ -473,6 +551,24 @@ TEST_F(DoublyLinkedListTest, STLAlgorithmCompatibility) {
   // 测试 std::distance
   auto distance = std::distance(int_list.begin(), int_list.end());
   EXPECT_EQ(distance, static_cast<std::ptrdiff_t>(int_list.size()));
+
+  // 测试 std::remove + erase 习惯用法
+  auto remove_it = std::remove(int_list.begin(), int_list.end(), 3);
+  int_list.erase(remove_it, int_list.end());
+
+  // 验证所有3都被移除
+  auto find_3 = std::find(int_list.begin(), int_list.end(), 3);
+  EXPECT_EQ(find_3, int_list.end());
+  EXPECT_EQ(int_list.size(), 4);  // 原来6个元素，删除2个3
+
+  // 测试 std::reverse
+  std::reverse(int_list.begin(), int_list.end());
+  std::vector<int> expected = {5, 4, 2, 1};
+  std::vector<int> actual;
+  for (const auto& value : int_list) {
+    actual.push_back(value);
+  }
+  EXPECT_EQ(actual, expected);
 }
 
 // 性能测试（简单版本）
@@ -530,12 +626,16 @@ TEST_F(DoublyLinkedListTest, StringType) {
   EXPECT_EQ(string_list.front(), "hi");
   EXPECT_EQ(string_list.back(), "world");
 
-  // 测试查找
-  auto it = string_list.find("world");
+  // 测试STL算法查找
+  auto it = std::find(string_list.begin(), string_list.end(), "world");
   EXPECT_NE(it, string_list.end());
   EXPECT_EQ(*it, "world");
 
-  // 测试包含
-  EXPECT_TRUE(string_list.contains("hello"));
-  EXPECT_FALSE(string_list.contains("goodbye"));
+  // 测试STL算法检查包含
+  auto found_hello = std::find(string_list.begin(), string_list.end(), "hello");
+  EXPECT_NE(found_hello, string_list.end());
+
+  auto found_goodbye =
+      std::find(string_list.begin(), string_list.end(), "goodbye");
+  EXPECT_EQ(found_goodbye, string_list.end());
 }
