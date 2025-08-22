@@ -26,7 +26,7 @@ namespace bmalloc {
  *
  *          核心特性：
  *          - 双向遍历：支持从头到尾和从尾到头的遍历
- *          - 高效插入/删除：O(1)时间复杂度的头尾操作
+ *          - 高效插入/删除：O(1) 时间复杂度的头尾操作
  *          - 内存安全：自动管理节点内存，防止内存泄漏
  *          - 迭代器支持：提供标准的迭代器接口
  *          - 异常安全：保证强异常安全性
@@ -41,9 +41,12 @@ class DoublyLinkedList {
    * @details 每个节点包含数据和指向前后节点的指针
    */
   struct Node {
-    T data;      ///< 节点存储的数据
-    Node* next;  ///< 指向下一个节点的指针
-    Node* prev;  ///< 指向前一个节点的指针
+    /// 节点存储的数据
+    T data;
+    /// 指向下一个节点的指针
+    Node* next;
+    /// 指向前一个节点的指针
+    Node* prev;
 
     /**
      * @brief 节点构造函数
@@ -68,9 +71,12 @@ class DoublyLinkedList {
         : data(std::forward<Args>(args)...), next(nullptr), prev(nullptr) {}
   };
 
-  Node* head_;   ///< 链表头节点指针
-  Node* tail_;   ///< 链表尾节点指针
-  size_t size_;  ///< 链表节点数量
+  /// 链表头节点指针
+  Node* head_;
+  /// 链表尾节点指针
+  Node* tail_;
+  /// 链表节点数量
+  size_t size_;
 
  public:
   // STL 容器类型别名
@@ -92,11 +98,11 @@ class DoublyLinkedList {
    * @class iterator
    * @brief 双向链表迭代器
    *
-   * @details 提供标准的双向迭代器功能，支持前向和后向遍历，完全符合STL标准
+   * @details 提供标准的双向迭代器功能，支持前向和后向遍历，完全符合 STL 标准
    */
   class iterator {
    public:
-    // STL 迭代器类型别名 - 符合C++标准
+    // STL 迭代器类型别名 - 符合 C++ 标准
     using iterator_category = std::bidirectional_iterator_tag;
     using value_type = T;
     using difference_type = std::ptrdiff_t;
@@ -104,9 +110,10 @@ class DoublyLinkedList {
     using reference = T&;
 
    private:
-    Node* current_;  ///< 当前指向的节点
-    const DoublyLinkedList*
-        container_;  ///< 指向容器的指针，用于处理end()迭代器
+    /// 当前指向的节点
+    Node* current_;
+    /// 指向容器的指针，用于处理 end() 迭代器
+    const DoublyLinkedList* container_;
 
    public:
     /**
@@ -173,7 +180,7 @@ class DoublyLinkedList {
       if (current_) {
         current_ = current_->prev;
       } else if (container_ && container_->tail_) {
-        // 如果当前是nullptr（end迭代器），移动到尾节点
+        // 如果当前是 nullptr（end 迭代器），移动到尾节点
         current_ = container_->tail_;
       }
       return *this;
@@ -245,11 +252,11 @@ class DoublyLinkedList {
    * @class const_iterator
    * @brief 双向链表常量迭代器
    *
-   * @details 提供只读访问的标准双向迭代器功能，符合STL标准
+   * @details 提供只读访问的标准双向迭代器功能，符合 STL 标准
    */
   class const_iterator {
    public:
-    // STL 迭代器类型别名 - 符合C++标准
+    // STL 迭代器类型别名 - 符合 C++ 标准
     using iterator_category = std::bidirectional_iterator_tag;
     using value_type = T;
     using difference_type = std::ptrdiff_t;
@@ -257,9 +264,10 @@ class DoublyLinkedList {
     using reference = const T&;
 
    private:
-    const Node* current_;  ///< 当前指向的节点
-    const DoublyLinkedList*
-        container_;  ///< 指向容器的指针，用于处理end()迭代器
+    /// 当前指向的节点
+    const Node* current_;
+    /// 指向容器的指针，用于处理 end() 迭代器
+    const DoublyLinkedList* container_;
 
    public:
     /**
@@ -335,7 +343,7 @@ class DoublyLinkedList {
       if (current_) {
         current_ = current_->prev;
       } else if (container_ && container_->tail_) {
-        // 如果当前是nullptr（end迭代器），移动到尾节点
+        // 如果当前是 nullptr（end 迭代器），移动到尾节点
         current_ = container_->tail_;
       }
       return *this;
@@ -568,7 +576,7 @@ class DoublyLinkedList {
    * @brief 在链表头部插入元素
    * @param value 要插入的元素值
    *
-   * @details 时间复杂度: O(1)
+   * @details 时间复杂度： O(1)
    */
   void push_front(const T& value) {
     Node* new_node = new Node(value);
@@ -588,7 +596,7 @@ class DoublyLinkedList {
    * @brief 在链表头部插入元素（移动语义）
    * @param value 要插入的元素值（右值引用）
    *
-   * @details 时间复杂度: O(1)
+   * @details 时间复杂度： O(1)
    */
   void push_front(T&& value) {
     Node* new_node = new Node(std::move(value));
@@ -608,7 +616,7 @@ class DoublyLinkedList {
    * @brief 在链表尾部插入元素
    * @param value 要插入的元素值
    *
-   * @details 时间复杂度: O(1)
+   * @details 时间复杂度： O(1)
    */
   void push_back(const T& value) {
     Node* new_node = new Node(value);
@@ -628,7 +636,7 @@ class DoublyLinkedList {
    * @brief 在链表尾部插入元素（移动语义）
    * @param value 要插入的元素值（右值引用）
    *
-   * @details 时间复杂度: O(1)
+   * @details 时间复杂度： O(1)
    */
   void push_back(T&& value) {
     Node* new_node = new Node(std::move(value));
@@ -647,7 +655,7 @@ class DoublyLinkedList {
   /**
    * @brief 删除链表头部元素
    *
-   * @details 时间复杂度: O(1)
+   * @details 时间复杂度： O(1)
    * @pre 链表不能为空
    */
   void pop_front() {
@@ -669,7 +677,7 @@ class DoublyLinkedList {
   /**
    * @brief 删除链表尾部元素
    *
-   * @details 时间复杂度: O(1)
+   * @details 时间复杂度： O(1)
    * @pre 链表不能为空
    */
   void pop_back() {
@@ -692,7 +700,7 @@ class DoublyLinkedList {
    * @brief 清空链表
    *
    * @details 删除所有节点并释放内存
-   *          时间复杂度: O(n)
+   *          时间复杂度： O(n)
    */
   void clear() {
     while (!empty()) {
@@ -706,7 +714,7 @@ class DoublyLinkedList {
    * @param value 要插入的元素值
    * @return 指向插入元素的迭代器
    *
-   * @details 时间复杂度: O(1)
+   * @details 时间复杂度： O(1)
    */
   iterator insert(iterator pos, const T& value) {
     if (pos == begin()) {
@@ -735,7 +743,7 @@ class DoublyLinkedList {
    * @param value 要插入的元素值（右值引用）
    * @return 指向插入元素的迭代器
    *
-   * @details 时间复杂度: O(1)
+   * @details 时间复杂度： O(1)
    */
   iterator insert(iterator pos, T&& value) {
     if (pos == begin()) {
@@ -765,7 +773,7 @@ class DoublyLinkedList {
    * @param value 要插入的元素值
    * @return 指向第一个插入元素的迭代器
    *
-   * @details 时间复杂度: O(count)
+   * @details 时间复杂度： O(count)
    */
   iterator insert(iterator pos, size_type count, const T& value) {
     if (count == 0) return pos;
@@ -785,7 +793,7 @@ class DoublyLinkedList {
    * @param last 范围结束迭代器
    * @return 指向第一个插入元素的迭代器
    *
-   * @details 时间复杂度: O(n)，其中n是插入的元素数量
+   * @details 时间复杂度： O(n)，其中 n 是插入的元素数量
    */
   template <typename InputIt>
   typename std::enable_if<!std::is_integral<InputIt>::value, iterator>::type
@@ -807,7 +815,7 @@ class DoublyLinkedList {
    * @param ilist 初始化列表
    * @return 指向第一个插入元素的迭代器
    *
-   * @details 时间复杂度: O(n)，其中n是插入的元素数量
+   * @details 时间复杂度： O(n)，其中 n 是插入的元素数量
    */
   iterator insert(iterator pos, std::initializer_list<T> ilist) {
     return insert(pos, ilist.begin(), ilist.end());
@@ -979,7 +987,7 @@ class DoublyLinkedList {
    * @param pos 要删除元素的迭代器
    * @return 指向被删除元素之后元素的迭代器
    *
-   * @details 时间复杂度: O(1)
+   * @details 时间复杂度： O(1)
    */
   iterator erase(iterator pos) {
     if (pos == this->end() || pos.get_node() == nullptr) {
@@ -1016,7 +1024,7 @@ class DoublyLinkedList {
    * @param last 范围结束迭代器
    * @return 指向被删除范围之后元素的迭代器
    *
-   * @details 时间复杂度: O(n)，其中n是删除的元素数量
+   * @details 时间复杂度： O(n)，其中 n 是删除的元素数量
    */
   iterator erase(iterator first, iterator last) {
     while (first != last) {
@@ -1028,7 +1036,7 @@ class DoublyLinkedList {
   /**
    * @brief 反转链表
    *
-   * @details 时间复杂度: O(n)
+   * @details 时间复杂度： O(n)
    */
   void reverse() {
     if (size_ <= 1) return;
@@ -1041,7 +1049,8 @@ class DoublyLinkedList {
       temp = current->prev;
       current->prev = current->next;
       current->next = temp;
-      current = current->prev;  // 注意：因为已经交换，所以向prev移动
+      // 注意：因为已经交换，所以向 prev 移动
+      current = current->prev;
     }
 
     // 交换 head 和 tail
