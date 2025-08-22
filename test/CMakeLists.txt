@@ -8,11 +8,9 @@ project(
 find_package(GTest REQUIRED)
 
 add_executable(${PROJECT_NAME}
-        doubly_linked_list_test.cpp
-        # buddy_test.cpp
-        # firstfit_test.cpp
+        buddy_test.cpp
+        firstfit_test.cpp
         slab_test.cpp
-        # slub_test.cpp
 )
 
 target_compile_options(${PROJECT_NAME} PRIVATE
