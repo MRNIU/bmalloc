@@ -70,6 +70,23 @@ class SlabTest : public ::testing::Test {
   void* test_memory_ = nullptr;
 };
 
+// 派生类用于访问 Slab 的 protected 方法
+template <class PageAllocator, class LogFunc = std::nullptr_t,
+          class Lock = LockBase>
+class TestableSlab : public Slab<PageAllocator, LogFunc, Lock> {
+ public:
+  using Base = Slab<PageAllocator, LogFunc, Lock>;
+  using Base::Base;  // 继承构造函数
+
+  // 公开 protected 方法用于测试
+  using Base::find_buffers_cache;
+  using Base::find_create_kmem_cache;
+  using Base::kmem_cache_alloc;
+  using Base::kmem_cache_destroy;
+  using Base::kmem_cache_free;
+  using Base::kmem_cache_shrink;
+};
+
 /**
  * @brief Slab 分配器实例化示例
  *
@@ -81,7 +98,7 @@ class SlabTest : public ::testing::Test {
 TEST_F(SlabTest, InstantiationExample) {
   // 定义具体的分配器类型
   using MyBuddy = Buddy<TestLogger>;
-  using MySlab = Slab<MyBuddy, TestLogger, TestLock>;
+  using MySlab = TestableSlab<MyBuddy, TestLogger, TestLock>;
 
   // 实例化 Slab 分配器
   MySlab slab("test_slab", test_memory_, kTestPages);
@@ -104,21 +121,21 @@ TEST_F(SlabTest, InstantiationExample) {
 TEST_F(SlabTest, DifferentTemplateParameterCombinations) {
   // 1. 使用默认模板参数的简化版本
   using SimpleBuddy = Buddy<>;  // 使用默认的 std::nullptr_t 和 LockBase
-  using SimpleSlab = Slab<SimpleBuddy>;  // 使用默认的 LogFunc 和 Lock
+  using SimpleSlab = TestableSlab<SimpleBuddy>;  // 使用默认的 LogFunc 和 Lock
 
   SimpleSlab simple_slab("simple_slab", test_memory_, kTestPages);
   EXPECT_EQ(simple_slab.GetFreeCount(), kTestPages);
 
   // 2. 只指定日志函数，使用默认锁
   using LoggedBuddy = Buddy<TestLogger>;
-  using LoggedSlab = Slab<LoggedBuddy, TestLogger>;
+  using LoggedSlab = TestableSlab<LoggedBuddy, TestLogger>;
 
   LoggedSlab logged_slab("logged_slab", test_memory_, kTestPages);
   EXPECT_EQ(logged_slab.GetFreeCount(), kTestPages);
 
   // 3. 完整指定所有模板参数
   using FullBuddy = Buddy<TestLogger>;
-  using FullSlab = Slab<FullBuddy, TestLogger, TestLock>;
+  using FullSlab = TestableSlab<FullBuddy, TestLogger, TestLock>;
 
   FullSlab full_slab("full_slab", test_memory_, kTestPages);
   EXPECT_EQ(full_slab.GetFreeCount(), kTestPages);
@@ -132,7 +149,7 @@ TEST_F(SlabTest, DifferentTemplateParameterCombinations) {
 TEST_F(SlabTest, KmemCacheCreateTest) {
   // 使用简单的配置
   using MyBuddy = Buddy<TestLogger>;
-  using MySlab = Slab<MyBuddy, TestLogger>;
+  using MySlab = TestableSlab<MyBuddy, TestLogger>;
 
   MySlab slab("test_slab", test_memory_, kTestPages);
 
@@ -148,7 +165,8 @@ TEST_F(SlabTest, KmemCacheCreateTest) {
   };
 
   // 1. 测试正常创建 cache
-  auto cache1 = slab.find_create_kmem_cache("test_cache_1", sizeof(int), ctor, dtor);
+  auto cache1 =
+      slab.find_create_kmem_cache("test_cache_1", sizeof(int), ctor, dtor);
   ASSERT_NE(cache1, nullptr);
   EXPECT_STREQ(cache1->name_, "test_cache_1");
   EXPECT_EQ(cache1->objectSize_, sizeof(int));
@@ -159,8 +177,8 @@ TEST_F(SlabTest, KmemCacheCreateTest) {
   EXPECT_EQ(cache1->error_code_, 0);
 
   // 2. 测试创建不同大小的 cache
-  auto cache2 =
-      slab.find_create_kmem_cache("test_cache_2", sizeof(double), nullptr, nullptr);
+  auto cache2 = slab.find_create_kmem_cache("test_cache_2", sizeof(double),
+                                            nullptr, nullptr);
   ASSERT_NE(cache2, nullptr);
   EXPECT_STREQ(cache2->name_, "test_cache_2");
   EXPECT_EQ(cache2->objectSize_, sizeof(double));
@@ -168,7 +186,8 @@ TEST_F(SlabTest, KmemCacheCreateTest) {
   EXPECT_EQ(cache2->dtor_, nullptr);
 
   // 3. 测试创建大对象的 cache（需要更高的 order）
-  auto cache3 = slab.find_create_kmem_cache("large_cache", 8192, nullptr, nullptr);
+  auto cache3 =
+      slab.find_create_kmem_cache("large_cache", 8192, nullptr, nullptr);
   ASSERT_NE(cache3, nullptr);
   EXPECT_STREQ(cache3->name_, "large_cache");
   EXPECT_EQ(cache3->objectSize_, 8192);
@@ -216,7 +235,7 @@ TEST_F(SlabTest, KmemCacheCreateTest) {
 TEST_F(SlabTest, KmemCacheShrinkTest) {
   // 使用简单的配置
   using MyBuddy = Buddy<TestLogger>;
-  using MySlab = Slab<MyBuddy, TestLogger>;
+  using MySlab = TestableSlab<MyBuddy, TestLogger>;
 
   MySlab slab("test_slab", test_memory_, kTestPages);
 
@@ -225,8 +244,8 @@ TEST_F(SlabTest, KmemCacheShrinkTest) {
   EXPECT_EQ(result1, 0);  // 对 nullptr 应该返回 0
 
   // 2. 创建一个测试缓存
-  auto cache = slab.find_create_kmem_cache("shrink_test_cache", sizeof(int), nullptr,
-                                      nullptr);
+  auto cache = slab.find_create_kmem_cache("shrink_test_cache", sizeof(int),
+                                           nullptr, nullptr);
   ASSERT_NE(cache, nullptr);
 
   std::cout << "Initial cache state:\n";
@@ -293,7 +312,7 @@ TEST_F(SlabTest, KmemCacheShrinkTest) {
 TEST_F(SlabTest, KmemCacheAllocTest) {
   // 使用简单的配置
   using MyBuddy = Buddy<TestLogger>;
-  using MySlab = Slab<MyBuddy, TestLogger>;
+  using MySlab = TestableSlab<MyBuddy, TestLogger>;
 
   MySlab slab("test_slab", test_memory_, kTestPages);
 
@@ -302,8 +321,8 @@ TEST_F(SlabTest, KmemCacheAllocTest) {
   EXPECT_EQ(result1, nullptr);
 
   // 2. 创建一个测试缓存
-  auto cache =
-      slab.find_create_kmem_cache("alloc_test_cache", sizeof(int), nullptr, nullptr);
+  auto cache = slab.find_create_kmem_cache("alloc_test_cache", sizeof(int),
+                                           nullptr, nullptr);
   ASSERT_NE(cache, nullptr);
 
   std::cout << "Initial cache state:\n";
@@ -436,13 +455,13 @@ TEST_F(SlabTest, KmemCacheAllocTest) {
 TEST_F(SlabTest, KmemCacheFreeTest) {
   // 使用简单的配置
   using MyBuddy = Buddy<TestLogger>;
-  using MySlab = Slab<MyBuddy, TestLogger>;
+  using MySlab = TestableSlab<MyBuddy, TestLogger>;
 
   MySlab slab("test_slab", test_memory_, kTestPages);
 
   // 1. 测试对 nullptr 的处理
-  auto cache =
-      slab.find_create_kmem_cache("free_test_cache", sizeof(int), nullptr, nullptr);
+  auto cache = slab.find_create_kmem_cache("free_test_cache", sizeof(int),
+                                           nullptr, nullptr);
   ASSERT_NE(cache, nullptr);
 
   // 测试 nullptr cache
@@ -630,7 +649,7 @@ TEST_F(SlabTest, KmallocTest) {
   std::cout << "\n=== Starting Alloc tests ===\n";
 
   using MyBuddy = Buddy<TestLogger>;
-  using MySlab = Slab<MyBuddy, TestLogger, TestLock>;
+  using MySlab = TestableSlab<MyBuddy, TestLogger, TestLock>;
 
   MySlab slab("slab_kmalloc_test", test_memory_, kTestPages);
 
@@ -790,7 +809,7 @@ TEST_F(SlabTest, FindBuffersCacheTest) {
   std::cout << "\n=== Starting find_buffers_cache tests ===\n";
 
   using MyBuddy = Buddy<TestLogger>;
-  using MySlab = Slab<MyBuddy, TestLogger, TestLock>;
+  using MySlab = TestableSlab<MyBuddy, TestLogger, TestLock>;
 
   MySlab slab("slab_find_test", test_memory_, kTestPages);
 
@@ -981,7 +1000,7 @@ TEST_F(SlabTest, KfreeTest) {
   std::cout << "\n=== Starting Free tests ===\n";
 
   using MyBuddy = Buddy<TestLogger>;
-  using MySlab = Slab<MyBuddy, TestLogger, TestLock>;
+  using MySlab = TestableSlab<MyBuddy, TestLogger, TestLock>;
 
   MySlab slab("slab_kfree_test", test_memory_, kTestPages);
 
@@ -1168,15 +1187,15 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
   std::cout << "\n=== Starting kmem_cache_destroy tests ===\n";
 
   using MyBuddy = Buddy<TestLogger>;
-  using MySlab = Slab<MyBuddy, TestLogger, TestLock>;
+  using MySlab = TestableSlab<MyBuddy, TestLogger, TestLock>;
 
   MySlab slab("slab_destroy_test", test_memory_, kTestPages);
 
   // 1. 基本缓存销毁测试
   std::cout << "1. Basic cache destroy test\n";
 
-  auto* cache1 =
-      slab.find_create_kmem_cache("destroy_test_1", sizeof(int), nullptr, nullptr);
+  auto* cache1 = slab.find_create_kmem_cache("destroy_test_1", sizeof(int),
+                                             nullptr, nullptr);
   ASSERT_NE(cache1, nullptr) << "Failed to create cache for destroy test";
   EXPECT_STREQ(cache1->name_, "destroy_test_1");
 
@@ -1206,7 +1225,8 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
   // 3. 销毁有分配对象的缓存测试
   std::cout << "3. Destroy cache with allocated objects test\n";
 
-  auto* cache2 = slab.find_create_kmem_cache("destroy_test_2", 64, nullptr, nullptr);
+  auto* cache2 =
+      slab.find_create_kmem_cache("destroy_test_2", 64, nullptr, nullptr);
   ASSERT_NE(cache2, nullptr)
       << "Failed to create cache for allocated objects test";
 
@@ -1269,7 +1289,8 @@ TEST_F(SlabTest, KmemCacheDestroyTest) {
       {"multi_destroy_512", 512}};
 
   for (const auto& [name, size] : cache_specs) {
-    auto* cache = slab.find_create_kmem_cache(name.c_str(), size, nullptr, nullptr);
+    auto* cache =
+        slab.find_create_kmem_cache(name.c_str(), size, nullptr, nullptr);
     if (cache != nullptr) {
       caches_to_destroy.push_back({cache, name});
 

@@ -19,6 +19,82 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
   using AllocatorBase<LogFunc, Lock>::GetFreeCount;
   using AllocatorBase<LogFunc, Lock>::GetUsedCount;
 
+  /**
+   * @brief 构造 Slab 分配器
+   * @param name 分配器名称
+   * @param start_addr 管理的内存起始地址
+   * @param page_count 管理的页数
+   */
+  explicit Slab(const char *name, void *start_addr, size_t page_count)
+      : AllocatorBase<LogFunc, Lock>(name, start_addr, page_count),
+        page_allocator_(name, start_addr, page_count) {
+    // 为cache_cache分配第一个slab
+    void *ptr = page_allocator_.Alloc(CACHE_CACHE_ORDER);
+    if (ptr == nullptr) {
+      return;
+    }
+
+    auto *slab = new (ptr) slab_t;
+
+    // 初始化 cache_cache_ 的 slab 链表
+    cache_cache_.slabs_free_ = slab;
+
+    // 设置 cache_cache_ 的基本属性
+    strcpy(cache_cache_.name_, "kmem_cache");
+    cache_cache_.objectSize_ = sizeof(kmem_cache_t);
+
+    // 初始化 slab 结构
+    slab->freeList_ =
+        reinterpret_cast<int *>(static_cast<char *>(ptr) + sizeof(slab_t));
+    slab->myCache_ = &cache_cache_;
+
+    // 计算每个 slab 能容纳的对象数量
+    long memory = (1 << cache_cache_.order_) * kPageSize;
+    memory -= sizeof(slab_t);
+    int n = 0;
+    while ((long)(memory - sizeof(uint32_t) - cache_cache_.objectSize_) >= 0) {
+      n++;
+      memory -= sizeof(uint32_t) + cache_cache_.objectSize_;
+    }
+
+    // 设置对象数组起始位置
+    slab->objects = static_cast<void *>(static_cast<char *>(ptr) +
+                                        sizeof(slab_t) + sizeof(uint32_t) * n);
+    auto *list = static_cast<kmem_cache_t *>(slab->objects);
+
+    // 初始化空闲对象链表
+    for (int i = 0; i < n; i++) {
+      new (&list[i]) kmem_cache_t;
+      slab->freeList_[i] = i + 1;
+    }
+
+    // 设置 cache_cache_ 的对象统计信息
+    cache_cache_.objectsInSlab_ = n;
+    cache_cache_.num_allocations_ = n;
+
+    // 设置缓存行对齐参数
+    cache_cache_.colour_max_ = memory / CACHE_L1_LINE_SIZE;
+    if (cache_cache_.colour_max_ > 0) {
+      cache_cache_.colour_next_ = 1;
+    } else {
+      cache_cache_.colour_next_ = 0;
+    }
+
+    // 将 cache_cache_ 加入全局 cache 链表
+    all_kmem_cache_ = &cache_cache_;
+  }
+
+  /// @name 构造/析构函数
+  /// @{
+  Slab() = default;
+  Slab(const Slab &) = delete;
+  Slab(Slab &&) = default;
+  auto operator=(const Slab &) -> Slab & = delete;
+  auto operator=(Slab &&) -> Slab & = default;
+  ~Slab() override = default;
+  /// @}
+
+ protected:
   struct kmem_cache_t;
   static constexpr size_t CACHE_L1_LINE_SIZE = 64;
   // 缓存名称的最大长度
@@ -282,7 +358,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       }
     }
 
-   private:
     // 在指定链表中寻找指定 slab
     slab_t *find_slab_in_slabs(const void *addr, const slab_t *slabs) const {
       auto slab_size = kPageSize * (1 << order_);
@@ -300,81 +375,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       return nullptr;
     }
   };
-
-  /**
-   * @brief 构造 Slab 分配器
-   * @param name 分配器名称
-   * @param start_addr 管理的内存起始地址
-   * @param page_count 管理的页数
-   */
-  explicit Slab(const char *name, void *start_addr, size_t page_count)
-      : AllocatorBase<LogFunc, Lock>(name, start_addr, page_count),
-        page_allocator_(name, start_addr, page_count) {
-    // 为cache_cache分配第一个slab
-    void *ptr = page_allocator_.Alloc(CACHE_CACHE_ORDER);
-    if (ptr == nullptr) {
-      return;
-    }
-
-    auto *slab = new (ptr) slab_t;
-
-    // 初始化 cache_cache_ 的 slab 链表
-    cache_cache_.slabs_free_ = slab;
-
-    // 设置 cache_cache_ 的基本属性
-    strcpy(cache_cache_.name_, "kmem_cache");
-    cache_cache_.objectSize_ = sizeof(kmem_cache_t);
-
-    // 初始化 slab 结构
-    slab->freeList_ =
-        reinterpret_cast<int *>(static_cast<char *>(ptr) + sizeof(slab_t));
-    slab->myCache_ = &cache_cache_;
-
-    // 计算每个 slab 能容纳的对象数量
-    long memory = (1 << cache_cache_.order_) * kPageSize;
-    memory -= sizeof(slab_t);
-    int n = 0;
-    while ((long)(memory - sizeof(uint32_t) - cache_cache_.objectSize_) >= 0) {
-      n++;
-      memory -= sizeof(uint32_t) + cache_cache_.objectSize_;
-    }
-
-    // 设置对象数组起始位置
-    slab->objects = static_cast<void *>(static_cast<char *>(ptr) +
-                                        sizeof(slab_t) + sizeof(uint32_t) * n);
-    auto *list = static_cast<kmem_cache_t *>(slab->objects);
-
-    // 初始化空闲对象链表
-    for (int i = 0; i < n; i++) {
-      new (&list[i]) kmem_cache_t;
-      slab->freeList_[i] = i + 1;
-    }
-
-    // 设置 cache_cache_ 的对象统计信息
-    cache_cache_.objectsInSlab_ = n;
-    cache_cache_.num_allocations_ = n;
-
-    // 设置缓存行对齐参数
-    cache_cache_.colour_max_ = memory / CACHE_L1_LINE_SIZE;
-    if (cache_cache_.colour_max_ > 0) {
-      cache_cache_.colour_next_ = 1;
-    } else {
-      cache_cache_.colour_next_ = 0;
-    }
-
-    // 将 cache_cache_ 加入全局 cache 链表
-    all_kmem_cache_ = &cache_cache_;
-  }
-
-  /// @name 构造/析构函数
-  /// @{
-  Slab() = default;
-  Slab(const Slab &) = delete;
-  Slab(Slab &&) = default;
-  auto operator=(const Slab &) -> Slab & = delete;
-  auto operator=(Slab &&) -> Slab & = default;
-  ~Slab() override = default;
-  /// @}
 
   /**
    * 创建一个新的 cache
@@ -881,7 +881,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     }
   }
 
- protected:
   using AllocatorBase<LogFunc, Lock>::Log;
   using AllocatorBase<LogFunc, Lock>::name_;
   using AllocatorBase<LogFunc, Lock>::start_addr_;
