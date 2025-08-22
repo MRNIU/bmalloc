@@ -16,30 +16,18 @@
 
 namespace bmalloc {
 
-/**
- * @brief 单层内存管理架构的 Malloc 实现
- * @tparam Allocator 分配器类型，直接处理用户的内存请求
- */
-template <class Allocator, class LogFunc, class Lock = LockBase>
-// requires std::derived_from<Allocator, AllocatorBase<LogFunc, Lock>>
-class Malloc {
+template <class LogFunc = std::nullptr_t, class Lock = LockBase>
+class Bmalloc {
  public:
-  /**
-   * @brief 构造 Malloc 实例
-   * @param start_addr 分配器管理的内存地址起点
-   * @param length 分配器管理的内存长度，单位为字节
-   * @param name 分配器名称（可选），默认为 "Malloc Allocator"
-   */
-  explicit Malloc(uint64_t start_addr, size_t length,
-                  const char* name = "Malloc Allocator")
-      : allocator_(name, start_addr, length) {}
+  explicit Bmalloc(void* start_addr, size_t bytes)
+      : allocator_("Bmalloc", start_addr, bytes / kPageSize) {}
 
-  Malloc() = default;
-  Malloc(const Malloc&) = delete;
-  Malloc(Malloc&&) = default;
-  auto operator=(const Malloc&) -> Malloc& = delete;
-  auto operator=(Malloc&&) -> Malloc& = default;
-  ~Malloc() = default;
+  Bmalloc() = default;
+  Bmalloc(const Bmalloc&) = delete;
+  Bmalloc(Bmalloc&&) = default;
+  auto operator=(const Bmalloc&) -> Bmalloc& = delete;
+  auto operator=(Bmalloc&&) -> Bmalloc& = default;
+  ~Bmalloc() = default;
 
   /**
    * @brief 分配指定大小的内存块
@@ -90,29 +78,9 @@ class Malloc {
   [[nodiscard]] auto malloc_size(void* ptr) -> size_t;
 
  private:
-  /// 分配器实例，直接响应 malloc/free 等接口调用
+  using PageAllocator = Buddy<LogFunc, Lock>;
+  using Allocator = Slab<PageAllocator, LogFunc, Lock>;
   Allocator allocator_;
-
-  /**
-   * @brief 将用户地址转换为内部地址
-   * @param user_ptr 用户指针
-   * @return uint64_t 内部地址
-   */
-  [[nodiscard]] auto UserPtrToInternalAddr(void* user_ptr) const -> uint64_t;
-
-  /**
-   * @brief 将内部地址转换为用户地址
-   * @param internal_addr 内部地址
-   * @return void* 用户指针
-   */
-  [[nodiscard]] auto InternalAddrToUserPtr(uint64_t internal_addr) const
-      -> void*;
-
-  /**
-   * @brief 获取内存块头信息的大小
-   * @return size_t 头信息大小
-   */
-  [[nodiscard]] static constexpr auto GetHeaderSize() -> size_t;
 };
 
 }  // namespace bmalloc
