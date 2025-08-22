@@ -31,19 +31,7 @@ namespace bmalloc {
  */
 template <typename T>
 class DoublyLinkedList {
- public:
-  // STL 容器类型别名
-  using value_type = T;
-  using size_type = std::size_t;
-  using difference_type = std::ptrdiff_t;
-  using reference = T&;
-  using const_reference = const T&;
-  using pointer = T*;
-  using const_pointer = const T*;
-
-  // 迭代器类前向声明
-  class iterator;
-  class const_iterator;
+ private:
   /**
    * @struct Node
    * @brief 双向链表节点结构
@@ -68,6 +56,24 @@ class DoublyLinkedList {
     explicit Node(T&& value)
         : data(std::move(value)), next(nullptr), prev(nullptr) {}
   };
+
+  Node* head_;   ///< 链表头节点指针
+  Node* tail_;   ///< 链表尾节点指针
+  size_t size_;  ///< 链表节点数量
+
+ public:
+  // STL 容器类型别名
+  using value_type = T;
+  using size_type = std::size_t;
+  using difference_type = std::ptrdiff_t;
+  using reference = T&;
+  using const_reference = const T&;
+  using pointer = T*;
+  using const_pointer = const T*;
+
+  // 迭代器类前向声明
+  class iterator;
+  class const_iterator;
 
   /**
    * @class iterator
@@ -357,11 +363,6 @@ class DoublyLinkedList {
     friend class DoublyLinkedList;
     friend class iterator;
   };
-
- private:
-  Node* head_;   ///< 链表头节点指针
-  Node* tail_;   ///< 链表尾节点指针
-  size_t size_;  ///< 链表节点数量
 
  public:
   /// @name 构造函数和析构函数
