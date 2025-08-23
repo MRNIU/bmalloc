@@ -73,6 +73,7 @@ class SlabTest : public ::testing::Test {
 // 派生类用于访问 Slab 的 protected 方法
 template <class PageAllocator, class LogFunc = std::nullptr_t,
           class Lock = LockBase>
+  requires std::derived_from<PageAllocator, AllocatorBase<LogFunc, Lock>>
 class TestableSlab : public Slab<PageAllocator, LogFunc, Lock> {
  public:
   using Base = Slab<PageAllocator, LogFunc, Lock>;
@@ -96,8 +97,8 @@ class TestableSlab : public Slab<PageAllocator, LogFunc, Lock> {
  * 3. Lock: 使用 TestLock 作为锁机制
  */
 TEST_F(SlabTest, InstantiationExample) {
-  // 定义具体的分配器类型
-  using MyBuddy = Buddy<TestLogger>;
+  // 定义具体的分配器类型 - 注意模板参数要匹配
+  using MyBuddy = Buddy<TestLogger, TestLock>;
   using MySlab = TestableSlab<MyBuddy, TestLogger, TestLock>;
 
   // 实例化 Slab 分配器
@@ -134,7 +135,7 @@ TEST_F(SlabTest, DifferentTemplateParameterCombinations) {
   EXPECT_EQ(logged_slab.GetFreeCount(), kTestPages);
 
   // 3. 完整指定所有模板参数
-  using FullBuddy = Buddy<TestLogger>;
+  using FullBuddy = Buddy<TestLogger, TestLock>;
   using FullSlab = TestableSlab<FullBuddy, TestLogger, TestLock>;
 
   FullSlab full_slab("full_slab", test_memory_, kTestPages);
@@ -648,7 +649,7 @@ TEST_F(SlabTest, KmemCacheFreeTest) {
 TEST_F(SlabTest, KmallocTest) {
   std::cout << "\n=== Starting Alloc tests ===\n";
 
-  using MyBuddy = Buddy<TestLogger>;
+  using MyBuddy = Buddy<TestLogger, TestLock>;
   using MySlab = TestableSlab<MyBuddy, TestLogger, TestLock>;
 
   MySlab slab("slab_kmalloc_test", test_memory_, kTestPages);
@@ -808,7 +809,7 @@ TEST_F(SlabTest, KmallocTest) {
 TEST_F(SlabTest, FindBuffersCacheTest) {
   std::cout << "\n=== Starting find_buffers_cache tests ===\n";
 
-  using MyBuddy = Buddy<TestLogger>;
+  using MyBuddy = Buddy<TestLogger, TestLock>;
   using MySlab = TestableSlab<MyBuddy, TestLogger, TestLock>;
 
   MySlab slab("slab_find_test", test_memory_, kTestPages);
@@ -999,7 +1000,7 @@ TEST_F(SlabTest, FindBuffersCacheTest) {
 TEST_F(SlabTest, KfreeTest) {
   std::cout << "\n=== Starting Free tests ===\n";
 
-  using MyBuddy = Buddy<TestLogger>;
+  using MyBuddy = Buddy<TestLogger, TestLock>;
   using MySlab = TestableSlab<MyBuddy, TestLogger, TestLock>;
 
   MySlab slab("slab_kfree_test", test_memory_, kTestPages);
@@ -1186,7 +1187,7 @@ TEST_F(SlabTest, KfreeTest) {
 TEST_F(SlabTest, KmemCacheDestroyTest) {
   std::cout << "\n=== Starting kmem_cache_destroy tests ===\n";
 
-  using MyBuddy = Buddy<TestLogger>;
+  using MyBuddy = Buddy<TestLogger, TestLock>;
   using MySlab = TestableSlab<MyBuddy, TestLogger, TestLock>;
 
   MySlab slab("slab_destroy_test", test_memory_, kTestPages);
