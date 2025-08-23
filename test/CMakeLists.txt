@@ -11,6 +11,7 @@ add_executable(${PROJECT_NAME}
         buddy_test.cpp
         firstfit_test.cpp
         slab_test.cpp
+        bmalloc_test.cpp
 )
 
 target_compile_options(${PROJECT_NAME} PRIVATE

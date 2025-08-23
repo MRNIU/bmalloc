@@ -11,7 +11,7 @@ namespace bmalloc {
 
 template <class PageAllocator, class LogFunc = std::nullptr_t,
           class Lock = LockBase>
-  requires std::derived_from<PageAllocator, AllocatorBase<LogFunc, LockBase>>
+  requires std::derived_from<PageAllocator, AllocatorBase<LogFunc, Lock>>
 class Slab : public AllocatorBase<LogFunc, Lock> {
  public:
   using AllocatorBase<LogFunc, Lock>::Alloc;
@@ -93,6 +93,24 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
   auto operator=(Slab &&) -> Slab & = default;
   ~Slab() override = default;
   /// @}
+
+  /**
+   * @brief 获取内存块的实际大小
+   * @param ptr 内存指针
+   * @return size_t 内存块的实际大小，如果ptr无效则返回0
+   */
+  [[nodiscard]] auto GetAllocatedSize(void *ptr) -> size_t {
+    if (ptr == nullptr) {
+      return 0;
+    }
+
+    auto cache = find_buffers_cache(ptr);
+    if (cache != nullptr) {
+      return cache->objectSize_;
+    }
+
+    return 0;
+  }
 
  protected:
   struct kmem_cache_t;
