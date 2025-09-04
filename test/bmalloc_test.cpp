@@ -62,7 +62,7 @@ class BmallocTest : public ::testing::Test {
     std::free(memory_pool);
   }
 
-  static constexpr size_t memory_size = 1024 * 1024;  // 1MB
+  static constexpr size_t memory_size = 1024 * 1024 * 16;  // 16MB
   void* memory_pool = nullptr;
   std::unique_ptr<Bmalloc<TestLogger, TestLock>> allocator;
 };
@@ -391,4 +391,208 @@ TEST_F(BmallocTest, ThreadSafety) {
 
   // 验证至少有一些分配成功
   EXPECT_GT(successful_allocations.load(), 0);
+}
+
+// 4K页面分配测试
+TEST_F(BmallocTest, Allocate4KPage) {
+  const size_t page_size = 4096;  // 4K page
+
+  // 测试单个4K页面分配
+  void* ptr = allocator->malloc(page_size);
+  EXPECT_NE(ptr, nullptr) << "Failed to allocate 4K page";
+
+  if (ptr != nullptr) {
+    // 验证分配的大小
+    size_t allocated_size = allocator->malloc_size(ptr);
+    EXPECT_GE(allocated_size, page_size)
+        << "Allocated size is smaller than requested";
+
+    // 数据验证 - 写入测试模式
+    char* bytes = static_cast<char*>(ptr);
+
+    // 1. 填充整个页面为0xAA
+    std::memset(bytes, 0xAA, page_size);
+
+    // 2. 验证写入成功
+    for (size_t i = 0; i < page_size; i++) {
+      EXPECT_EQ(bytes[i], static_cast<char>(0xAA))
+          << "Data verification failed at offset " << i;
+    }
+
+    // 3. 测试边界写入 - 写入不同的模式到页面的不同区域
+    // 页面开始 - 256字节填充0x11
+    std::memset(bytes, 0x11, 256);
+    // 页面中间 - 256字节填充0x22
+    std::memset(bytes + (page_size / 2) - 128, 0x22, 256);
+    // 页面末尾 - 256字节填充0x33
+    std::memset(bytes + page_size - 256, 0x33, 256);
+
+    // 4. 验证不同区域的数据
+    // 验证开始区域
+    for (size_t i = 0; i < 256; i++) {
+      EXPECT_EQ(bytes[i], static_cast<char>(0x11))
+          << "Start region verification failed at offset " << i;
+    }
+
+    // 验证中间区域
+    for (size_t i = 0; i < 256; i++) {
+      size_t offset = (page_size / 2) - 128 + i;
+      EXPECT_EQ(bytes[offset], static_cast<char>(0x22))
+          << "Middle region verification failed at offset " << offset;
+    }
+
+    // 验证末尾区域
+    for (size_t i = 0; i < 256; i++) {
+      size_t offset = page_size - 256 + i;
+      EXPECT_EQ(bytes[offset], static_cast<char>(0x33))
+          << "End region verification failed at offset " << offset;
+    }
+
+    // 5. 测试递增模式写入和验证
+    for (size_t i = 0; i < page_size; i++) {
+      bytes[i] = static_cast<char>(i % 256);
+    }
+
+    // 验证递增模式
+    for (size_t i = 0; i < page_size; i++) {
+      EXPECT_EQ(bytes[i], static_cast<char>(i % 256))
+          << "Incremental pattern verification failed at offset " << i;
+    }
+
+    allocator->free(ptr);
+  }
+}
+
+// 多个4K页面分配测试
+TEST_F(BmallocTest, MultipleAllocate4KPages) {
+  const size_t page_size = 4096;
+  const size_t num_pages = 2;  // 尝试分配10个4K页面
+  std::vector<void*> pages;
+
+  // 分配多个4K页面
+  for (size_t i = 0; i < num_pages; i++) {
+    void* ptr = allocator->malloc(page_size);
+    if (ptr != nullptr) {
+      pages.push_back(ptr);
+
+      // 为每个页面写入唯一的标识模式
+      char* bytes = static_cast<char*>(ptr);
+      char pattern = static_cast<char>(0x10 + i);  // 每个页面使用不同的模式
+      std::memset(bytes, pattern, page_size);
+    }
+  }
+
+  EXPECT_GT(pages.size(), 0) << "No 4K pages were successfully allocated";
+
+  // 验证每个页面的数据完整性
+  for (size_t i = 0; i < pages.size(); i++) {
+    char* bytes = static_cast<char*>(pages[i]);
+    char expected_pattern = static_cast<char>(0x10 + i);
+
+    // 检查页面开始、中间、末尾的数据
+    EXPECT_EQ(bytes[0], expected_pattern)
+        << "Page " << i << " start verification failed";
+    EXPECT_EQ(bytes[page_size / 2], expected_pattern)
+        << "Page " << i << " middle verification failed";
+    EXPECT_EQ(bytes[page_size - 1], expected_pattern)
+        << "Page " << i << " end verification failed";
+
+    // 随机检查一些位置
+    for (size_t j = 0; j < 10; j++) {
+      size_t random_offset = (j * 409) % page_size;  // 伪随机偏移
+      EXPECT_EQ(bytes[random_offset], expected_pattern)
+          << "Page " << i << " random check failed at offset " << random_offset;
+    }
+  }
+
+  // 释放所有页面
+  for (void* ptr : pages) {
+    allocator->free(ptr);
+  }
+}
+
+// 4K页面对齐分配测试
+TEST_F(BmallocTest, Aligned4KPageAllocation) {
+  const size_t page_size = 4096;
+
+  // 测试4K对齐的4K页面分配
+  void* ptr = allocator->aligned_alloc(page_size, page_size);
+
+  if (ptr != nullptr) {
+    // 验证对齐
+    uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+    EXPECT_EQ(addr % page_size, 0) << "4K page is not properly aligned";
+
+    // 数据验证 - 使用交替模式
+    char* bytes = static_cast<char*>(ptr);
+
+    // 写入交替的0xFF和0x00模式
+    for (size_t i = 0; i < page_size; i++) {
+      bytes[i] =
+          (i % 2 == 0) ? static_cast<char>(0xFF) : static_cast<char>(0x00);
+    }
+
+    // 验证交替模式
+    for (size_t i = 0; i < page_size; i++) {
+      char expected =
+          (i % 2 == 0) ? static_cast<char>(0xFF) : static_cast<char>(0x00);
+      EXPECT_EQ(bytes[i], expected)
+          << "Alternating pattern verification failed at offset " << i;
+    }
+
+    allocator->free(ptr);
+  } else {
+    // 如果4K对齐分配失败，至少测试普通的4K分配
+    ptr = allocator->malloc(page_size);
+    EXPECT_NE(ptr, nullptr) << "Both aligned and regular 4K allocation failed";
+    if (ptr != nullptr) {
+      allocator->free(ptr);
+    }
+  }
+}
+
+// 4K页面压力测试
+TEST_F(BmallocTest, StressTest4KPages) {
+  const size_t page_size = 4096;
+  const size_t max_pages = 20;  // 限制最大页面数以适应内存池
+  std::vector<std::pair<void*, uint32_t>> allocated_pages;
+
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_int_distribution<uint32_t> pattern_dist(0, UINT32_MAX);
+
+  // 分配阶段
+  for (size_t i = 0; i < max_pages; i++) {
+    void* ptr = allocator->malloc(page_size);
+    if (ptr != nullptr) {
+      uint32_t pattern = pattern_dist(gen);
+      allocated_pages.push_back({ptr, pattern});
+
+      // 使用32位模式填充页面
+      uint32_t* words = static_cast<uint32_t*>(ptr);
+      size_t num_words = page_size / sizeof(uint32_t);
+
+      for (size_t j = 0; j < num_words; j++) {
+        words[j] = pattern;
+      }
+    }
+  }
+
+  EXPECT_GT(allocated_pages.size(), 0) << "No pages allocated in stress test";
+
+  // 验证阶段
+  for (const auto& [ptr, expected_pattern] : allocated_pages) {
+    uint32_t* words = static_cast<uint32_t*>(ptr);
+    size_t num_words = page_size / sizeof(uint32_t);
+
+    for (size_t i = 0; i < num_words; i++) {
+      EXPECT_EQ(words[i], expected_pattern)
+          << "Stress test verification failed at word " << i;
+    }
+  }
+
+  // 释放阶段
+  for (const auto& [ptr, pattern] : allocated_pages) {
+    allocator->free(ptr);
+  }
 }
