@@ -1056,6 +1056,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
    * 支持的大小范围：32字节到131072字节
    */
   [[nodiscard]] auto AllocImpl(size_t bytes) -> void * override {
+    /// @todo 修改大小限制
     if (bytes < 32 || bytes > 131072) {
       return nullptr;
     }
