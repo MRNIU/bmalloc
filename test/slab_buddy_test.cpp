@@ -1,7 +1,5 @@
 /**
  * Copyright The bmalloc Contributors
- * @file slab_test.cpp
- * @brief Slab分配器的Google Test测试用例
  */
 
 #include "slab.hpp"
@@ -48,7 +46,7 @@ class TestLock : public LockBase {
 };
 
 // 测试夹具
-class SlabTest : public ::testing::Test {
+class SlabBuddyTest : public ::testing::Test {
  protected:
   static constexpr size_t kTestMemorySize =
       128 * 1024;  // 128KB，支持更大的测试
@@ -96,7 +94,7 @@ class TestableSlab : public Slab<PageAllocator, LogFunc, Lock> {
  * 2. LogFunc: 使用 TestLogger 作为日志函数
  * 3. Lock: 使用 TestLock 作为锁机制
  */
-TEST_F(SlabTest, InstantiationExample) {
+TEST_F(SlabBuddyTest, InstantiationExample) {
   // 定义具体的分配器类型 - 注意模板参数要匹配
   using MyBuddy = Buddy<TestLogger, TestLock>;
   using MySlab = TestableSlab<MyBuddy, TestLogger, TestLock>;
@@ -119,7 +117,7 @@ TEST_F(SlabTest, InstantiationExample) {
 /**
  * @brief 不同模板参数组合的实例化示例
  */
-TEST_F(SlabTest, DifferentTemplateParameterCombinations) {
+TEST_F(SlabBuddyTest, DifferentTemplateParameterCombinations) {
   // 1. 使用默认模板参数的简化版本
   using SimpleBuddy = Buddy<>;  // 使用默认的 std::nullptr_t 和 LockBase
   using SimpleSlab = TestableSlab<SimpleBuddy>;  // 使用默认的 LogFunc 和 Lock
@@ -147,7 +145,7 @@ TEST_F(SlabTest, DifferentTemplateParameterCombinations) {
 /**
  * @brief 测试 find_create_kmem_cache 函数
  */
-TEST_F(SlabTest, KmemCacheCreateTest) {
+TEST_F(SlabBuddyTest, KmemCacheCreateTest) {
   // 使用简单的配置
   using MyBuddy = Buddy<TestLogger>;
   using MySlab = TestableSlab<MyBuddy, TestLogger>;
@@ -233,7 +231,7 @@ TEST_F(SlabTest, KmemCacheCreateTest) {
 /**
  * @brief 测试 kmem_cache_shrink 函数
  */
-TEST_F(SlabTest, KmemCacheShrinkTest) {
+TEST_F(SlabBuddyTest, KmemCacheShrinkTest) {
   // 使用简单的配置
   using MyBuddy = Buddy<TestLogger>;
   using MySlab = TestableSlab<MyBuddy, TestLogger>;
@@ -310,7 +308,7 @@ TEST_F(SlabTest, KmemCacheShrinkTest) {
 /**
  * @brief 测试 kmem_cache_alloc 函数
  */
-TEST_F(SlabTest, KmemCacheAllocTest) {
+TEST_F(SlabBuddyTest, KmemCacheAllocTest) {
   // 使用简单的配置
   using MyBuddy = Buddy<TestLogger>;
   using MySlab = TestableSlab<MyBuddy, TestLogger>;
@@ -453,7 +451,7 @@ TEST_F(SlabTest, KmemCacheAllocTest) {
 /**
  * @brief 测试 kmem_cache_free 函数
  */
-TEST_F(SlabTest, KmemCacheFreeTest) {
+TEST_F(SlabBuddyTest, KmemCacheFreeTest) {
   // 使用简单的配置
   using MyBuddy = Buddy<TestLogger>;
   using MySlab = TestableSlab<MyBuddy, TestLogger>;
@@ -646,7 +644,7 @@ TEST_F(SlabTest, KmemCacheFreeTest) {
  * 4. 内存对齐测试
  * 5. 大量分配测试
  */
-TEST_F(SlabTest, KmallocTest) {
+TEST_F(SlabBuddyTest, KmallocTest) {
   std::cout << "\n=== Starting Alloc tests ===\n";
 
   using MyBuddy = Buddy<TestLogger, TestLock>;
@@ -806,7 +804,7 @@ TEST_F(SlabTest, KmallocTest) {
  * 3. 查找不同大小缓存中的对象
  * 4. 边界条件测试
  */
-TEST_F(SlabTest, FindBuffersCacheTest) {
+TEST_F(SlabBuddyTest, FindBuffersCacheTest) {
   std::cout << "\n=== Starting find_buffers_cache tests ===\n";
 
   using MyBuddy = Buddy<TestLogger, TestLock>;
@@ -997,7 +995,7 @@ TEST_F(SlabTest, FindBuffersCacheTest) {
  * 5. 多次分配和释放测试
  * 6. 释放后的内存状态验证
  */
-TEST_F(SlabTest, KfreeTest) {
+TEST_F(SlabBuddyTest, KfreeTest) {
   std::cout << "\n=== Starting Free tests ===\n";
 
   using MyBuddy = Buddy<TestLogger, TestLock>;
@@ -1184,7 +1182,7 @@ TEST_F(SlabTest, KfreeTest) {
  * 5. 多个缓存销毁测试
  * 6. 销毁后的状态验证
  */
-TEST_F(SlabTest, KmemCacheDestroyTest) {
+TEST_F(SlabBuddyTest, KmemCacheDestroyTest) {
   std::cout << "\n=== Starting kmem_cache_destroy tests ===\n";
 
   using MyBuddy = Buddy<TestLogger, TestLock>;
