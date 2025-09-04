@@ -93,6 +93,14 @@ class MallocPageAllocator : public AllocatorBase<LogFunc, Lock> {
    * @return 分配的内存地址，失败返回 nullptr
    */
   auto AllocImpl(size_t page_count) -> void* override {
+    // 检查有效的页数
+    if (page_count == 0) {
+      if constexpr (!std::is_same_v<LogFunc, std::nullptr_t>) {
+        LogFunc{}("MallocPageAllocator: Cannot allocate 0 pages\n");
+      }
+      return nullptr;
+    }
+
     size_t size = page_count * kPageSize;
 
     // 使用 aligned_alloc 确保页对齐
@@ -127,6 +135,7 @@ class MallocPageAllocator : public AllocatorBase<LogFunc, Lock> {
    * @param page_count 要释放的页数（如果为0，会自动查找）
    */
   void FreeImpl(void* addr, size_t page_count = 0) override {
+    (void)page_count;  // 标记参数为已使用，避免警告
     if (addr == nullptr) {
       return;
     }
