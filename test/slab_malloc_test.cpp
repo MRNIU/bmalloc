@@ -89,14 +89,17 @@ class MallocPageAllocator : public AllocatorBase<LogFunc, Lock> {
  protected:
   /**
    * @brief 分配内存实现
-   * @param page_count 要分配的页数
+   * @param order 阶数，实际分配 2^order 个页面
    * @return 分配的内存地址，失败返回 nullptr
    */
-  auto AllocImpl(size_t page_count) -> void* override {
-    // 检查有效的页数
-    if (page_count == 0) {
+  auto AllocImpl(size_t order) -> void* override {
+    // 计算实际需要分配的页数
+    size_t page_count = 1ULL << order;
+    
+    // 检查有效的阶数
+    if (order > 20) {  // 防止过大的分配请求
       if constexpr (!std::is_same_v<LogFunc, std::nullptr_t>) {
-        LogFunc{}("MallocPageAllocator: Cannot allocate 0 pages\n");
+        LogFunc{}("MallocPageAllocator: Order %zu too large\n", order);
       }
       return nullptr;
     }
@@ -121,8 +124,8 @@ class MallocPageAllocator : public AllocatorBase<LogFunc, Lock> {
 
       if constexpr (!std::is_same_v<LogFunc, std::nullptr_t>) {
         LogFunc{}(
-            "MallocPageAllocator: Allocated %zu pages (%zu bytes) at %p\n",
-            page_count, size, ptr);
+            "MallocPageAllocator: Allocated %zu pages (%zu bytes) at %p (order %zu)\n",
+            page_count, size, ptr, order);
       }
     }
 
@@ -132,10 +135,10 @@ class MallocPageAllocator : public AllocatorBase<LogFunc, Lock> {
   /**
    * @brief 释放内存实现
    * @param addr 要释放的内存地址
-   * @param page_count 要释放的页数（如果为0，会自动查找）
+   * @param order 要释放的阶数（如果为0，会自动查找）
    */
-  void FreeImpl(void* addr, size_t page_count = 0) override {
-    (void)page_count;  // 标记参数为已使用，避免警告
+  void FreeImpl(void* addr, size_t order = 0) override {
+    (void)order;  // 标记参数为已使用，避免警告
     if (addr == nullptr) {
       return;
     }
