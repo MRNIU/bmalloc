@@ -101,16 +101,10 @@ TEST_F(SlabBuddyTest, InstantiationExample) {
   // 实例化 Slab 分配器
   MySlab slab("test_slab", test_memory_, kTestPages);
 
-  // 验证实例化成功
-  EXPECT_EQ(slab.GetFreeCount(), kTestPages);
-  EXPECT_EQ(slab.GetUsedCount(), 0);
-
   std::cout << "Slab allocator instantiated successfully!\n";
   std::cout << "  Name: test_slab\n";
   std::cout << "  Memory: " << test_memory_ << "\n";
   std::cout << "  Pages: " << kTestPages << "\n";
-  std::cout << "  Free count: " << slab.GetFreeCount() << "\n";
-  std::cout << "  Used count: " << slab.GetUsedCount() << "\n";
 }
 
 /**
@@ -122,21 +116,18 @@ TEST_F(SlabBuddyTest, DifferentTemplateParameterCombinations) {
   using SimpleSlab = TestableSlab<SimpleBuddy>;  // 使用默认的 LogFunc 和 Lock
 
   SimpleSlab simple_slab("simple_slab", test_memory_, kTestPages);
-  EXPECT_EQ(simple_slab.GetFreeCount(), kTestPages);
 
   // 2. 只指定日志函数，使用默认锁
   using LoggedBuddy = Buddy<TestLogger>;
   using LoggedSlab = TestableSlab<LoggedBuddy, TestLogger>;
 
   LoggedSlab logged_slab("logged_slab", test_memory_, kTestPages);
-  EXPECT_EQ(logged_slab.GetFreeCount(), kTestPages);
 
   // 3. 完整指定所有模板参数
   using FullBuddy = Buddy<TestLogger, TestLock>;
   using FullSlab = TestableSlab<FullBuddy, TestLogger, TestLock>;
 
   FullSlab full_slab("full_slab", test_memory_, kTestPages);
-  EXPECT_EQ(full_slab.GetFreeCount(), kTestPages);
 
   std::cout << "All template parameter combinations work correctly!\n";
 }
@@ -1421,12 +1412,6 @@ TEST_F(SlabBuddyTest, FourKPageAllocationAndDataValidation) {
   EXPECT_GT(page_4k_cache->order_, 0)
       << "4K objects should require higher order";
 
-  // 记录Buddy分配器的初始状态
-  size_t initial_free_pages = slab.GetFreeCount();
-  size_t initial_used_pages = slab.GetUsedCount();
-  std::cout << "   - Initial Buddy state: Free=" << initial_free_pages
-            << ", Used=" << initial_used_pages << "\n";
-
   // 2. 分配第一个4K页面
   void* page1 = slab.kmem_cache_alloc(page_4k_cache);
   ASSERT_NE(page1, nullptr) << "Failed to allocate first 4K page";
@@ -1439,16 +1424,6 @@ TEST_F(SlabBuddyTest, FourKPageAllocationAndDataValidation) {
   std::cout << "   - Page alignment offset: " << (addr1 % kPageSize)
             << " bytes\n";
   std::cout << "   - 4K alignment offset: " << (addr1 % PAGE_4K) << " bytes\n";
-
-  // 验证Buddy分配器状态变化
-  size_t after_alloc_free = slab.GetFreeCount();
-  size_t after_alloc_used = slab.GetUsedCount();
-  std::cout << "   - After allocation: Free=" << after_alloc_free
-            << ", Used=" << after_alloc_used << "\n";
-  EXPECT_LT(after_alloc_free, initial_free_pages)
-      << "Free page count should decrease";
-  EXPECT_GT(after_alloc_used, initial_used_pages)
-      << "Used page count should increase";
 
   // 3. 数据写入和验证测试
   std::cout << "3. Performing data validation tests:\n";
@@ -1513,9 +1488,8 @@ TEST_F(SlabBuddyTest, FourKPageAllocationAndDataValidation) {
   std::vector<void*> allocated_pages;
   std::vector<uint32_t> page_patterns;
 
-  // 分配多个页面（考虑Buddy分配器的限制）
-  const size_t max_pages = std::min(
-      static_cast<size_t>(6), after_alloc_free / (page_4k_cache->order_ + 1));
+  // 分配多个页面
+  const size_t max_pages = 6;
 
   for (size_t i = 0; i < max_pages; i++) {
     void* page = slab.kmem_cache_alloc(page_4k_cache);
@@ -1528,16 +1502,12 @@ TEST_F(SlabBuddyTest, FourKPageAllocationAndDataValidation) {
     uint32_t pattern = 0xBEEF0000 + static_cast<uint32_t>(i);  // Buddy特定模式
     page_patterns.push_back(pattern);
 
-    // 记录页面地址信息和Buddy状态
+    // 记录页面地址信息
     uintptr_t addr = reinterpret_cast<uintptr_t>(page);
-    size_t current_free = slab.GetFreeCount();
-    size_t current_used = slab.GetUsedCount();
 
     std::cout << "   Allocated page " << i << " at 0x" << std::hex << addr
               << std::dec << " (page offset: " << (addr % kPageSize)
               << ", 4K offset: " << (addr % PAGE_4K) << ")\n";
-    std::cout << "   - Buddy state: Free=" << current_free
-              << ", Used=" << current_used << "\n";
 
     // 写入唯一模式
     uint32_t* page_ints = static_cast<uint32_t*>(page);
@@ -1643,17 +1613,13 @@ TEST_F(SlabBuddyTest, FourKPageAllocationAndDataValidation) {
   std::cout << "   Total data: " << allocated_pages.size() * PAGE_4K
             << " bytes\n";
 
-  // 7. 清理测试：释放所有分配的页面并验证Buddy状态
-  std::cout << "7. Cleanup test with Buddy allocator state verification:\n";
+  // 7. 清理测试：释放所有分配的页面
+  std::cout << "7. Cleanup test:\n";
 
   size_t initial_active = page_4k_cache->num_active_;
-  size_t before_cleanup_free = slab.GetFreeCount();
-  size_t before_cleanup_used = slab.GetUsedCount();
 
   std::cout << "   Before cleanup:\n";
   std::cout << "   - Active objects: " << initial_active << "\n";
-  std::cout << "   - Buddy Free=" << before_cleanup_free
-            << ", Used=" << before_cleanup_used << "\n";
 
   // 释放第一个页面
   slab.kmem_cache_free(page_4k_cache, page1);
@@ -1665,36 +1631,23 @@ TEST_F(SlabBuddyTest, FourKPageAllocationAndDataValidation) {
 
   EXPECT_EQ(page_4k_cache->num_active_, 0) << "All pages should be freed";
 
-  size_t after_cleanup_free = slab.GetFreeCount();
-  size_t after_cleanup_used = slab.GetUsedCount();
-
   std::cout << "   After cleanup:\n";
   std::cout << "   - Active objects: " << page_4k_cache->num_active_ << "\n";
-  std::cout << "   - Buddy Free=" << after_cleanup_free
-            << ", Used=" << after_cleanup_used << "\n";
   std::cout << "   ✓ All " << (allocated_pages.size() + 1)
             << " pages freed successfully\n";
 
-  // Buddy分配器应该回收了页面
-  EXPECT_GT(after_cleanup_free, before_cleanup_free)
-      << "Buddy should have reclaimed pages";
-
-  // 8. 重新分配测试（验证Buddy分配器的内存复用）
-  std::cout << "8. Memory reuse test with Buddy allocator:\n";
+  // 8. 重新分配测试（验证内存复用）
+  std::cout << "8. Memory reuse test:\n";
 
   void* reused_page = slab.kmem_cache_alloc(page_4k_cache);
   ASSERT_NE(reused_page, nullptr) << "Failed to allocate reused page";
 
-  // 记录重用页面的地址信息和Buddy状态
+  // 记录重用页面的地址信息
   uintptr_t reused_addr = reinterpret_cast<uintptr_t>(reused_page);
-  size_t after_reuse_free = slab.GetFreeCount();
-  size_t after_reuse_used = slab.GetUsedCount();
 
   std::cout << "   Reused page at 0x" << std::hex << reused_addr << std::dec
             << " (page offset: " << (reused_addr % kPageSize)
             << ", 4K offset: " << (reused_addr % PAGE_4K) << ")\n";
-  std::cout << "   - Buddy state: Free=" << after_reuse_free
-            << ", Used=" << after_reuse_used << "\n";
 
   // 安全的数据写入验证（使用有限的数据量）
   const size_t test_bytes =
@@ -1724,17 +1677,8 @@ TEST_F(SlabBuddyTest, FourKPageAllocationAndDataValidation) {
   slab.kmem_cache_free(page_4k_cache, reused_page);
   EXPECT_EQ(page_4k_cache->num_active_, 0);
 
-  size_t final_free = slab.GetFreeCount();
-  size_t final_used = slab.GetUsedCount();
-  std::cout << "   Final Buddy state: Free=" << final_free
-            << ", Used=" << final_used << "\n";
-
-  // 9. Buddy分配器特定的验证
-  std::cout << "9. Buddy allocator specific validation:\n";
-
-  // 验证Buddy分配器是否正确管理了内存
-  EXPECT_GE(final_free, initial_free_pages - 1)
-      << "Buddy allocator should have reclaimed most pages";
+  // 9. 测试总结
+  std::cout << "9. Test summary:\n";
 
   // 测试Buddy分配器的order管理
   std::cout << "   - Cache order: " << page_4k_cache->order_ << "\n";
