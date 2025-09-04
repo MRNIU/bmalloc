@@ -1083,6 +1083,18 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     // 从cache中分配对象
     buff = kmem_cache_alloc(buffCachep);
 
+    // 更新计数器：分配成功时更新used_count_和free_count_
+    if (buff != nullptr) {
+      // 计算分配的页数（对象大小向上舍入到页大小）
+      size_t pages_allocated = (j + kPageSize - 1) / kPageSize;
+      if (pages_allocated == 0) pages_allocated = 1;
+
+      used_count_ += pages_allocated;
+      if (free_count_ >= pages_allocated) {
+        free_count_ -= pages_allocated;
+      }
+    }
+
     return buff;
   }
 
@@ -1113,8 +1125,21 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
       return;
     }
 
+    // 获取对象大小用于更新计数器
+    size_t object_size = buffCachep->objectSize_;
+
     // 释放对象
     kmem_cache_free(buffCachep, addr);
+
+    // 更新计数器：释放时更新used_count_和free_count_
+    // 计算释放的页数（对象大小向上舍入到页大小）
+    size_t pages_freed = (object_size + kPageSize - 1) / kPageSize;
+    if (pages_freed == 0) pages_freed = 1;
+
+    if (used_count_ >= pages_freed) {
+      used_count_ -= pages_freed;
+    }
+    free_count_ += pages_freed;
 
     // 如果 cache 有空闲 slab, 尝试收缩以节省内存
     if (buffCachep->slabs_free_ != nullptr) {
