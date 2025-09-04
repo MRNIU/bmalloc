@@ -596,3 +596,160 @@ TEST_F(BmallocTest, StressTest4KPages) {
     allocator->free(ptr);
   }
 }
+
+// 专门的4K对齐分配测试 - 使用aligned_alloc
+TEST_F(BmallocTest, AlignedAlloc4KPageWithDataValidation) {
+  const size_t page_size = 4096;
+  const size_t alignment = 4096;  // 4K对齐
+  
+  // 测试单个4K对齐页面分配
+  void* ptr = allocator->aligned_alloc(alignment, page_size);
+  EXPECT_NE(ptr, nullptr) << "Failed to allocate 4K-aligned 4K page";
+  
+  if (ptr != nullptr) {
+    // 1. 验证4K对齐
+    uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+    EXPECT_EQ(addr % alignment, 0) 
+      << "Allocated memory is not 4K-aligned. Address: 0x" << std::hex << addr;
+    
+    // 2. 验证分配的大小
+    size_t allocated_size = allocator->malloc_size(ptr);
+    EXPECT_GE(allocated_size, page_size) 
+      << "Allocated size (" << allocated_size << ") is smaller than requested (" << page_size << ")";
+    
+    char* bytes = static_cast<char*>(ptr);
+    
+    // 3. 边界测试 - 写入页面边界位置
+    bytes[0] = 0xAA;              // 第一个字节
+    bytes[page_size - 1] = 0xBB;  // 最后一个字节
+    
+    // 验证边界写入
+    EXPECT_EQ(bytes[0], static_cast<char>(0xAA)) << "First byte write failed";
+    EXPECT_EQ(bytes[page_size - 1], static_cast<char>(0xBB)) << "Last byte write failed";
+    
+    // 4. 分区数据验证 - 将页面分为4个1K区域，每个区域填充不同模式
+    const size_t quarter_size = page_size / 4;
+    
+    // 填充第1个1K区域为0x11
+    std::memset(bytes, 0x11, quarter_size);
+    // 填充第2个1K区域为0x22
+    std::memset(bytes + quarter_size, 0x22, quarter_size);
+    // 填充第3个1K区域为0x33
+    std::memset(bytes + 2 * quarter_size, 0x33, quarter_size);
+    // 填充第4个1K区域为0x44
+    std::memset(bytes + 3 * quarter_size, 0x44, quarter_size);
+    
+    // 验证每个1K区域的数据
+    for (size_t region = 0; region < 4; region++) {
+      char expected_pattern = static_cast<char>(0x11 + region * 0x11);
+      size_t region_start = region * quarter_size;
+      
+      // 检查区域开始、中间、结束的几个字节
+      EXPECT_EQ(bytes[region_start], expected_pattern)
+        << "Region " << region << " start verification failed";
+      EXPECT_EQ(bytes[region_start + quarter_size / 2], expected_pattern)
+        << "Region " << region << " middle verification failed";
+      EXPECT_EQ(bytes[region_start + quarter_size - 1], expected_pattern)
+        << "Region " << region << " end verification failed";
+    }
+    
+    // 5. 64位字对齐写入测试
+    uint64_t* words = reinterpret_cast<uint64_t*>(ptr);
+    size_t num_words = page_size / sizeof(uint64_t);
+    const uint64_t test_pattern = 0x123456789ABCDEF0ULL;
+    
+    // 填充64位模式
+    for (size_t i = 0; i < num_words; i++) {
+      words[i] = test_pattern ^ (i * 0x0101010101010101ULL);  // 每个字有轻微变化
+    }
+    
+    // 验证64位模式
+    for (size_t i = 0; i < num_words; i++) {
+      uint64_t expected = test_pattern ^ (i * 0x0101010101010101ULL);
+      EXPECT_EQ(words[i], expected)
+        << "64-bit word verification failed at index " << i 
+        << ", expected: 0x" << std::hex << expected 
+        << ", got: 0x" << std::hex << words[i];
+    }
+    
+    // 6. 缓存行边界测试 (假设64字节缓存行)
+    const size_t cache_line_size = 64;
+    const size_t num_cache_lines = page_size / cache_line_size;
+    
+    // 在每个缓存行的开始写入标识
+    for (size_t i = 0; i < num_cache_lines; i++) {
+      size_t offset = i * cache_line_size;
+      bytes[offset] = static_cast<char>(i & 0xFF);
+    }
+    
+    // 验证缓存行标识
+    for (size_t i = 0; i < num_cache_lines; i++) {
+      size_t offset = i * cache_line_size;
+      EXPECT_EQ(bytes[offset], static_cast<char>(i & 0xFF))
+        << "Cache line marker verification failed at line " << i;
+    }
+    
+    allocator->free(ptr);
+  }
+}
+
+// 多个4K对齐页面分配测试
+TEST_F(BmallocTest, MultipleAligned4KPages) {
+  const size_t page_size = 4096;
+  const size_t alignment = 4096;
+  const size_t num_pages = 3;  // 限制数量避免内存不足
+  std::vector<void*> aligned_pages;
+  
+  // 分配多个4K对齐页面
+  for (size_t i = 0; i < num_pages; i++) {
+    void* ptr = allocator->aligned_alloc(alignment, page_size);
+    if (ptr != nullptr) {
+      // 验证对齐
+      uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+      EXPECT_EQ(addr % alignment, 0) 
+        << "Page " << i << " is not 4K-aligned. Address: 0x" << std::hex << addr;
+      
+      aligned_pages.push_back(ptr);
+      
+      // 为每个页面写入唯一的重复模式
+      uint16_t pattern = static_cast<uint16_t>(0x1000 + i * 0x111);
+      
+      uint16_t* words = reinterpret_cast<uint16_t*>(ptr);
+      size_t num_words = page_size / sizeof(uint16_t);
+      
+      // 填充整个页面
+      for (size_t j = 0; j < num_words; j++) {
+        words[j] = pattern;
+      }
+    }
+  }
+  
+  EXPECT_GT(aligned_pages.size(), 0) << "No 4K-aligned pages were successfully allocated";
+  
+  // 验证所有页面的数据完整性
+  for (size_t i = 0; i < aligned_pages.size(); i++) {
+    uint16_t* words = reinterpret_cast<uint16_t*>(aligned_pages[i]);
+    uint16_t expected_pattern = static_cast<uint16_t>(0x1000 + i * 0x111);
+    size_t num_words = page_size / sizeof(uint16_t);
+    
+    // 检查开始、中间、结束位置
+    EXPECT_EQ(words[0], expected_pattern) 
+      << "Aligned page " << i << " start verification failed";
+    EXPECT_EQ(words[num_words / 2], expected_pattern) 
+      << "Aligned page " << i << " middle verification failed";
+    EXPECT_EQ(words[num_words - 1], expected_pattern) 
+      << "Aligned page " << i << " end verification failed";
+    
+    // 随机抽样检查
+    for (size_t j = 0; j < 10; j++) {
+      size_t random_index = (j * 997) % num_words;  // 伪随机索引
+      EXPECT_EQ(words[random_index], expected_pattern)
+        << "Aligned page " << i << " random check failed at word " << random_index;
+    }
+  }
+  
+  // 释放所有页面
+  for (void* ptr : aligned_pages) {
+    allocator->free(ptr);
+  }
+}
