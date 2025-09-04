@@ -1072,7 +1072,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     void *buff = nullptr;
 
     // 生成cache名称，格式为"size-XXX"
-    char name[20];
+    char name[20]{};
     strcpy(name, "size-");
     itoa(j, num);
     strcat(name, num);
