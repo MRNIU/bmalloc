@@ -2,8 +2,6 @@
  * Copyright The bmalloc Contributors
  */
 
-#include "slab.hpp"
-
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -20,6 +18,7 @@
 #include <vector>
 
 #include "buddy.hpp"
+#include "slab.hpp"
 
 using namespace bmalloc;
 
@@ -1378,4 +1377,375 @@ TEST_F(SlabBuddyTest, KmemCacheDestroyTest) {
   std::cout << "Edge case testing passed\n";
 
   std::cout << "=== kmem_cache_destroy tests completed successfully! ===\n";
+}
+
+/**
+ * @brief 测试 4K 页面分配和数据验证 (使用 Buddy 分配器)
+ *
+ * 这个测试用例专门测试4K大小的页面分配，包括：
+ * 1. 分配4K大小的对象
+ * 2. 验证数据写入和读取的正确性
+ * 3. 边界检查和内存安全验证
+ * 4. 多个4K页面的并发分配
+ * 5. Buddy分配器特定的验证
+ *
+ * 注意：Buddy分配器可能提供更好的对齐保证
+ */
+TEST_F(SlabBuddyTest, FourKPageAllocationAndDataValidation) {
+  // 使用带日志的Buddy分配器配置
+  using MyBuddy = Buddy<TestLogger>;
+  using MySlab = TestableSlab<MyBuddy, TestLogger>;
+
+  MySlab slab("4k_page_buddy_test_slab", test_memory_, kTestPages);
+
+  // 定义4K页面大小 (4096 bytes)
+  static constexpr size_t PAGE_4K = 4096;
+
+  std::cout << "\n=== 4K Page Allocation and Data Validation Test (Buddy "
+               "Allocator) ===\n";
+
+  // 1. 创建4K页面缓存
+  auto page_4k_cache = slab.find_create_kmem_cache("4k_page_buddy_cache",
+                                                   PAGE_4K, nullptr, nullptr);
+  ASSERT_NE(page_4k_cache, nullptr)
+      << "Failed to create 4K page cache with Buddy allocator";
+
+  std::cout << "1. Created 4K page cache with Buddy allocator:\n";
+  std::cout << "   - Object size: " << page_4k_cache->objectSize_ << " bytes\n";
+  std::cout << "   - Order: " << page_4k_cache->order_ << "\n";
+  std::cout << "   - Objects per slab: " << page_4k_cache->objectsInSlab_
+            << "\n";
+
+  // 验证缓存配置
+  EXPECT_EQ(page_4k_cache->objectSize_, PAGE_4K);
+  EXPECT_GT(page_4k_cache->order_, 0)
+      << "4K objects should require higher order";
+
+  // 记录Buddy分配器的初始状态
+  size_t initial_free_pages = slab.GetFreeCount();
+  size_t initial_used_pages = slab.GetUsedCount();
+  std::cout << "   - Initial Buddy state: Free=" << initial_free_pages
+            << ", Used=" << initial_used_pages << "\n";
+
+  // 2. 分配第一个4K页面
+  void* page1 = slab.kmem_cache_alloc(page_4k_cache);
+  ASSERT_NE(page1, nullptr) << "Failed to allocate first 4K page";
+
+  std::cout << "2. Allocated first 4K page at address: " << page1 << "\n";
+
+  // 记录地址信息并检查Buddy分配器可能提供的对齐
+  uintptr_t addr1 = reinterpret_cast<uintptr_t>(page1);
+  std::cout << "   - Address: 0x" << std::hex << addr1 << std::dec << "\n";
+  std::cout << "   - Page alignment offset: " << (addr1 % kPageSize)
+            << " bytes\n";
+  std::cout << "   - 4K alignment offset: " << (addr1 % PAGE_4K) << " bytes\n";
+
+  // 验证Buddy分配器状态变化
+  size_t after_alloc_free = slab.GetFreeCount();
+  size_t after_alloc_used = slab.GetUsedCount();
+  std::cout << "   - After allocation: Free=" << after_alloc_free
+            << ", Used=" << after_alloc_used << "\n";
+  EXPECT_LT(after_alloc_free, initial_free_pages)
+      << "Free page count should decrease";
+  EXPECT_GT(after_alloc_used, initial_used_pages)
+      << "Used page count should increase";
+
+  // 3. 数据写入和验证测试
+  std::cout << "3. Performing data validation tests:\n";
+
+  // 测试模式1: 写入特定模式并验证
+  uint32_t* int_ptr = static_cast<uint32_t*>(page1);
+  const uint32_t test_pattern = 0xBEEFCAFE;  // 使用不同的模式来区分Buddy测试
+  const size_t num_ints = PAGE_4K / sizeof(uint32_t);
+
+  // 写入测试模式
+  for (size_t i = 0; i < num_ints; i++) {
+    int_ptr[i] = test_pattern + static_cast<uint32_t>(i);
+  }
+
+  // 验证数据完整性
+  bool data_valid = true;
+  for (size_t i = 0; i < num_ints; i++) {
+    if (int_ptr[i] != test_pattern + static_cast<uint32_t>(i)) {
+      data_valid = false;
+      std::cout << "   ERROR: Data mismatch at index " << i
+                << ", expected: " << std::hex << (test_pattern + i)
+                << ", got: " << int_ptr[i] << std::dec << "\n";
+      break;
+    }
+  }
+
+  EXPECT_TRUE(data_valid) << "Data integrity check failed";
+  if (data_valid) {
+    std::cout << "   ✓ Pattern write/read test passed (" << num_ints
+              << " integers)\n";
+  }
+
+  // 测试模式2: 边界写入测试
+  char* byte_ptr = static_cast<char*>(page1);
+
+  // 保存原始数据以便恢复
+  char original_first = byte_ptr[0];
+  char original_last = byte_ptr[PAGE_4K - 1];
+  char original_middle = byte_ptr[PAGE_4K / 2];
+
+  // 写入边界字节
+  byte_ptr[0] = 'B';            // 第一个字节 (Buddy)
+  byte_ptr[PAGE_4K - 1] = 'Y';  // 最后一个字节
+  byte_ptr[PAGE_4K / 2] = 'D';  // 中间字节
+
+  // 验证边界字节
+  EXPECT_EQ(byte_ptr[0], 'B') << "First byte verification failed";
+  EXPECT_EQ(byte_ptr[PAGE_4K - 1], 'Y') << "Last byte verification failed";
+  EXPECT_EQ(byte_ptr[PAGE_4K / 2], 'D') << "Middle byte verification failed";
+
+  std::cout << "   ✓ Boundary write/read test passed\n";
+
+  // 恢复原始数据
+  byte_ptr[0] = original_first;
+  byte_ptr[PAGE_4K - 1] = original_last;
+  byte_ptr[PAGE_4K / 2] = original_middle;
+
+  // 4. 分配多个4K页面并验证
+  std::cout
+      << "4. Testing multiple 4K page allocations with Buddy allocator:\n";
+
+  std::vector<void*> allocated_pages;
+  std::vector<uint32_t> page_patterns;
+
+  // 分配多个页面（考虑Buddy分配器的限制）
+  const size_t max_pages = std::min(
+      static_cast<size_t>(6), after_alloc_free / (page_4k_cache->order_ + 1));
+
+  for (size_t i = 0; i < max_pages; i++) {
+    void* page = slab.kmem_cache_alloc(page_4k_cache);
+    if (page == nullptr) {
+      std::cout << "   Could only allocate " << i << " additional pages\n";
+      break;
+    }
+
+    allocated_pages.push_back(page);
+    uint32_t pattern = 0xBEEF0000 + static_cast<uint32_t>(i);  // Buddy特定模式
+    page_patterns.push_back(pattern);
+
+    // 记录页面地址信息和Buddy状态
+    uintptr_t addr = reinterpret_cast<uintptr_t>(page);
+    size_t current_free = slab.GetFreeCount();
+    size_t current_used = slab.GetUsedCount();
+
+    std::cout << "   Allocated page " << i << " at 0x" << std::hex << addr
+              << std::dec << " (page offset: " << (addr % kPageSize)
+              << ", 4K offset: " << (addr % PAGE_4K) << ")\n";
+    std::cout << "   - Buddy state: Free=" << current_free
+              << ", Used=" << current_used << "\n";
+
+    // 写入唯一模式
+    uint32_t* page_ints = static_cast<uint32_t*>(page);
+    for (size_t j = 0; j < num_ints; j++) {
+      page_ints[j] = pattern + static_cast<uint32_t>(j);
+    }
+  }
+
+  std::cout << "   Successfully allocated " << allocated_pages.size()
+            << " additional 4K pages using Buddy allocator\n";
+
+  // 5. 验证所有页面的数据完整性
+  std::cout << "5. Verifying data integrity across all pages:\n";
+
+  // 验证第一个页面 (检查之前的模式是否还在)
+  data_valid = true;
+  for (size_t i = 0; i < num_ints; i++) {
+    if (int_ptr[i] != test_pattern + static_cast<uint32_t>(i)) {
+      data_valid = false;
+      std::cout << "   WARNING: Original page data changed at index " << i
+                << "\n";
+      break;
+    }
+  }
+  if (data_valid) {
+    std::cout << "   ✓ Original page data integrity maintained\n";
+  }
+
+  // 验证所有新分配的页面
+  bool all_pages_valid = true;
+  for (size_t page_idx = 0; page_idx < allocated_pages.size(); page_idx++) {
+    uint32_t* page_ints = static_cast<uint32_t*>(allocated_pages[page_idx]);
+    uint32_t expected_pattern = page_patterns[page_idx];
+
+    bool page_valid = true;
+    for (size_t i = 0; i < num_ints; i++) {
+      if (page_ints[i] != expected_pattern + static_cast<uint32_t>(i)) {
+        page_valid = false;
+        std::cout << "   ERROR: Page " << page_idx
+                  << " data corruption at index " << i << "\n";
+        all_pages_valid = false;
+        break;
+      }
+    }
+
+    if (page_valid) {
+      std::cout << "   ✓ Page " << page_idx << " data integrity verified\n";
+    }
+  }
+
+  EXPECT_TRUE(all_pages_valid) << "Some pages failed data integrity check";
+
+  // 6. Buddy分配器特定的性能测试
+  std::cout << "6. Buddy allocator performance test - sequential write/read:\n";
+
+  auto start_time = std::chrono::high_resolution_clock::now();
+
+  // 连续写入（使用Buddy特定的模式）
+  for (size_t page_idx = 0; page_idx < allocated_pages.size(); page_idx++) {
+    void* page = allocated_pages[page_idx];
+    uint64_t* long_ptr = static_cast<uint64_t*>(page);
+    const size_t num_longs = PAGE_4K / sizeof(uint64_t);
+
+    for (size_t i = 0; i < num_longs; i++) {
+      long_ptr[i] = static_cast<uint64_t>(0xBEEF0000 + page_idx) << 32 |
+                    static_cast<uint64_t>(i);
+    }
+  }
+
+  auto mid_time = std::chrono::high_resolution_clock::now();
+
+  // 连续读取验证
+  bool perf_valid = true;
+  for (size_t page_idx = 0; page_idx < allocated_pages.size(); page_idx++) {
+    void* page = allocated_pages[page_idx];
+    uint64_t* long_ptr = static_cast<uint64_t*>(page);
+    const size_t num_longs = PAGE_4K / sizeof(uint64_t);
+
+    for (size_t i = 0; i < num_longs; i++) {
+      uint64_t expected = static_cast<uint64_t>(0xBEEF0000 + page_idx) << 32 |
+                          static_cast<uint64_t>(i);
+      if (long_ptr[i] != expected) {
+        perf_valid = false;
+        std::cout << "   Performance test validation failed at page "
+                  << page_idx << ", index " << i << "\n";
+        break;
+      }
+    }
+    if (!perf_valid) break;
+  }
+
+  auto end_time = std::chrono::high_resolution_clock::now();
+
+  EXPECT_TRUE(perf_valid) << "Performance test data validation failed";
+
+  auto write_time = std::chrono::duration_cast<std::chrono::microseconds>(
+      mid_time - start_time);
+  auto read_time = std::chrono::duration_cast<std::chrono::microseconds>(
+      end_time - mid_time);
+
+  std::cout << "   Write time: " << write_time.count() << " μs\n";
+  std::cout << "   Read time: " << read_time.count() << " μs\n";
+  std::cout << "   Total data: " << allocated_pages.size() * PAGE_4K
+            << " bytes\n";
+
+  // 7. 清理测试：释放所有分配的页面并验证Buddy状态
+  std::cout << "7. Cleanup test with Buddy allocator state verification:\n";
+
+  size_t initial_active = page_4k_cache->num_active_;
+  size_t before_cleanup_free = slab.GetFreeCount();
+  size_t before_cleanup_used = slab.GetUsedCount();
+
+  std::cout << "   Before cleanup:\n";
+  std::cout << "   - Active objects: " << initial_active << "\n";
+  std::cout << "   - Buddy Free=" << before_cleanup_free
+            << ", Used=" << before_cleanup_used << "\n";
+
+  // 释放第一个页面
+  slab.kmem_cache_free(page_4k_cache, page1);
+
+  // 释放其他页面
+  for (void* page : allocated_pages) {
+    slab.kmem_cache_free(page_4k_cache, page);
+  }
+
+  EXPECT_EQ(page_4k_cache->num_active_, 0) << "All pages should be freed";
+
+  size_t after_cleanup_free = slab.GetFreeCount();
+  size_t after_cleanup_used = slab.GetUsedCount();
+
+  std::cout << "   After cleanup:\n";
+  std::cout << "   - Active objects: " << page_4k_cache->num_active_ << "\n";
+  std::cout << "   - Buddy Free=" << after_cleanup_free
+            << ", Used=" << after_cleanup_used << "\n";
+  std::cout << "   ✓ All " << (allocated_pages.size() + 1)
+            << " pages freed successfully\n";
+
+  // Buddy分配器应该回收了页面
+  EXPECT_GT(after_cleanup_free, before_cleanup_free)
+      << "Buddy should have reclaimed pages";
+
+  // 8. 重新分配测试（验证Buddy分配器的内存复用）
+  std::cout << "8. Memory reuse test with Buddy allocator:\n";
+
+  void* reused_page = slab.kmem_cache_alloc(page_4k_cache);
+  ASSERT_NE(reused_page, nullptr) << "Failed to allocate reused page";
+
+  // 记录重用页面的地址信息和Buddy状态
+  uintptr_t reused_addr = reinterpret_cast<uintptr_t>(reused_page);
+  size_t after_reuse_free = slab.GetFreeCount();
+  size_t after_reuse_used = slab.GetUsedCount();
+
+  std::cout << "   Reused page at 0x" << std::hex << reused_addr << std::dec
+            << " (page offset: " << (reused_addr % kPageSize)
+            << ", 4K offset: " << (reused_addr % PAGE_4K) << ")\n";
+  std::cout << "   - Buddy state: Free=" << after_reuse_free
+            << ", Used=" << after_reuse_used << "\n";
+
+  // 安全的数据写入验证（使用有限的数据量）
+  const size_t test_bytes =
+      std::min(PAGE_4K, static_cast<size_t>(1024));  // 只测试前1KB
+  char* check_ptr = static_cast<char*>(reused_page);
+
+  // 写入Buddy特定的测试模式
+  for (size_t i = 0; i < test_bytes; i++) {
+    check_ptr[i] = static_cast<char>(0xBD);  // BD for Buddy
+  }
+
+  // 验证数据
+  bool reuse_valid = true;
+  for (size_t i = 0; i < test_bytes; i++) {
+    if (check_ptr[i] != static_cast<char>(0xBD)) {
+      reuse_valid = false;
+      std::cout << "   Data validation failed at byte " << i << "\n";
+      break;
+    }
+  }
+
+  EXPECT_TRUE(reuse_valid) << "Reused page data validation failed";
+  std::cout << "   ✓ Reused page validated successfully (" << test_bytes
+            << " bytes tested)\n";
+
+  // 最终清理
+  slab.kmem_cache_free(page_4k_cache, reused_page);
+  EXPECT_EQ(page_4k_cache->num_active_, 0);
+
+  size_t final_free = slab.GetFreeCount();
+  size_t final_used = slab.GetUsedCount();
+  std::cout << "   Final Buddy state: Free=" << final_free
+            << ", Used=" << final_used << "\n";
+
+  // 9. Buddy分配器特定的验证
+  std::cout << "9. Buddy allocator specific validation:\n";
+
+  // 验证Buddy分配器是否正确管理了内存
+  EXPECT_GE(final_free, initial_free_pages - 1)
+      << "Buddy allocator should have reclaimed most pages";
+
+  // 测试Buddy分配器的order管理
+  std::cout << "   - Cache order: " << page_4k_cache->order_ << "\n";
+  std::cout << "   - Objects per slab: " << page_4k_cache->objectsInSlab_
+            << "\n";
+  std::cout << "   - Expected pages per allocation: "
+            << (1 << page_4k_cache->order_) << "\n";
+
+  EXPECT_EQ(page_4k_cache->objectsInSlab_, 1)
+      << "4K objects should have 1 object per slab";
+
+  std::cout << "\n=== 4K Page Allocation and Data Validation Test (Buddy "
+               "Allocator) Completed Successfully ===\n";
 }
