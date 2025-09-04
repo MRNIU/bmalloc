@@ -1319,7 +1319,7 @@ TEST_F(SlabStandardTest, FourKPageAllocationAndDataValidation) {
   std::vector<uint32_t> page_patterns;
 
   // 分配多个页面（限制数量以避免内存不足）
-  const size_t max_pages = std::min(static_cast<size_t>(4),
+  const size_t max_pages = std::min(static_cast<size_t>(8),
                                     kTestPages / (page_4k_cache->order_ + 1));
 
   for (size_t i = 0; i < max_pages; i++) {

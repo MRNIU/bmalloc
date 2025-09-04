@@ -47,9 +47,8 @@ class TestLock : public LockBase {
 // 测试夹具
 class SlabBuddyTest : public ::testing::Test {
  protected:
-  static constexpr size_t kTestMemorySize =
-      128 * 1024;  // 128KB，支持更大的测试
-  static constexpr size_t kTestPages = kTestMemorySize / kPageSize;  // 32页
+  static constexpr size_t kTestMemorySize = kPageSize * 128;
+  static constexpr size_t kTestPages = kTestMemorySize / kPageSize;
 
   void SetUp() override {
     test_memory_ = aligned_alloc(kPageSize, kTestMemorySize);
@@ -1489,7 +1488,8 @@ TEST_F(SlabBuddyTest, FourKPageAllocationAndDataValidation) {
   std::vector<uint32_t> page_patterns;
 
   // 分配多个页面
-  const size_t max_pages = 6;
+  const size_t max_pages = std::min(static_cast<size_t>(8),
+                                    kTestPages / (page_4k_cache->order_ + 1));
 
   for (size_t i = 0; i < max_pages; i++) {
     void* page = slab.kmem_cache_alloc(page_4k_cache);
@@ -1506,8 +1506,8 @@ TEST_F(SlabBuddyTest, FourKPageAllocationAndDataValidation) {
     uintptr_t addr = reinterpret_cast<uintptr_t>(page);
 
     std::cout << "   Allocated page " << i << " at 0x" << std::hex << addr
-              << std::dec << " (page offset: " << (addr % kPageSize)
-              << ", 4K offset: " << (addr % PAGE_4K) << ")\n";
+              << " (page offset: 0x" << (addr % kPageSize) << ", 4K offset: 0x"
+              << (addr % PAGE_4K) << ")\n";
 
     // 写入唯一模式
     uint32_t* page_ints = static_cast<uint32_t*>(page);
