@@ -7,6 +7,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <type_traits>
 
 #include "allocator_base.hpp"
 
@@ -17,18 +18,22 @@
  * @tparam Lock 锁类型
  */
 template <class LogFunc = std::nullptr_t, class Lock = bmalloc::LockBase>
-class StandardAllocator : public AllocatorBase<LogFunc, Lock> {
-  static_assert(std::is_base_of_v<LockBase, Lock> ||
-                    std::is_same_v<Lock, LockBase>,
+class StandardAllocator : public bmalloc::AllocatorBase<LogFunc, Lock> {
+  static_assert(std::is_base_of_v<bmalloc::LockBase, Lock> ||
+                    std::is_same_v<Lock, bmalloc::LockBase>,
                 "Lock must be derived from LockBase or be LockBase itself");
 
  public:
   /**
    * @brief 构造标准分配器
    * @param name 分配器名称
+   * @param addr 内存地址（忽略，标准分配器不使用预分配内存）
+   * @param length 内存长度（忽略，标准分配器不使用预分配内存）
    */
-  explicit StandardAllocator(const char* name = "StandardAllocator")
-      : AllocatorBase<LogFunc, Lock>(name, nullptr, 0) {
+  explicit StandardAllocator(const char* name = "StandardAllocator", void* addr = nullptr, size_t length = 0)
+      : bmalloc::AllocatorBase<LogFunc, Lock>(name, addr, length) {
+    (void)addr;    // 避免未使用参数警告
+    (void)length;  // 避免未使用参数警告
     this->Log("StandardAllocator '%s' initialized\n", name);
   }
 
@@ -44,10 +49,14 @@ class StandardAllocator : public AllocatorBase<LogFunc, Lock> {
  protected:
   /**
    * @brief 分配指定长度的内存的实际实现（线程不安全）
-   * @param length 要分配的长度（字节）
+   * @param order 要分配的页面数的对数（如 order=2 表示分配 2^2=4 个页面）
    * @return void* 分配到的地址，失败时返回nullptr
    */
-  [[nodiscard]] auto AllocImpl(size_t length) -> void* override {
+  [[nodiscard]] auto AllocImpl(size_t order) -> void* override {
+    // 将 order 转换为字节数：2^order 个页面，每个页面 4096 字节
+    size_t pages = 1ULL << order;
+    size_t length = pages * 4096;  // kPageSize = 4096
+    
     if (length == 0) {
       return nullptr;
     }
@@ -57,9 +66,9 @@ class StandardAllocator : public AllocatorBase<LogFunc, Lock> {
   /**
    * @brief 释放指定地址的内存的实际实现（线程不安全）
    * @param addr 要释放的地址
-   * @param length 要释放的长度（未使用）
+   * @param order 要释放的页面数的对数（未使用，标准分配器不需要大小信息）
    */
-  void FreeImpl(void* addr, [[maybe_unused]] size_t length = 0) override {
+  void FreeImpl(void* addr, [[maybe_unused]] size_t order = 0) override {
     std::free(addr);
   }
 

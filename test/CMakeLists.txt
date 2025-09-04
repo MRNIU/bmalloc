@@ -11,7 +11,7 @@ add_executable(${PROJECT_NAME}
         buddy_test.cpp
         firstfit_test.cpp
         slab_buddy_test.cpp
-        slab_malloc_test.cpp
+        slab_standard_test.cpp
         bmalloc_test.cpp
 )
 
