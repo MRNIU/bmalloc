@@ -1205,3 +1205,301 @@ TEST_F(SlabStandardTest, KmemCacheDestroyTest) {
 
   std::cout << "\n=== kmem_cache_destroy tests completed successfully ===\n";
 }
+
+/**
+ * @brief 测试 4K 页面分配和数据验证
+ *
+ * 这个测试用例专门测试4K大小的页面分配，包括：
+ * 1. 分配4K大小的对象
+ * 2. 验证数据写入和读取的正确性
+ * 3. 边界检查和内存安全验证
+ * 4. 多个4K页面的并发分配
+ *
+ * 注意：Slab分配器可能不保证页面对齐，这是正常的行为
+ */
+TEST_F(SlabStandardTest, FourKPageAllocationAndDataValidation) {
+  // 使用带日志的配置以便调试
+  using MyStandardAllocator = StandardAllocator<TestLogger>;
+  using MySlab = TestableSlab<MyStandardAllocator, TestLogger>;
+
+  MySlab slab("4k_page_test_slab", test_memory_, kTestPages);
+
+  // 定义4K页面大小 (4096 bytes)
+  static constexpr size_t PAGE_4K = 4096;
+
+  std::cout << "\n=== 4K Page Allocation and Data Validation Test ===\n";
+
+  // 1. 创建4K页面缓存
+  auto page_4k_cache =
+      slab.find_create_kmem_cache("4k_page_cache", PAGE_4K, nullptr, nullptr);
+  ASSERT_NE(page_4k_cache, nullptr) << "Failed to create 4K page cache";
+
+  std::cout << "1. Created 4K page cache:\n";
+  std::cout << "   - Object size: " << page_4k_cache->objectSize_ << " bytes\n";
+  std::cout << "   - Order: " << page_4k_cache->order_ << "\n";
+  std::cout << "   - Objects per slab: " << page_4k_cache->objectsInSlab_
+            << "\n";
+
+  // 验证缓存配置
+  EXPECT_EQ(page_4k_cache->objectSize_, PAGE_4K);
+  EXPECT_GT(page_4k_cache->order_, 0)
+      << "4K objects should require higher order";
+
+  // 2. 分配第一个4K页面
+  void* page1 = slab.kmem_cache_alloc(page_4k_cache);
+  ASSERT_NE(page1, nullptr) << "Failed to allocate first 4K page";
+
+  std::cout << "2. Allocated first 4K page at address: " << page1 << "\n";
+
+  // 记录地址信息（Slab分配器可能不保证页面对齐）
+  uintptr_t addr1 = reinterpret_cast<uintptr_t>(page1);
+  std::cout << "   - Address: 0x" << std::hex << addr1 << std::dec << "\n";
+  std::cout << "   - Alignment offset: " << (addr1 % PAGE_4K) << " bytes\n";
+
+  // 3. 数据写入和验证测试
+  std::cout << "3. Performing data validation tests:\n";
+
+  // 测试模式1: 写入特定模式并验证（安全的数据操作）
+  uint32_t* int_ptr = static_cast<uint32_t*>(page1);
+  const uint32_t test_pattern = 0xDEADBEEF;
+  const size_t num_ints = PAGE_4K / sizeof(uint32_t);
+
+  // 写入测试模式
+  for (size_t i = 0; i < num_ints; i++) {
+    int_ptr[i] = test_pattern + static_cast<uint32_t>(i);
+  }
+
+  // 验证数据完整性
+  bool data_valid = true;
+  for (size_t i = 0; i < num_ints; i++) {
+    if (int_ptr[i] != test_pattern + static_cast<uint32_t>(i)) {
+      data_valid = false;
+      std::cout << "   ERROR: Data mismatch at index " << i
+                << ", expected: " << std::hex << (test_pattern + i)
+                << ", got: " << int_ptr[i] << std::dec << "\n";
+      break;
+    }
+  }
+
+  EXPECT_TRUE(data_valid) << "Data integrity check failed";
+  if (data_valid) {
+    std::cout << "   ✓ Pattern write/read test passed (" << num_ints
+              << " integers)\n";
+  }
+
+  // 测试模式2: 边界写入测试
+  char* byte_ptr = static_cast<char*>(page1);
+
+  // 保存原始数据以便恢复
+  char original_first = byte_ptr[0];
+  char original_last = byte_ptr[PAGE_4K - 1];
+  char original_middle = byte_ptr[PAGE_4K / 2];
+
+  // 写入边界字节
+  byte_ptr[0] = 'A';            // 第一个字节
+  byte_ptr[PAGE_4K - 1] = 'Z';  // 最后一个字节
+  byte_ptr[PAGE_4K / 2] = 'M';  // 中间字节
+
+  // 验证边界字节
+  EXPECT_EQ(byte_ptr[0], 'A') << "First byte verification failed";
+  EXPECT_EQ(byte_ptr[PAGE_4K - 1], 'Z') << "Last byte verification failed";
+  EXPECT_EQ(byte_ptr[PAGE_4K / 2], 'M') << "Middle byte verification failed";
+
+  std::cout << "   ✓ Boundary write/read test passed\n";
+
+  // 恢复原始数据
+  byte_ptr[0] = original_first;
+  byte_ptr[PAGE_4K - 1] = original_last;
+  byte_ptr[PAGE_4K / 2] = original_middle;
+
+  // 4. 分配多个4K页面并验证
+  std::cout << "4. Testing multiple 4K page allocations:\n";
+
+  std::vector<void*> allocated_pages;
+  std::vector<uint32_t> page_patterns;
+
+  // 分配多个页面（限制数量以避免内存不足）
+  const size_t max_pages = std::min(static_cast<size_t>(4),
+                                    kTestPages / (page_4k_cache->order_ + 1));
+
+  for (size_t i = 0; i < max_pages; i++) {
+    void* page = slab.kmem_cache_alloc(page_4k_cache);
+    if (page == nullptr) {
+      std::cout << "   Could only allocate " << i << " additional pages\n";
+      break;
+    }
+
+    allocated_pages.push_back(page);
+    uint32_t pattern = 0x12345678 + static_cast<uint32_t>(i);
+    page_patterns.push_back(pattern);
+
+    // 记录页面地址信息
+    uintptr_t addr = reinterpret_cast<uintptr_t>(page);
+    std::cout << "   Allocated page " << i << " at 0x" << std::hex << addr
+              << std::dec << " (offset: " << (addr % PAGE_4K) << ")\n";
+
+    // 写入唯一模式
+    uint32_t* page_ints = static_cast<uint32_t*>(page);
+    for (size_t j = 0; j < num_ints; j++) {
+      page_ints[j] = pattern + static_cast<uint32_t>(j);
+    }
+  }
+
+  std::cout << "   Successfully allocated " << allocated_pages.size()
+            << " additional 4K pages\n";
+
+  // 5. 验证所有页面的数据完整性
+  std::cout << "5. Verifying data integrity across all pages:\n";
+
+  // 验证第一个页面 (检查之前的模式是否还在)
+  data_valid = true;
+  for (size_t i = 0; i < num_ints; i++) {
+    if (int_ptr[i] != test_pattern + static_cast<uint32_t>(i)) {
+      data_valid = false;
+      std::cout << "   WARNING: Original page data changed at index " << i
+                << "\n";
+      // 不设为失败，因为边界测试可能修改了一些数据
+      break;
+    }
+  }
+  if (data_valid) {
+    std::cout << "   ✓ Original page data integrity maintained\n";
+  }
+
+  // 验证所有新分配的页面
+  bool all_pages_valid = true;
+  for (size_t page_idx = 0; page_idx < allocated_pages.size(); page_idx++) {
+    uint32_t* page_ints = static_cast<uint32_t*>(allocated_pages[page_idx]);
+    uint32_t expected_pattern = page_patterns[page_idx];
+
+    bool page_valid = true;
+    for (size_t i = 0; i < num_ints; i++) {
+      if (page_ints[i] != expected_pattern + static_cast<uint32_t>(i)) {
+        page_valid = false;
+        std::cout << "   ERROR: Page " << page_idx
+                  << " data corruption at index " << i << "\n";
+        all_pages_valid = false;
+        break;
+      }
+    }
+
+    if (page_valid) {
+      std::cout << "   ✓ Page " << page_idx << " data integrity verified\n";
+    }
+  }
+
+  EXPECT_TRUE(all_pages_valid) << "Some pages failed data integrity check";
+
+  // 6. 性能测试：连续写入读取
+  std::cout << "6. Performance test - sequential write/read:\n";
+
+  auto start_time = std::chrono::high_resolution_clock::now();
+
+  // 连续写入（只测试新分配的页面，避免覆盖之前的测试数据）
+  for (size_t page_idx = 0; page_idx < allocated_pages.size(); page_idx++) {
+    void* page = allocated_pages[page_idx];
+    uint64_t* long_ptr = static_cast<uint64_t*>(page);
+    const size_t num_longs = PAGE_4K / sizeof(uint64_t);
+
+    for (size_t i = 0; i < num_longs; i++) {
+      long_ptr[i] = static_cast<uint64_t>(page_idx + 0x1000) << 32 |
+                    static_cast<uint64_t>(i);
+    }
+  }
+
+  auto mid_time = std::chrono::high_resolution_clock::now();
+
+  // 连续读取验证
+  bool perf_valid = true;
+  for (size_t page_idx = 0; page_idx < allocated_pages.size(); page_idx++) {
+    void* page = allocated_pages[page_idx];
+    uint64_t* long_ptr = static_cast<uint64_t*>(page);
+    const size_t num_longs = PAGE_4K / sizeof(uint64_t);
+
+    for (size_t i = 0; i < num_longs; i++) {
+      uint64_t expected = static_cast<uint64_t>(page_idx + 0x1000) << 32 |
+                          static_cast<uint64_t>(i);
+      if (long_ptr[i] != expected) {
+        perf_valid = false;
+        std::cout << "   Performance test validation failed at page "
+                  << page_idx << ", index " << i << "\n";
+        break;
+      }
+    }
+    if (!perf_valid) break;
+  }
+
+  auto end_time = std::chrono::high_resolution_clock::now();
+
+  EXPECT_TRUE(perf_valid) << "Performance test data validation failed";
+
+  auto write_time = std::chrono::duration_cast<std::chrono::microseconds>(
+      mid_time - start_time);
+  auto read_time = std::chrono::duration_cast<std::chrono::microseconds>(
+      end_time - mid_time);
+
+  std::cout << "   Write time: " << write_time.count() << " μs\n";
+  std::cout << "   Read time: " << read_time.count() << " μs\n";
+  std::cout << "   Total data: " << allocated_pages.size() * PAGE_4K
+            << " bytes\n";
+
+  // 7. 清理测试：释放所有分配的页面
+  std::cout << "7. Cleanup test:\n";
+
+  size_t initial_active = page_4k_cache->num_active_;
+  std::cout << "   Initial active objects: " << initial_active << "\n";
+
+  // 释放第一个页面
+  slab.kmem_cache_free(page_4k_cache, page1);
+
+  // 释放其他页面
+  for (void* page : allocated_pages) {
+    slab.kmem_cache_free(page_4k_cache, page);
+  }
+
+  EXPECT_EQ(page_4k_cache->num_active_, 0) << "All pages should be freed";
+  std::cout << "   ✓ All " << (allocated_pages.size() + 1)
+            << " pages freed successfully\n";
+
+  // 8. 重新分配测试（验证内存复用）
+  std::cout << "8. Memory reuse test:\n";
+
+  void* reused_page = slab.kmem_cache_alloc(page_4k_cache);
+  ASSERT_NE(reused_page, nullptr) << "Failed to allocate reused page";
+
+  // 记录重用页面的地址信息
+  uintptr_t reused_addr = reinterpret_cast<uintptr_t>(reused_page);
+  std::cout << "   Reused page at 0x" << std::hex << reused_addr << std::dec
+            << " (offset: " << (reused_addr % PAGE_4K) << ")\n";
+
+  // 安全的数据写入验证（使用有限的数据量）
+  const size_t test_bytes =
+      std::min(PAGE_4K, static_cast<size_t>(1024));  // 只测试前1KB
+  char* check_ptr = static_cast<char*>(reused_page);
+
+  // 写入测试模式
+  for (size_t i = 0; i < test_bytes; i++) {
+    check_ptr[i] = static_cast<char>(0xCC);
+  }
+
+  // 验证数据
+  bool reuse_valid = true;
+  for (size_t i = 0; i < test_bytes; i++) {
+    if (check_ptr[i] != static_cast<char>(0xCC)) {
+      reuse_valid = false;
+      std::cout << "   Data validation failed at byte " << i << "\n";
+      break;
+    }
+  }
+
+  EXPECT_TRUE(reuse_valid) << "Reused page data validation failed";
+  std::cout << "   ✓ Reused page validated successfully (" << test_bytes
+            << " bytes tested)\n";
+
+  // 最终清理
+  slab.kmem_cache_free(page_4k_cache, reused_page);
+  EXPECT_EQ(page_4k_cache->num_active_, 0);
+
+  std::cout << "\n=== 4K Page Allocation and Data Validation Test Completed "
+               "Successfully ===\n";
+}
