@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <type_traits>
+#include <unordered_set>
 
 #include "allocator_base.hpp"
 
@@ -30,7 +31,8 @@ class StandardAllocator : public bmalloc::AllocatorBase<LogFunc, Lock> {
    * @param addr 内存地址（忽略，标准分配器不使用预分配内存）
    * @param length 内存长度（忽略，标准分配器不使用预分配内存）
    */
-  explicit StandardAllocator(const char* name = "StandardAllocator", void* addr = nullptr, size_t length = 0)
+  explicit StandardAllocator(const char* name = "StandardAllocator",
+                             void* addr = nullptr, size_t length = 0)
       : bmalloc::AllocatorBase<LogFunc, Lock>(name, addr, length) {
     (void)addr;    // 避免未使用参数警告
     (void)length;  // 避免未使用参数警告
@@ -43,7 +45,17 @@ class StandardAllocator : public bmalloc::AllocatorBase<LogFunc, Lock> {
   StandardAllocator(StandardAllocator&&) = default;
   auto operator=(const StandardAllocator&) -> StandardAllocator& = delete;
   auto operator=(StandardAllocator&&) -> StandardAllocator& = default;
-  ~StandardAllocator() override = default;
+  ~StandardAllocator() override {
+    // 释放所有未释放的内存
+    for (void* addr : allocated_addresses_) {
+      this->Log("StandardAllocator: Releasing leaked memory at %p\n", addr);
+      std::free(addr);
+    }
+    if (!allocated_addresses_.empty()) {
+      this->Log("StandardAllocator: Released %zu leaked allocations\n",
+                allocated_addresses_.size());
+    }
+  }
   /// @}
 
  protected:
@@ -56,11 +68,18 @@ class StandardAllocator : public bmalloc::AllocatorBase<LogFunc, Lock> {
     // 将 order 转换为字节数：2^order 个页面，每个页面 4096 字节
     size_t pages = 1ULL << order;
     size_t length = pages * 4096;  // kPageSize = 4096
-    
+
     if (length == 0) {
       return nullptr;
     }
-    return std::malloc(length);
+
+    void* addr = std::malloc(length);
+    if (addr != nullptr) {
+      // 记录分配的地址
+      allocated_addresses_.insert(addr);
+      this->Log("StandardAllocator: Allocated %zu bytes at %p\n", length, addr);
+    }
+    return addr;
   }
 
   /**
@@ -69,49 +88,23 @@ class StandardAllocator : public bmalloc::AllocatorBase<LogFunc, Lock> {
    * @param order 要释放的页面数的对数（未使用，标准分配器不需要大小信息）
    */
   void FreeImpl(void* addr, [[maybe_unused]] size_t order = 0) override {
-    std::free(addr);
+    if (addr != nullptr) {
+      // 从记录中移除地址
+      auto it = allocated_addresses_.find(addr);
+      if (it != allocated_addresses_.end()) {
+        allocated_addresses_.erase(it);
+        this->Log("StandardAllocator: Freed memory at %p\n", addr);
+      } else {
+        this->Log("StandardAllocator: Warning - Freeing untracked address %p\n",
+                  addr);
+      }
+      std::free(addr);
+    }
   }
 
- public:
-  /**
-   * @brief 分配并初始化为零的内存块
-   * @param num 元素个数
-   * @param size 每个元素的大小
-   * @return void* 分配成功时返回内存地址，失败时返回nullptr
-   */
-  [[nodiscard]] auto calloc(size_t num, size_t size) -> void* {
-    return std::calloc(num, size);
-  }
-
-  /**
-   * @brief 重新分配内存块大小
-   * @param ptr 要重新分配的内存指针，可以为nullptr
-   * @param new_size 新的内存大小（字节）
-   * @return void* 重新分配成功时返回新内存地址，失败时返回nullptr
-   */
-  [[nodiscard]] auto realloc(void* ptr, size_t new_size) -> void* {
-    return std::realloc(ptr, new_size);
-  }
-
-  /**
-   * @brief 分配对齐的内存块
-   * @param alignment 内存对齐要求（必须是2的幂）
-   * @param size 要分配的内存大小（字节）
-   * @return void* 分配成功时返回对齐的内存地址，失败时返回nullptr
-   */
-  [[nodiscard]] auto aligned_alloc(size_t alignment, size_t size) -> void* {
-    return std::aligned_alloc(alignment, size);
-  }
-
-  /**
-   * @brief 获取内存块的实际大小（标准库不提供此功能，返回0）
-   * @param ptr 内存指针
-   * @return size_t 始终返回0，因为标准库没有提供获取分配大小的函数
-   */
-  [[nodiscard]] auto malloc_size([[maybe_unused]] void* ptr) -> size_t {
-    // 标准库不提供获取分配大小的功能
-    return 0;
-  }
+ private:
+  /// @brief 记录已分配的地址
+  std::unordered_set<void*> allocated_addresses_;
 };
 
 #endif /* BMALLOC_TEST_STANDARD_ALLOCATOR_HPP_ */
