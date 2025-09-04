@@ -234,13 +234,20 @@ TEST_F(SlabMallocTest, SlabWithMallocAllocatorTest) {
   using MySlab = TestableSlab<MyMallocAllocator, TestLogger, TestLock>;
 
   // 创建 Slab 分配器，使用 MallocPageAllocator
-  // 注意：由于使用 malloc，我们传递 nullptr 和 0 作为起始地址和页数
-  MySlab slab("test_slab_malloc", nullptr, 0);
+  // 为了让 Slab 正常工作，我们需要提供一个合理的页数
+  // 分配一个初始内存区域给 Slab 使用
+  void* initial_memory = std::aligned_alloc(kPageSize, 32 * kPageSize);
+  ASSERT_NE(initial_memory, nullptr);
+
+  MySlab slab("test_slab_malloc", initial_memory, 32);
 
   // 验证 Slab 初始化成功
   EXPECT_GT(slab.GetFreeCount(), 0);
 
   std::cout << "Slab with MallocPageAllocator initialized successfully!\n";
+
+  // 清理
+  std::free(initial_memory);
 }
 
 /**
@@ -250,7 +257,11 @@ TEST_F(SlabMallocTest, KmemCacheCreateTest) {
   using MyMallocAllocator = MallocPageAllocator<TestLogger, TestLock>;
   using MySlab = TestableSlab<MyMallocAllocator, TestLogger, TestLock>;
 
-  MySlab slab("test_slab_malloc", nullptr, 0);
+  // 分配初始内存给 Slab
+  void* initial_memory = std::aligned_alloc(kPageSize, 32 * kPageSize);
+  ASSERT_NE(initial_memory, nullptr);
+
+  MySlab slab("test_slab_malloc", initial_memory, 32);
 
   // 测试构造函数和析构函数
   auto ctor = [](void* ptr) {
@@ -271,6 +282,9 @@ TEST_F(SlabMallocTest, KmemCacheCreateTest) {
   EXPECT_EQ(cache->objectSize_, sizeof(int));
 
   std::cout << "kmem_cache_create with malloc allocator test passed!\n";
+
+  // 清理
+  std::free(initial_memory);
 }
 
 /**
@@ -280,7 +294,11 @@ TEST_F(SlabMallocTest, AllocationTest) {
   using MyMallocAllocator = MallocPageAllocator<TestLogger, TestLock>;
   using MySlab = TestableSlab<MyMallocAllocator, TestLogger, TestLock>;
 
-  MySlab slab("test_slab_malloc", nullptr, 0);
+  // 分配初始内存给 Slab
+  void* initial_memory = std::aligned_alloc(kPageSize, 32 * kPageSize);
+  ASSERT_NE(initial_memory, nullptr);
+
+  MySlab slab("test_slab_malloc", initial_memory, 32);
 
   // 创建一个 int 类型的缓存
   auto* cache =
@@ -309,6 +327,9 @@ TEST_F(SlabMallocTest, AllocationTest) {
   }
 
   std::cout << "Allocation test with malloc allocator passed!\n";
+
+  // 清理
+  std::free(initial_memory);
 }
 
 /**
@@ -318,7 +339,12 @@ TEST_F(SlabMallocTest, StressTest) {
   using MyMallocAllocator = MallocPageAllocator<TestLogger, TestLock>;
   using MySlab = TestableSlab<MyMallocAllocator, TestLogger, TestLock>;
 
-  MySlab slab("stress_test_slab", nullptr, 0);
+  // 分配初始内存给 Slab
+  void* initial_memory =
+      std::aligned_alloc(kPageSize, 64 * kPageSize);  // 更多内存用于压力测试
+  ASSERT_NE(initial_memory, nullptr);
+
+  MySlab slab("stress_test_slab", initial_memory, 64);
 
   // 创建不同大小的缓存
   auto* small_cache =
@@ -361,6 +387,9 @@ TEST_F(SlabMallocTest, StressTest) {
   }
 
   std::cout << "Stress test with malloc allocator passed!\n";
+
+  // 清理
+  std::free(initial_memory);
 }
 
 /**
@@ -370,7 +399,12 @@ TEST_F(SlabMallocTest, MultithreadTest) {
   using MyMallocAllocator = MallocPageAllocator<TestLogger, TestLock>;
   using MySlab = TestableSlab<MyMallocAllocator, TestLogger, TestLock>;
 
-  MySlab slab("multithread_test_slab", nullptr, 0);
+  // 分配初始内存给 Slab
+  void* initial_memory =
+      std::aligned_alloc(kPageSize, 64 * kPageSize);  // 更多内存用于多线程测试
+  ASSERT_NE(initial_memory, nullptr);
+
+  MySlab slab("multithread_test_slab", initial_memory, 64);
 
   auto* cache =
       slab.find_create_kmem_cache("mt_cache", sizeof(int), nullptr, nullptr);
@@ -422,6 +456,9 @@ TEST_F(SlabMallocTest, MultithreadTest) {
 
   EXPECT_EQ(success_count.load(), num_threads);
   std::cout << "Multithread test with malloc allocator passed!\n";
+
+  // 清理
+  std::free(initial_memory);
 }
 
 /**
@@ -431,7 +468,11 @@ TEST_F(SlabMallocTest, AlignmentTest) {
   using MyMallocAllocator = MallocPageAllocator<TestLogger, TestLock>;
   using MySlab = TestableSlab<MyMallocAllocator, TestLogger, TestLock>;
 
-  MySlab slab("alignment_test_slab", nullptr, 0);
+  // 分配初始内存给 Slab
+  void* initial_memory = std::aligned_alloc(kPageSize, 32 * kPageSize);
+  ASSERT_NE(initial_memory, nullptr);
+
+  MySlab slab("alignment_test_slab", initial_memory, 32);
 
   // 测试不同对齐要求的缓存
   struct alignas(16) Aligned16 {
@@ -474,6 +515,9 @@ TEST_F(SlabMallocTest, AlignmentTest) {
   slab.kmem_cache_free(cache64, obj64);
 
   std::cout << "Alignment test with malloc allocator passed!\n";
+
+  // 清理
+  std::free(initial_memory);
 }
 
 /**
@@ -481,57 +525,57 @@ TEST_F(SlabMallocTest, AlignmentTest) {
  */
 TEST_F(SlabMallocTest, Page4KAllocationTest) {
   MallocPageAllocator<TestLogger, TestLock> allocator("test_4k_page_allocator");
-  
+
   // 测试分配单个 4K 页
   void* page1 = allocator.Alloc(1);
   ASSERT_NE(page1, nullptr);
   EXPECT_EQ(reinterpret_cast<uintptr_t>(page1) % kPageSize, 0);  // 检查 4K 对齐
-  
+
   // 测试分配多个 4K 页
   void* page2 = allocator.Alloc(2);  // 8K (2 pages)
   ASSERT_NE(page2, nullptr);
   EXPECT_EQ(reinterpret_cast<uintptr_t>(page2) % kPageSize, 0);  // 检查 4K 对齐
-  
+
   void* page4 = allocator.Alloc(4);  // 16K (4 pages)
   ASSERT_NE(page4, nullptr);
   EXPECT_EQ(reinterpret_cast<uintptr_t>(page4) % kPageSize, 0);  // 检查 4K 对齐
-  
+
   // 数据验证测试 - 写入特定模式并验证
   {
     // 对单页进行数据验证
     uint32_t* data1 = static_cast<uint32_t*>(page1);
     const uint32_t pattern1 = 0x12345678;
-    
+
     // 写入模式 - 填充整个 4K 页
     for (size_t i = 0; i < kPageSize / sizeof(uint32_t); ++i) {
       data1[i] = pattern1 + static_cast<uint32_t>(i);
     }
-    
+
     // 验证数据
     for (size_t i = 0; i < kPageSize / sizeof(uint32_t); ++i) {
-      EXPECT_EQ(data1[i], pattern1 + static_cast<uint32_t>(i)) 
+      EXPECT_EQ(data1[i], pattern1 + static_cast<uint32_t>(i))
           << "Data mismatch at offset " << i;
     }
   }
-  
+
   {
     // 对 2 页进行数据验证
     uint64_t* data2 = static_cast<uint64_t*>(page2);
     const uint64_t pattern2 = 0xABCDEF0123456789ULL;
     const size_t total_elements = (2 * kPageSize) / sizeof(uint64_t);
-    
+
     // 写入递增模式
     for (size_t i = 0; i < total_elements; ++i) {
       data2[i] = pattern2 + i;
     }
-    
+
     // 验证数据
     for (size_t i = 0; i < total_elements; ++i) {
-      EXPECT_EQ(data2[i], pattern2 + i) 
+      EXPECT_EQ(data2[i], pattern2 + i)
           << "Data mismatch in 2-page allocation at offset " << i;
     }
   }
-  
+
   {
     // 对 4 页进行复杂数据验证
     struct TestData {
@@ -539,43 +583,45 @@ TEST_F(SlabMallocTest, Page4KAllocationTest) {
       uint32_t checksum;
       char padding[24];  // 总共 32 字节
     };
-    
+
     TestData* data4 = static_cast<TestData*>(page4);
     const size_t total_structs = (4 * kPageSize) / sizeof(TestData);
-    
+
     // 写入结构化数据
     for (size_t i = 0; i < total_structs; ++i) {
       data4[i].id = static_cast<uint32_t>(i);
-      data4[i].checksum = static_cast<uint32_t>(i * 0x9E3779B9);  // 简单的校验和
+      data4[i].checksum =
+          static_cast<uint32_t>(i * 0x9E3779B9);  // 简单的校验和
       // 填充区域用特定模式
-      memset(data4[i].padding, static_cast<int>(i & 0xFF), sizeof(data4[i].padding));
+      memset(data4[i].padding, static_cast<int>(i & 0xFF),
+             sizeof(data4[i].padding));
     }
-    
+
     // 验证结构化数据
     for (size_t i = 0; i < total_structs; ++i) {
-      EXPECT_EQ(data4[i].id, static_cast<uint32_t>(i)) 
+      EXPECT_EQ(data4[i].id, static_cast<uint32_t>(i))
           << "ID mismatch in 4-page allocation at struct " << i;
-      EXPECT_EQ(data4[i].checksum, static_cast<uint32_t>(i * 0x9E3779B9)) 
+      EXPECT_EQ(data4[i].checksum, static_cast<uint32_t>(i * 0x9E3779B9))
           << "Checksum mismatch in 4-page allocation at struct " << i;
-      
+
       // 验证填充区域
       for (size_t j = 0; j < sizeof(data4[i].padding); ++j) {
-        EXPECT_EQ(static_cast<unsigned char>(data4[i].padding[j]), 
+        EXPECT_EQ(static_cast<unsigned char>(data4[i].padding[j]),
                   static_cast<unsigned char>(i & 0xFF))
-            << "Padding mismatch in 4-page allocation at struct " << i 
+            << "Padding mismatch in 4-page allocation at struct " << i
             << ", byte " << j;
       }
     }
   }
-  
+
   // 测试页边界 - 确保不同页的数据不会互相干扰
   {
     uint8_t* byte_ptr1 = static_cast<uint8_t*>(page1);
     uint8_t* byte_ptr2 = static_cast<uint8_t*>(page2);
-    
+
     // 在第一页的最后一个字节写入特定值
     byte_ptr1[kPageSize - 1] = 0xAA;
-    
+
     // 确保这不会影响第二页的数据
     // （注意：这个测试假设page1和page2是不同的内存区域）
     if (byte_ptr2 != byte_ptr1) {
@@ -584,15 +630,15 @@ TEST_F(SlabMallocTest, Page4KAllocationTest) {
       EXPECT_EQ(byte_ptr2[0], 0x55);
     }
   }
-  
+
   // 测试内存清零功能
   {
     void* zero_page = allocator.Alloc(1);
     ASSERT_NE(zero_page, nullptr);
-    
+
     uint8_t* zero_bytes = static_cast<uint8_t*>(zero_page);
     bool all_zero = true;
-    
+
     // 检查新分配的页是否已清零
     for (size_t i = 0; i < kPageSize; ++i) {
       if (zero_bytes[i] != 0) {
@@ -600,16 +646,16 @@ TEST_F(SlabMallocTest, Page4KAllocationTest) {
         break;
       }
     }
-    
+
     EXPECT_TRUE(all_zero) << "Newly allocated page should be zero-initialized";
-    
+
     allocator.Free(zero_page);
   }
-  
+
   // 释放所有分配的页
   allocator.Free(page1);
   allocator.Free(page2);
   allocator.Free(page4);
-  
+
   std::cout << "4K page allocation and data validation test passed!\n";
 }
