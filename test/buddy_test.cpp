@@ -529,3 +529,324 @@ TEST_F(BuddyTest, DataIntegrityStressTest) {
     allocator.Free(block.ptr);
   }
 }
+
+// 多线程基本测试
+TEST_F(BuddyTest, MultiThreadBasicTest) {
+  Buddy<TestLogger, TestLock> allocator("MultiThreadBuddy", test_memory_,
+                                        kTestMemorySize);
+
+  const int num_threads = 4;
+  const int allocations_per_thread = 100;
+  const size_t alloc_size = 128;
+
+  std::atomic<int> success_count{0};
+  std::atomic<int> failure_count{0};
+  std::vector<std::thread> threads;
+
+  // 启动多个线程同时进行分配和释放
+  for (int t = 0; t < num_threads; ++t) {
+    threads.emplace_back([&, t]() {
+      for (int i = 0; i < allocations_per_thread; ++i) {
+        void* ptr = allocator.Alloc(alloc_size);
+        if (ptr != nullptr) {
+          // 写入线程ID和迭代次数作为数据验证
+          unsigned char* data = static_cast<unsigned char*>(ptr);
+          unsigned char pattern =
+              static_cast<unsigned char>((t * 256 + i) % 256);
+
+          for (size_t j = 0; j < alloc_size; ++j) {
+            data[j] = static_cast<unsigned char>((pattern + j) % 256);
+          }
+
+          // 验证数据完整性
+          bool data_valid = true;
+          for (size_t j = 0; j < alloc_size; ++j) {
+            if (data[j] != static_cast<unsigned char>((pattern + j) % 256)) {
+              data_valid = false;
+              break;
+            }
+          }
+
+          if (data_valid) {
+            success_count++;
+          } else {
+            failure_count++;
+          }
+
+          allocator.Free(ptr);
+        } else {
+          failure_count++;
+        }
+      }
+    });
+  }
+
+  // 等待所有线程完成
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  // 验证结果
+  EXPECT_GT(success_count.load(), 0)
+      << "No successful allocations in multi-thread test";
+  EXPECT_EQ(failure_count.load(), 0)
+      << "Data corruption detected in multi-thread test";
+}
+
+// 多线程竞争测试
+TEST_F(BuddyTest, MultiThreadContentionTest) {
+  Buddy<TestLogger, TestLock> allocator("ContentionBuddy", test_memory_,
+                                        kTestMemorySize);
+
+  const int num_threads = 8;
+  const int operations_per_thread = 500;
+
+  std::atomic<int> total_operations{0};
+  std::atomic<int> successful_allocs{0};
+  std::atomic<int> successful_frees{0};
+  std::vector<std::thread> threads;
+  std::mutex results_mutex;
+
+  // 每个线程随机进行分配和释放操作
+  for (int t = 0; t < num_threads; ++t) {
+    threads.emplace_back([&, t]() {
+      std::random_device rd;
+      std::mt19937 gen(rd() + t);  // 每个线程不同的随机种子
+      std::uniform_int_distribution<> size_dist(16, 512);
+      std::uniform_int_distribution<> action_dist(0, 1);
+
+      std::vector<void*> local_ptrs;
+
+      for (int i = 0; i < operations_per_thread; ++i) {
+        total_operations++;
+
+        if (local_ptrs.empty() || action_dist(gen) == 0) {
+          // 分配操作
+          size_t size = size_dist(gen);
+          void* ptr = allocator.Alloc(size);
+          if (ptr != nullptr) {
+            // 写入验证数据
+            unsigned char* data = static_cast<unsigned char*>(ptr);
+            unsigned char pattern =
+                static_cast<unsigned char>((t * 37 + i) % 256);
+
+            for (size_t j = 0; j < std::min(size, static_cast<size_t>(64));
+                 ++j) {
+              data[j] = pattern;
+            }
+
+            local_ptrs.push_back(ptr);
+            successful_allocs++;
+          }
+        } else {
+          // 释放操作
+          if (!local_ptrs.empty()) {
+            std::uniform_int_distribution<> idx_dist(0, local_ptrs.size() - 1);
+            size_t idx = idx_dist(gen);
+            allocator.Free(local_ptrs[idx]);
+            local_ptrs.erase(local_ptrs.begin() + idx);
+            successful_frees++;
+          }
+        }
+      }
+
+      // 清理剩余的指针
+      for (void* ptr : local_ptrs) {
+        allocator.Free(ptr);
+        successful_frees++;
+      }
+    });
+  }
+
+  // 等待所有线程完成
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  // 验证结果
+  EXPECT_GT(successful_allocs.load(), 0)
+      << "No successful allocations in contention test";
+  EXPECT_EQ(successful_allocs.load(), successful_frees.load())
+      << "Allocation and free counts don't match";
+}
+
+// 多线程数据完整性测试
+TEST_F(BuddyTest, MultiThreadDataIntegrityTest) {
+  Buddy<TestLogger, TestLock> allocator("DataIntegrityBuddy", test_memory_,
+                                        kTestMemorySize);
+
+  const int num_threads = 4;
+  const int num_blocks_per_thread = 50;
+  const size_t block_size = 256;
+
+  struct ThreadData {
+    std::vector<void*> ptrs;
+    std::vector<std::vector<unsigned char>> expected_data;
+    std::atomic<bool> data_valid{true};
+  };
+
+  std::vector<ThreadData> thread_data(num_threads);
+  std::vector<std::thread> threads;
+
+  // 第一阶段：每个线程分配内存并写入数据
+  for (int t = 0; t < num_threads; ++t) {
+    threads.emplace_back([&, t]() {
+      auto& data = thread_data[t];
+
+      for (int i = 0; i < num_blocks_per_thread; ++i) {
+        void* ptr = allocator.Alloc(block_size);
+        if (ptr != nullptr) {
+          data.ptrs.push_back(ptr);
+
+          // 生成唯一的数据模式
+          std::vector<unsigned char> expected(block_size);
+          unsigned char* mem = static_cast<unsigned char*>(ptr);
+
+          for (size_t j = 0; j < block_size; ++j) {
+            expected[j] =
+                static_cast<unsigned char>((t * 113 + i * 17 + j) % 256);
+            mem[j] = expected[j];
+          }
+
+          data.expected_data.push_back(expected);
+        }
+      }
+    });
+  }
+
+  // 等待所有分配完成
+  for (auto& thread : threads) {
+    thread.join();
+  }
+  threads.clear();
+
+  // 第二阶段：每个线程验证自己的数据，同时其他线程在进行操作
+  for (int t = 0; t < num_threads; ++t) {
+    threads.emplace_back([&, t]() {
+      auto& data = thread_data[t];
+
+      // 验证数据完整性多次
+      for (int round = 0; round < 10; ++round) {
+        for (size_t i = 0; i < data.ptrs.size(); ++i) {
+          unsigned char* mem = static_cast<unsigned char*>(data.ptrs[i]);
+          for (size_t j = 0; j < block_size; ++j) {
+            if (mem[j] != data.expected_data[i][j]) {
+              data.data_valid = false;
+              return;
+            }
+          }
+        }
+
+        // 在验证之间做一些其他的分配释放操作
+        void* temp_ptr = allocator.Alloc(64);
+        if (temp_ptr != nullptr) {
+          memset(temp_ptr, 0xFF, 64);
+          allocator.Free(temp_ptr);
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    });
+  }
+
+  // 等待所有验证完成
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  // 检查所有线程的数据完整性
+  for (int t = 0; t < num_threads; ++t) {
+    EXPECT_TRUE(thread_data[t].data_valid.load())
+        << "Data integrity violation in thread " << t;
+  }
+
+  // 清理所有内存
+  for (int t = 0; t < num_threads; ++t) {
+    for (void* ptr : thread_data[t].ptrs) {
+      allocator.Free(ptr);
+    }
+  }
+}
+
+// 多线程长时间运行测试
+TEST_F(BuddyTest, MultiThreadLongRunningTest) {
+  Buddy<TestLogger, TestLock> allocator("LongRunningBuddy", test_memory_,
+                                        kTestMemorySize);
+
+  const int num_threads = 6;
+  const auto test_duration = std::chrono::seconds(2);  // 运行2秒
+
+  std::atomic<bool> stop_flag{false};
+  std::atomic<int> total_operations{0};
+  std::atomic<int> allocation_errors{0};
+  std::atomic<int> data_errors{0};
+  std::vector<std::thread> threads;
+
+  // 启动多个线程持续进行内存操作
+  for (int t = 0; t < num_threads; ++t) {
+    threads.emplace_back([&, t]() {
+      std::random_device rd;
+      std::mt19937 gen(rd() + t);
+      std::uniform_int_distribution<> size_dist(32, 1024);
+      std::uniform_int_distribution<> hold_time_dist(1, 10);  // 持有时间(毫秒)
+
+      while (!stop_flag.load()) {
+        size_t alloc_size = size_dist(gen);
+        void* ptr = allocator.Alloc(alloc_size);
+
+        if (ptr != nullptr) {
+          // 写入测试数据
+          unsigned char* data = static_cast<unsigned char*>(ptr);
+          unsigned char pattern = static_cast<unsigned char>(
+              (t * 73 + total_operations.load()) % 256);
+
+          size_t test_size = std::min(alloc_size, static_cast<size_t>(128));
+          for (size_t i = 0; i < test_size; ++i) {
+            data[i] = static_cast<unsigned char>((pattern + i) % 256);
+          }
+
+          // 模拟使用内存的时间
+          std::this_thread::sleep_for(
+              std::chrono::milliseconds(hold_time_dist(gen)));
+
+          // 验证数据完整性
+          bool data_valid = true;
+          for (size_t i = 0; i < test_size; ++i) {
+            if (data[i] != static_cast<unsigned char>((pattern + i) % 256)) {
+              data_valid = false;
+              break;
+            }
+          }
+
+          if (!data_valid) {
+            data_errors++;
+          }
+
+          allocator.Free(ptr);
+        } else {
+          allocation_errors++;
+        }
+
+        total_operations++;
+      }
+    });
+  }
+
+  // 运行指定时间
+  std::this_thread::sleep_for(test_duration);
+  stop_flag = true;
+
+  // 等待所有线程完成
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  // 验证结果
+  EXPECT_GT(total_operations.load(), 1000) << "Too few operations performed";
+  EXPECT_EQ(data_errors.load(), 0) << "Data integrity errors detected";
+
+  // 允许少量分配失败（内存不足是正常的）
+  double failure_rate =
+      static_cast<double>(allocation_errors.load()) / total_operations.load();
+  EXPECT_LT(failure_rate, 0.5) << "Too many allocation failures";
+}
