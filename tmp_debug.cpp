@@ -27,8 +27,10 @@ fault  ./a.out
 #include <thread>
 #include <vector>
 
+#include "buddy_alloc.h"
 #include "src/include/buddy.hpp"
 #include "src/include/slab.hpp"
+#include "tmp_buddy_alloc.hpp"
 
 using namespace bmalloc;
 
