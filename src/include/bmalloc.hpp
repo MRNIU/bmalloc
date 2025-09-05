@@ -80,17 +80,17 @@ class Bmalloc {
   [[nodiscard]] auto realloc(void* ptr, size_t new_size) -> void* {
     // If ptr is nullptr, equivalent to malloc(new_size)
     if (ptr == nullptr) {
-      return malloc(new_size);
+      return allocator_.Alloc(new_size);
     }
 
     // If new_size is 0, equivalent to free(ptr) and return nullptr
     if (new_size == 0) {
-      free(ptr);
+      allocator_.Free(ptr);
       return nullptr;
     }
 
     // Get the current size of the memory block
-    size_t old_size = malloc_size(ptr);
+    size_t old_size = allocator_.AllocSize(ptr);
 
     // If the new size is the same or smaller and within reasonable bounds,
     // we can return the same pointer
@@ -99,7 +99,7 @@ class Bmalloc {
     }
 
     // Allocate new memory
-    void* new_ptr = malloc(new_size);
+    void* new_ptr = allocator_.Alloc(new_size);
     if (new_ptr == nullptr) {
       return nullptr;
     }
@@ -109,7 +109,7 @@ class Bmalloc {
     std::memcpy(new_ptr, ptr, copy_size);
 
     // Free the old memory
-    free(ptr);
+    allocator_.Free(ptr);
 
     return new_ptr;
   }
@@ -131,9 +131,13 @@ class Bmalloc {
    * @param alignment 内存对齐要求（必须是2的幂）
    * @param size 要分配的内存大小（字节）
    * @return void* 分配成功时返回对齐的内存地址，失败时返回 nullptr
+   * @note 对齐参数必须是2的幂次方，否则返回 nullptr
+   * @note 如果 size 为 0，返回 nullptr
+   * @note 分配的内存必须使用 aligned_free 释放，不能使用普通的 free
+   * @note 在对齐地址前存储原始指针，用于释放时定位原始分配块
    */
   [[nodiscard]] auto aligned_alloc(size_t alignment, size_t size) -> void* {
-    // Check that alignment is a power of 2
+    // 检查对齐参数是否为2的幂
     if (alignment == 0 || (alignment & (alignment - 1)) != 0) {
       return nullptr;
     }
@@ -142,29 +146,23 @@ class Bmalloc {
       return nullptr;
     }
 
-    // For small alignments, regular malloc might already provide sufficient
-    // alignment
-    if (alignment <= sizeof(void*)) {
-      return malloc(size);
-    }
+    // 计算需要额外分配的空间：对齐调整 + 原始指针存储空间
+    size_t extra_offset = alignment - 1 + sizeof(void*);
+    auto* original_ptr = allocator_.Alloc(size + extra_offset);
 
-    // Allocate extra space for alignment adjustment
-    size_t total_size = size + alignment - 1 + sizeof(void*);
-    void* raw_ptr = malloc(total_size);
-
-    if (raw_ptr == nullptr) {
+    if (original_ptr == nullptr) {
       return nullptr;
     }
 
-    // Calculate aligned address
-    uintptr_t raw_addr = reinterpret_cast<uintptr_t>(raw_ptr);
-    uintptr_t aligned_addr =
-        (raw_addr + sizeof(void*) + alignment - 1) & ~(alignment - 1);
-    void* aligned_ptr = reinterpret_cast<void*>(aligned_addr);
+    // 计算对齐后的地址
+    auto original_addr = reinterpret_cast<uintptr_t>(original_ptr);
+    auto aligned_addr = (original_addr + extra_offset) & ~(alignment - 1);
+    auto* aligned_ptr = reinterpret_cast<void*>(aligned_addr);
 
-    // Store the original pointer just before the aligned address
-    void** orig_ptr_location = reinterpret_cast<void**>(aligned_addr) - 1;
-    *orig_ptr_location = raw_ptr;
+    // 在对齐地址前存储原始指针，用于释放时找到原始分配
+    auto* original_ptr_storage =
+        reinterpret_cast<void**>(aligned_addr - sizeof(void*));
+    *original_ptr_storage = original_ptr;
 
     return aligned_ptr;
   }
@@ -175,25 +173,28 @@ class Bmalloc {
    * @note 如果ptr为nullptr，则不执行任何操作
    * @note 此函数专门用于释放 aligned_alloc 分配的内存，不能用于普通 malloc
    * 分配的内存
+   * @note 通过读取对齐地址前存储的原始指针来定位并释放原始分配块
+   * @warning 传入非 aligned_alloc 分配的指针会导致未定义行为
    */
   void aligned_free(void* ptr) {
     if (ptr == nullptr) {
       return;
     }
 
-    // Retrieve the original pointer that was stored just before the aligned
-    // address
-    void** orig_ptr_location = reinterpret_cast<void**>(ptr) - 1;
-    void* raw_ptr = *orig_ptr_location;
+    // 获取存储在对齐地址前的原始指针
+    auto* original_ptr_storage = reinterpret_cast<void**>(ptr) - 1;
+    auto* original_ptr = *original_ptr_storage;
 
-    // Free the original allocation
-    allocator_.Free(raw_ptr);
+    // 释放原始分配的内存
+    allocator_.Free(original_ptr);
   }
 
   /**
    * @brief 获取内存块的实际大小
    * @param ptr 内存指针
    * @return size_t 内存块的实际大小，如果ptr无效则返回0
+   * @note 此函数用于获取普通 malloc 分配的内存大小
+   * @note 对于 aligned_alloc 分配的内存，请使用 aligned_malloc_size
    */
   [[nodiscard]] auto malloc_size(void* ptr) const -> size_t {
     if (ptr == nullptr) {
@@ -208,33 +209,21 @@ class Bmalloc {
    * @param ptr 由 aligned_alloc 返回的对齐内存指针
    * @return size_t 对齐内存块的实际大小，如果ptr无效则返回0
    * @note 此函数专门用于获取 aligned_alloc 分配的内存大小
-   * @note 返回的是用户可用的内存大小，不包括内部元数据开销
+   * @note 返回的是原始分配的内存总大小，包括对齐开销和元数据空间
+   * @note 通过读取对齐地址前存储的原始指针来定位原始分配块
+   * @warning 传入非 aligned_alloc 分配的指针会导致未定义行为
    */
   [[nodiscard]] auto aligned_malloc_size(void* ptr) const -> size_t {
     if (ptr == nullptr) {
       return 0;
     }
 
-    // Retrieve the original pointer that was stored just before the aligned
-    // address
-    void** orig_ptr_location = reinterpret_cast<void**>(ptr) - 1;
-    void* raw_ptr = *orig_ptr_location;
+    // 获取存储在对齐地址前的原始指针
+    auto* original_ptr_storage = reinterpret_cast<void**>(ptr) - 1;
+    auto* original_ptr = *original_ptr_storage;
 
-    // Get the total size of the original allocation
-    size_t total_size = allocator_.AllocSize(raw_ptr);
-
-    if (total_size == 0) {
-      return 0;
-    }
-
-    // Calculate the overhead used for alignment
-    // The overhead includes: original_pointer_storage +
-    // potential_alignment_padding
-    size_t overhead =
-        reinterpret_cast<uintptr_t>(ptr) - reinterpret_cast<uintptr_t>(raw_ptr);
-
-    // Return the usable size (total size minus overhead)
-    return (total_size > overhead) ? (total_size - overhead) : 0;
+    // 返回原始分配的大小
+    return allocator_.AllocSize(original_ptr);
   }
 
  private:

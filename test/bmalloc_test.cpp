@@ -870,31 +870,6 @@ TEST_F(BmallocTest, AlignedAllocInvalidAlignmentExtended) {
   EXPECT_EQ(ptr, nullptr) << "aligned_alloc should return nullptr for size = 0";
 }
 
-// 测试小对齐值的行为
-TEST_F(BmallocTest, AlignedAllocSmallAlignment) {
-  // 对于小于等于 sizeof(void*) 的对齐值，应该使用常规malloc
-  size_t small_alignment = sizeof(void*);
-  size_t size = 1024;
-
-  void* ptr = allocator->aligned_alloc(small_alignment, size);
-  EXPECT_NE(ptr, nullptr) << "Failed to allocate with small alignment";
-
-  if (ptr != nullptr) {
-    // 验证对齐
-    uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
-    EXPECT_EQ(addr % small_alignment, 0)
-        << "Memory not aligned properly for small alignment";
-
-    // 对于小对齐，应该能用普通的malloc_size获取大小
-    size_t malloc_reported_size = allocator->malloc_size(ptr);
-    EXPECT_GE(malloc_reported_size, size)
-        << "malloc_size should work for small alignment allocations";
-
-    // 应该能用普通的free释放
-    allocator->free(ptr);
-  }
-}
-
 // 压力测试：大量对齐分配
 TEST_F(BmallocTest, AlignedAllocStressTest) {
   const size_t num_allocations = 100;
