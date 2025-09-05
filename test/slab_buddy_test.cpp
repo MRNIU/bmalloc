@@ -98,7 +98,7 @@ TEST_F(SlabBuddyTest, InstantiationExample) {
   using MySlab = TestableSlab<MyBuddy, TestLogger, TestLock>;
 
   // 实例化 Slab 分配器
-  MySlab slab("test_slab", test_memory_, kTestPages);
+  MySlab slab("test_slab", test_memory_, kTestMemorySize);
 
   std::cout << "Slab allocator instantiated successfully!\n";
   std::cout << "  Name: test_slab\n";
@@ -114,19 +114,19 @@ TEST_F(SlabBuddyTest, DifferentTemplateParameterCombinations) {
   using SimpleBuddy = Buddy<>;  // 使用默认的 std::nullptr_t 和 LockBase
   using SimpleSlab = TestableSlab<SimpleBuddy>;  // 使用默认的 LogFunc 和 Lock
 
-  SimpleSlab simple_slab("simple_slab", test_memory_, kTestPages);
+  SimpleSlab simple_slab("simple_slab", test_memory_, kTestMemorySize);
 
   // 2. 只指定日志函数，使用默认锁
   using LoggedBuddy = Buddy<TestLogger>;
   using LoggedSlab = TestableSlab<LoggedBuddy, TestLogger>;
 
-  LoggedSlab logged_slab("logged_slab", test_memory_, kTestPages);
+  LoggedSlab logged_slab("logged_slab", test_memory_, kTestMemorySize);
 
   // 3. 完整指定所有模板参数
   using FullBuddy = Buddy<TestLogger, TestLock>;
   using FullSlab = TestableSlab<FullBuddy, TestLogger, TestLock>;
 
-  FullSlab full_slab("full_slab", test_memory_, kTestPages);
+  FullSlab full_slab("full_slab", test_memory_, kTestMemorySize);
 
   std::cout << "All template parameter combinations work correctly!\n";
 }
@@ -139,7 +139,7 @@ TEST_F(SlabBuddyTest, KmemCacheCreateTest) {
   using MyBuddy = Buddy<TestLogger>;
   using MySlab = TestableSlab<MyBuddy, TestLogger>;
 
-  MySlab slab("test_slab", test_memory_, kTestPages);
+  MySlab slab("test_slab", test_memory_, kTestMemorySize);
 
   // 测试构造函数和析构函数
   auto ctor = [](void* ptr) {
@@ -225,7 +225,7 @@ TEST_F(SlabBuddyTest, KmemCacheShrinkTest) {
   using MyBuddy = Buddy<TestLogger>;
   using MySlab = TestableSlab<MyBuddy, TestLogger>;
 
-  MySlab slab("test_slab", test_memory_, kTestPages);
+  MySlab slab("test_slab", test_memory_, kTestMemorySize);
 
   // 1. 测试对 nullptr 的处理
   int result1 = slab.kmem_cache_shrink(nullptr);
@@ -302,7 +302,7 @@ TEST_F(SlabBuddyTest, KmemCacheAllocTest) {
   using MyBuddy = Buddy<TestLogger>;
   using MySlab = TestableSlab<MyBuddy, TestLogger>;
 
-  MySlab slab("test_slab", test_memory_, kTestPages);
+  MySlab slab("test_slab", test_memory_, kTestMemorySize);
 
   // 1. 测试对 nullptr 的处理
   void* result1 = slab.kmem_cache_alloc(nullptr);
@@ -445,7 +445,7 @@ TEST_F(SlabBuddyTest, KmemCacheFreeTest) {
   using MyBuddy = Buddy<TestLogger>;
   using MySlab = TestableSlab<MyBuddy, TestLogger>;
 
-  MySlab slab("test_slab", test_memory_, kTestPages);
+  MySlab slab("test_slab", test_memory_, kTestMemorySize);
 
   // 1. 测试对 nullptr 的处理
   auto cache = slab.find_create_kmem_cache("free_test_cache", sizeof(int),
@@ -639,7 +639,7 @@ TEST_F(SlabBuddyTest, KmallocTest) {
   using MyBuddy = Buddy<TestLogger, TestLock>;
   using MySlab = TestableSlab<MyBuddy, TestLogger, TestLock>;
 
-  MySlab slab("slab_kmalloc_test", test_memory_, kTestPages);
+  MySlab slab("slab_kmalloc_test", test_memory_, kTestMemorySize);
 
   // 1. 基本内存分配测试
   std::cout << "1. Basic allocation test\n";
@@ -799,7 +799,7 @@ TEST_F(SlabBuddyTest, FindBuffersCacheTest) {
   using MyBuddy = Buddy<TestLogger, TestLock>;
   using MySlab = TestableSlab<MyBuddy, TestLogger, TestLock>;
 
-  MySlab slab("slab_find_test", test_memory_, kTestPages);
+  MySlab slab("slab_find_test", test_memory_, kTestMemorySize);
 
   // 1. 测试查找通过 Alloc 分配的对象
   std::cout << "1. Basic find_buffers_cache test\n";
@@ -990,7 +990,7 @@ TEST_F(SlabBuddyTest, KfreeTest) {
   using MyBuddy = Buddy<TestLogger, TestLock>;
   using MySlab = TestableSlab<MyBuddy, TestLogger, TestLock>;
 
-  MySlab slab("slab_kfree_test", test_memory_, kTestPages);
+  MySlab slab("slab_kfree_test", test_memory_, kTestMemorySize);
 
   // 1. 基本释放测试
   std::cout << "1. Basic Free test\n";
@@ -1177,7 +1177,7 @@ TEST_F(SlabBuddyTest, KmemCacheDestroyTest) {
   using MyBuddy = Buddy<TestLogger, TestLock>;
   using MySlab = TestableSlab<MyBuddy, TestLogger, TestLock>;
 
-  MySlab slab("slab_destroy_test", test_memory_, kTestPages);
+  MySlab slab("slab_destroy_test", test_memory_, kTestMemorySize);
 
   // 1. 基本缓存销毁测试
   std::cout << "1. Basic cache destroy test\n";
@@ -1386,7 +1386,7 @@ TEST_F(SlabBuddyTest, FourKPageAllocationAndDataValidation) {
   using MyBuddy = Buddy<TestLogger>;
   using MySlab = TestableSlab<MyBuddy, TestLogger>;
 
-  MySlab slab("4k_page_buddy_test_slab", test_memory_, kTestPages);
+  MySlab slab("4k_page_buddy_test_slab", test_memory_, kTestMemorySize);
 
   // 定义4K页面大小 (4096 bytes)
   static constexpr size_t PAGE_4K = 4096;

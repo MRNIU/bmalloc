@@ -174,17 +174,17 @@ class Bmalloc {
    * @param ptr 内存指针
    * @return size_t 内存块的实际大小，如果ptr无效则返回0
    */
-  [[nodiscard]] auto malloc_size(void* ptr) -> size_t {
+  [[nodiscard]] auto malloc_size(void* ptr) const -> size_t {
     if (ptr == nullptr) {
       return 0;
     }
 
-    return allocator_.GetAllocatedSize(ptr);
+    return allocator_.AllocSize(ptr);
   }
 
  private:
-  using PageAllocator = Buddy<LogFunc, Lock>;
-  using Allocator = Slab<PageAllocator, LogFunc, Lock>;
+  // using PageAllocator = Buddy<LogFunc, Lock>;
+  using Allocator = Buddy<LogFunc, Lock>;
   Allocator allocator_;
 };
 

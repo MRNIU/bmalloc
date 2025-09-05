@@ -101,6 +101,15 @@ class AllocatorBase {
   }
 
   /**
+   * @brief 获取一个内存块在内存池中占用的实际字节数
+   * @param  addr            内存块地址
+   * @return size_t          内存块实际占用的字节数，addr 为nullptr 时返回 0
+   */
+  [[nodiscard]] size_t AllocSize(void* addr) const {
+    return AllocSizeImpl(addr);
+  }
+
+  /**
    * @brief 获取已使用的内存数量
    * @return size_t          已使用的数量
    */
@@ -130,6 +139,16 @@ class AllocatorBase {
    */
   virtual void FreeImpl([[maybe_unused]] void* addr,
                         [[maybe_unused]] size_t length = 0) {}
+
+  /**
+   * @brief 获取一个内存块在内存池中占用的实际字节数
+   * @param  addr            内存块地址
+   * @return size_t          内存块实际占用的字节数，addr 为nullptr 时返回 0
+   */
+  [[nodiscard]] virtual size_t AllocSizeImpl(
+      [[maybe_unused]] void* addr) const {
+    return 0;
+  }
 
   /**
    * @brief 记录日志信息

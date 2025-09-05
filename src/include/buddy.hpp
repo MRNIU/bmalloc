@@ -20,6 +20,7 @@ class Buddy : public AllocatorBase<LogFunc, Lock> {
  public:
   using AllocatorBase<LogFunc, Lock>::Alloc;
   using AllocatorBase<LogFunc, Lock>::Free;
+  using AllocatorBase<LogFunc, Lock>::AllocSize;
 
   explicit Buddy(const char* name, void* addr, size_t bytes)
       : AllocatorBase<LogFunc, Lock>(name, addr, bytes) {
@@ -60,6 +61,11 @@ class Buddy : public AllocatorBase<LogFunc, Lock> {
 
   void FreeImpl(void* addr, [[maybe_unused]] size_t bytes = 0) override {
     buddy_free(buddy, addr);
+  }
+
+  [[nodiscard]] size_t AllocSizeImpl(
+      [[maybe_unused]] void* addr) const override {
+    return buddy_alloc_size(buddy, addr);
   }
 };
 

@@ -13,6 +13,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 
 target_compile_options(${PROJECT_NAME} PRIVATE
         $<$<CONFIG:Release>:-O3;-Werror>
+        $<$<CONFIG:Debug>:-O0;-g;-ggdb>
         -Wall
         -Wextra
         -ffreestanding

@@ -22,14 +22,14 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
   /**
    * @brief 构造 Slab 分配器
    * @param name 分配器名称
-   * @param start_addr 管理的内存起始地址
-   * @param page_count 管理的页数
+   * @param addr 管理的内存起始地址
+   * @param bytes 管理的字节数
    */
-  explicit Slab(const char *name, void *start_addr, size_t page_count)
-      : AllocatorBase<LogFunc, Lock>(name, start_addr, page_count),
-        page_allocator_(name, start_addr, page_count) {
+  explicit Slab(const char *name, void *addr, size_t bytes)
+      : AllocatorBase<LogFunc, Lock>(name, addr, bytes),
+        page_allocator_(name, addr, bytes) {
     // 为cache_cache分配第一个slab
-    void *ptr = page_allocator_.Alloc(CACHE_CACHE_ORDER);
+    void *ptr = page_allocator_.Alloc(kPageSize);
     if (ptr == nullptr) {
       return;
     }
@@ -147,11 +147,11 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
     /**
      * @brief slab_t 构造函数
      * @param cache 拥有此slab的cache指针
-     * @param start_addr slab的内存起始地址
+     * @param addr slab的内存起始地址
      * @param object_count 此slab中的对象数量
      * @param colour_offset 缓存行对齐偏移量
      */
-    slab_t(kmem_cache_t *cache, void *start_addr, size_t object_count,
+    slab_t(kmem_cache_t *cache, void *addr, size_t object_count,
            uint32_t colour_offset)
         : colouroff_(colour_offset),
           nextFreeObj_(0),
@@ -160,13 +160,13 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
           prev_(nullptr),
           myCache_(cache) {
       // 设置freeList位置（紧跟在slab_t结构后面）
-      freeList_ = reinterpret_cast<int *>(static_cast<char *>(start_addr) +
-                                          sizeof(slab_t));
+      freeList_ =
+          reinterpret_cast<int *>(static_cast<char *>(addr) + sizeof(slab_t));
 
       // 设置对象数组位置（考虑缓存行对齐）
-      objects = static_cast<void *>(
-          static_cast<char *>(start_addr) + sizeof(slab_t) +
-          sizeof(uint32_t) * object_count + CACHE_L1_LINE_SIZE * colouroff_);
+      objects = static_cast<void *>(static_cast<char *>(addr) + sizeof(slab_t) +
+                                    sizeof(uint32_t) * object_count +
+                                    CACHE_L1_LINE_SIZE * colouroff_);
 
       // 初始化空闲对象链表
       for (size_t i = 0; i < object_count; i++) {
@@ -1038,11 +1038,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
   }
 
   /**
-   * @brief 分配指定页数的内存
-   * @param bytes 要分配的页数
-   * @return void* 分配的内存起始地址，失败时返回0
-   */
-  /**
    * 分配小内存缓冲区 - 通用分配接口
    *
    * @param size 请求的内存大小（字节）
@@ -1099,12 +1094,6 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
   }
 
   /**
-   * @brief 释放指定地址的内存
-   * @param addr 要释放的内存起始地址
-   * @param page_count 要释放的页数
-   */
-
-  /**
    * 释放小内存缓冲区 - 通用释放接口
    *
    * @param objp 要释放的对象指针
@@ -1158,7 +1147,7 @@ class Slab : public AllocatorBase<LogFunc, Lock> {
 
     // 没有足够空间，需要为 kmem_cache 分配更多空间
     if (slab == nullptr) {
-      auto ptr = page_allocator_.Alloc(CACHE_CACHE_ORDER);
+      auto ptr = page_allocator_.Alloc(kPageSize);
       if (ptr == nullptr) {
         kmem_cache.error_code_ = 2;
         return nullptr;

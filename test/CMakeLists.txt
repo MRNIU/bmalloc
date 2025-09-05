@@ -23,6 +23,7 @@ target_compile_options(${PROJECT_NAME} PRIVATE
         -pedantic
         --coverage
         -fprofile-update=atomic
+        -O0
 )
 
 target_link_options(${PROJECT_NAME} PRIVATE
