@@ -768,3 +768,232 @@ TEST_F(BmallocTest, MultipleAligned4KPages) {
     allocator->aligned_free(ptr);
   }
 }
+
+// 测试 aligned_alloc 基本功能
+TEST_F(BmallocTest, AlignedAllocBasicFunctionality) {
+  // 测试不同的对齐值
+  const std::vector<size_t> alignments = {16,  32,  64,   128,
+                                          256, 512, 1024, 2048};
+  const std::vector<size_t> sizes = {1, 16, 64, 256, 1024, 4096};
+
+  for (size_t alignment : alignments) {
+    for (size_t size : sizes) {
+      void* ptr = allocator->aligned_alloc(alignment, size);
+      EXPECT_NE(ptr, nullptr) << "Failed to allocate " << size << " bytes with "
+                              << alignment << " alignment";
+
+      if (ptr != nullptr) {
+        // 验证对齐
+        uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+        EXPECT_EQ(addr % alignment, 0)
+            << "Memory not aligned to " << alignment << " bytes. Address: 0x"
+            << std::hex << addr;
+
+        // 验证可以写入和读取
+        char* bytes = static_cast<char*>(ptr);
+        for (size_t i = 0; i < size; i++) {
+          bytes[i] = static_cast<char>(i & 0xFF);
+        }
+
+        for (size_t i = 0; i < size; i++) {
+          EXPECT_EQ(bytes[i], static_cast<char>(i & 0xFF))
+              << "Data integrity check failed at offset " << i;
+        }
+
+        allocator->aligned_free(ptr);
+      }
+    }
+  }
+}
+
+// 测试 aligned_malloc_size 功能
+TEST_F(BmallocTest, AlignedMallocSizeFunctionality) {
+  const std::vector<std::pair<size_t, size_t>> test_cases = {
+      {16, 100},     // 小对齐，小尺寸
+      {64, 1000},    // 中对齐，中尺寸
+      {256, 4096},   // 大对齐，大尺寸
+      {1024, 8192},  // 很大对齐，很大尺寸
+  };
+
+  for (const auto& [alignment, size] : test_cases) {
+    void* ptr = allocator->aligned_alloc(alignment, size);
+    EXPECT_NE(ptr, nullptr) << "Failed to allocate " << size << " bytes with "
+                            << alignment << " alignment";
+
+    if (ptr != nullptr) {
+      size_t reported_size = allocator->aligned_malloc_size(ptr);
+
+      // 报告的大小应该至少等于请求的大小
+      EXPECT_GE(reported_size, size)
+          << "Reported size (" << reported_size
+          << ") is smaller than requested (" << size << ")";
+
+      // 验证我们确实可以使用报告的大小
+      char* bytes = static_cast<char*>(ptr);
+      if (reported_size > 0) {
+        // 写入第一个和最后一个字节
+        bytes[0] = 0xAA;
+        bytes[reported_size - 1] = 0xBB;
+
+        // 验证写入成功
+        EXPECT_EQ(bytes[0], static_cast<char>(0xAA))
+            << "Failed to write first byte of reported size";
+        EXPECT_EQ(bytes[reported_size - 1], static_cast<char>(0xBB))
+            << "Failed to write last byte of reported size";
+      }
+
+      allocator->aligned_free(ptr);
+    }
+  }
+}
+
+// 测试 aligned_free 与 nullptr
+TEST_F(BmallocTest, AlignedFreeNullptr) {
+  // aligned_free(nullptr) 应该是安全的
+  EXPECT_NO_THROW(allocator->aligned_free(nullptr));
+}
+
+// 测试错误的对齐参数 - 扩展版本
+TEST_F(BmallocTest, AlignedAllocInvalidAlignmentExtended) {
+  // 测试无效的对齐值（非2的幂）
+  const std::vector<size_t> invalid_alignments = {0, 3, 5, 6, 7, 9, 10, 15, 17};
+
+  for (size_t alignment : invalid_alignments) {
+    void* ptr = allocator->aligned_alloc(alignment, 1024);
+    EXPECT_EQ(ptr, nullptr)
+        << "aligned_alloc should return nullptr for invalid alignment: "
+        << alignment;
+  }
+
+  // 测试size = 0
+  void* ptr = allocator->aligned_alloc(16, 0);
+  EXPECT_EQ(ptr, nullptr) << "aligned_alloc should return nullptr for size = 0";
+}
+
+// 测试小对齐值的行为
+TEST_F(BmallocTest, AlignedAllocSmallAlignment) {
+  // 对于小于等于 sizeof(void*) 的对齐值，应该使用常规malloc
+  size_t small_alignment = sizeof(void*);
+  size_t size = 1024;
+
+  void* ptr = allocator->aligned_alloc(small_alignment, size);
+  EXPECT_NE(ptr, nullptr) << "Failed to allocate with small alignment";
+
+  if (ptr != nullptr) {
+    // 验证对齐
+    uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+    EXPECT_EQ(addr % small_alignment, 0)
+        << "Memory not aligned properly for small alignment";
+
+    // 对于小对齐，应该能用普通的malloc_size获取大小
+    size_t malloc_reported_size = allocator->malloc_size(ptr);
+    EXPECT_GE(malloc_reported_size, size)
+        << "malloc_size should work for small alignment allocations";
+
+    // 应该能用普通的free释放
+    allocator->free(ptr);
+  }
+}
+
+// 压力测试：大量对齐分配
+TEST_F(BmallocTest, AlignedAllocStressTest) {
+  const size_t num_allocations = 100;
+  const size_t alignment = 64;
+  const size_t size = 1024;
+
+  std::vector<void*> ptrs;
+  ptrs.reserve(num_allocations);
+
+  // 分配阶段
+  for (size_t i = 0; i < num_allocations; i++) {
+    void* ptr = allocator->aligned_alloc(alignment, size);
+    if (ptr != nullptr) {
+      // 验证对齐
+      uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+      EXPECT_EQ(addr % alignment, 0)
+          << "Allocation " << i << " not properly aligned";
+
+      // 写入唯一模式
+      char* bytes = static_cast<char*>(ptr);
+      char pattern = static_cast<char>(i & 0xFF);
+      std::memset(bytes, pattern, size);
+
+      ptrs.push_back(ptr);
+    }
+  }
+
+  EXPECT_GT(ptrs.size(), num_allocations / 2)
+      << "Too few successful allocations in stress test";
+
+  // 验证阶段
+  for (size_t i = 0; i < ptrs.size(); i++) {
+    char* bytes = static_cast<char*>(ptrs[i]);
+    char expected_pattern = static_cast<char>(i & 0xFF);
+
+    // 检查几个位置
+    EXPECT_EQ(bytes[0], expected_pattern)
+        << "Data corruption in allocation " << i << " at start";
+    EXPECT_EQ(bytes[size / 2], expected_pattern)
+        << "Data corruption in allocation " << i << " at middle";
+    EXPECT_EQ(bytes[size - 1], expected_pattern)
+        << "Data corruption in allocation " << i << " at end";
+  }
+
+  // 释放阶段
+  for (void* ptr : ptrs) {
+    allocator->aligned_free(ptr);
+  }
+}
+
+// 测试混合使用 aligned_alloc 和常规 malloc
+TEST_F(BmallocTest, AlignedAndRegularMallocMixed) {
+  const size_t count = 50;
+  std::vector<std::pair<void*, bool>> ptrs;  // bool indicates if it's aligned
+
+  // 交替分配对齐和常规内存
+  for (size_t i = 0; i < count; i++) {
+    if (i % 2 == 0) {
+      // 对齐分配
+      void* ptr = allocator->aligned_alloc(64, 512);
+      if (ptr != nullptr) {
+        ptrs.emplace_back(ptr, true);
+
+        // 验证对齐
+        uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+        EXPECT_EQ(addr % 64, 0) << "Aligned allocation not properly aligned";
+      }
+    } else {
+      // 常规分配
+      void* ptr = allocator->malloc(512);
+      if (ptr != nullptr) {
+        ptrs.emplace_back(ptr, false);
+      }
+    }
+  }
+
+  EXPECT_GT(ptrs.size(), count / 2) << "Too few successful mixed allocations";
+
+  // 写入和验证数据
+  for (size_t i = 0; i < ptrs.size(); i++) {
+    char* bytes = static_cast<char*>(ptrs[i].first);
+    char pattern = static_cast<char>(i & 0xFF);
+    std::memset(bytes, pattern, 512);
+  }
+
+  for (size_t i = 0; i < ptrs.size(); i++) {
+    char* bytes = static_cast<char*>(ptrs[i].first);
+    char expected_pattern = static_cast<char>(i & 0xFF);
+    EXPECT_EQ(bytes[0], expected_pattern) << "Mixed allocation data corruption";
+    EXPECT_EQ(bytes[511], expected_pattern)
+        << "Mixed allocation data corruption";
+  }
+
+  // 释放内存
+  for (const auto& [ptr, is_aligned] : ptrs) {
+    if (is_aligned) {
+      allocator->aligned_free(ptr);
+    } else {
+      allocator->free(ptr);
+    }
+  }
+}
