@@ -21,7 +21,7 @@ template <class LogFunc = std::nullptr_t, class Lock = LockBase>
 class Bmalloc {
  public:
   explicit Bmalloc(void* start_addr, size_t bytes)
-      : allocator_("Bmalloc", start_addr, bytes / kPageSize) {}
+      : allocator_("Bmalloc", start_addr, bytes) {}
 
   Bmalloc() = default;
   Bmalloc(const Bmalloc&) = delete;
