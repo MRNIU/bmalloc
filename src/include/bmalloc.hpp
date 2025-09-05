@@ -130,7 +130,7 @@ class Bmalloc {
    * @brief 分配对齐的内存块
    * @param alignment 内存对齐要求（必须是2的幂）
    * @param size 要分配的内存大小（字节）
-   * @return void* 分配成功时返回对齐的内存地址，失败时返回nullptr
+   * @return void* 分配成功时返回对齐的内存地址，失败时返回 nullptr
    */
   [[nodiscard]] auto aligned_alloc(size_t alignment, size_t size) -> void* {
     // Check that alignment is a power of 2
@@ -170,6 +170,27 @@ class Bmalloc {
   }
 
   /**
+   * @brief 释放由 aligned_alloc 分配的对齐内存块
+   * @param ptr 由 aligned_alloc 返回的对齐内存指针，可以为nullptr
+   * @note 如果ptr为nullptr，则不执行任何操作
+   * @note 此函数专门用于释放 aligned_alloc 分配的内存，不能用于普通 malloc
+   * 分配的内存
+   */
+  void aligned_free(void* ptr) {
+    if (ptr == nullptr) {
+      return;
+    }
+
+    // Retrieve the original pointer that was stored just before the aligned
+    // address
+    void** orig_ptr_location = reinterpret_cast<void**>(ptr) - 1;
+    void* raw_ptr = *orig_ptr_location;
+
+    // Free the original allocation
+    allocator_.Free(raw_ptr);
+  }
+
+  /**
    * @brief 获取内存块的实际大小
    * @param ptr 内存指针
    * @return size_t 内存块的实际大小，如果ptr无效则返回0
@@ -180,6 +201,40 @@ class Bmalloc {
     }
 
     return allocator_.AllocSize(ptr);
+  }
+
+  /**
+   * @brief 获取由 aligned_alloc 分配的内存块的实际大小
+   * @param ptr 由 aligned_alloc 返回的对齐内存指针
+   * @return size_t 对齐内存块的实际大小，如果ptr无效则返回0
+   * @note 此函数专门用于获取 aligned_alloc 分配的内存大小
+   * @note 返回的是用户可用的内存大小，不包括内部元数据开销
+   */
+  [[nodiscard]] auto aligned_malloc_size(void* ptr) const -> size_t {
+    if (ptr == nullptr) {
+      return 0;
+    }
+
+    // Retrieve the original pointer that was stored just before the aligned
+    // address
+    void** orig_ptr_location = reinterpret_cast<void**>(ptr) - 1;
+    void* raw_ptr = *orig_ptr_location;
+
+    // Get the total size of the original allocation
+    size_t total_size = allocator_.AllocSize(raw_ptr);
+
+    if (total_size == 0) {
+      return 0;
+    }
+
+    // Calculate the overhead used for alignment
+    // The overhead includes: original_pointer_storage +
+    // potential_alignment_padding
+    size_t overhead =
+        reinterpret_cast<uintptr_t>(ptr) - reinterpret_cast<uintptr_t>(raw_ptr);
+
+    // Return the usable size (total size minus overhead)
+    return (total_size > overhead) ? (total_size - overhead) : 0;
   }
 
  private:

@@ -192,7 +192,7 @@ TEST_F(BmallocTest, AlignedAllocBasic) {
   uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
   EXPECT_EQ(addr % 16, 0);
 
-  allocator->free(ptr);
+  allocator->aligned_free(ptr);
 }
 
 TEST_F(BmallocTest, AlignedAllocLargeAlignment) {
@@ -204,7 +204,7 @@ TEST_F(BmallocTest, AlignedAllocLargeAlignment) {
   uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
   EXPECT_EQ(addr % 256, 0);
 
-  allocator->free(ptr);
+  allocator->aligned_free(ptr);
 }
 
 TEST_F(BmallocTest, AlignedAllocInvalidAlignment) {
@@ -548,7 +548,7 @@ TEST_F(BmallocTest, Aligned4KPageAllocation) {
           << "Alternating pattern verification failed at offset " << i;
     }
 
-    allocator->free(ptr);
+    allocator->aligned_free(ptr);
   } else {
     // 如果4K对齐分配失败，至少测试普通的4K分配
     ptr = allocator->malloc(page_size);
@@ -622,7 +622,7 @@ TEST_F(BmallocTest, AlignedAlloc4KPageWithDataValidation) {
         << addr;
 
     // 2. 验证分配的大小
-    size_t allocated_size = allocator->malloc_size(ptr);
+    size_t allocated_size = allocator->aligned_malloc_size(ptr);
     EXPECT_GE(allocated_size, page_size)
         << "Allocated size (" << allocated_size
         << ") is smaller than requested (" << page_size << ")";
@@ -701,7 +701,7 @@ TEST_F(BmallocTest, AlignedAlloc4KPageWithDataValidation) {
           << "Cache line marker verification failed at line " << i;
     }
 
-    allocator->free(ptr);
+    allocator->aligned_free(ptr);
   }
 }
 
@@ -765,6 +765,6 @@ TEST_F(BmallocTest, MultipleAligned4KPages) {
 
   // 释放所有页面
   for (void* ptr : aligned_pages) {
-    allocator->free(ptr);
+    allocator->aligned_free(ptr);
   }
 }
