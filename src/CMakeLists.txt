@@ -1,12 +1,13 @@
 # Copyright The bmalloc Contributors
 
 add_library(${PROJECT_NAME} STATIC
-        # slub.cpp
+        buddy.cpp
         bmalloc.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/include>
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/3rd>
         $<INSTALL_INTERFACE:include>
 )
 

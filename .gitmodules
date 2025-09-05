@@ -1,0 +1,3 @@
+[submodule "3rd/buddy_alloc"]
+	path = 3rd/buddy_alloc
+	url = https://github.com/spaskalev/buddy_alloc.git

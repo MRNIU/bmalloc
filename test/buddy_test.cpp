@@ -48,9 +48,8 @@ class TestLock : public LockBase {
 // 测试夹具
 class BuddyTest : public ::testing::Test {
  protected:
-  static constexpr size_t kTestMemorySize =
-      128 * 1024;  // 128KB，支持更大的测试
-  static constexpr size_t kTestPages = kTestMemorySize / kPageSize;  // 32页
+  static constexpr size_t kTestMemorySize = kPageSize * kPageSize;
+  static constexpr size_t kTestPages = kTestMemorySize / kPageSize;
 
   void SetUp() override {
     test_memory_ = aligned_alloc(kPageSize, kTestMemorySize);
@@ -68,633 +67,465 @@ class BuddyTest : public ::testing::Test {
   void* test_memory_ = nullptr;
 };
 
-// 基本功能测试
-TEST_F(BuddyTest, BasicConstruction) {
-  Buddy<TestLogger> allocator("test_buddy", test_memory_, kTestPages);
-
-  // 验证初始状态
-  EXPECT_EQ(allocator.GetFreeCount(), kTestPages);
-  EXPECT_EQ(allocator.GetUsedCount(), 0);
-}
-
-TEST_F(BuddyTest, ConstructionWithZeroPages) {
-  // 测试边界条件：0页 - buddy分配器会返回错误但不会崩溃
-  Buddy<TestLogger> allocator("test_buddy", test_memory_, 0);
-  // 由于初始化失败，这些值可能不是预期的0，但测试不应该崩溃
-  // 实际行为取决于具体实现
-}
-
 // 基本分配和释放测试
-TEST_F(BuddyTest, BasicAllocation) {
-  Buddy<TestLogger> allocator("test_buddy", test_memory_, kTestPages);
-  std::cout << "\n=== Basic Allocation Test ===" << std::endl;
-  std::cout << "Initial state - Free: " << allocator.GetFreeCount()
-            << ", Used: " << allocator.GetUsedCount() << std::endl;
+TEST_F(BuddyTest, BasicAllocationAndFree) {
+  Buddy<TestLogger, TestLock> allocator("TestBuddy", test_memory_,
+                                        kTestMemorySize);
 
-  // 分配1页 (order=0)
-  std::cout << "Allocating 1 page (order=0)..." << std::endl;
-  void* ptr1 = allocator.Alloc(0);
+  // 分配一小块内存
+  void* ptr1 = allocator.Alloc(64);
   ASSERT_NE(ptr1, nullptr);
-  std::cout << "Allocated ptr1=" << ptr1
-            << ", Free: " << allocator.GetFreeCount()
-            << ", Used: " << allocator.GetUsedCount() << std::endl;
-  EXPECT_EQ(allocator.GetUsedCount(), 1);
-  EXPECT_EQ(allocator.GetFreeCount(), kTestPages - 1);
-
-  // 分配2页 (order=1)
-  std::cout << "Allocating 2 pages (order=1)..." << std::endl;
-  void* ptr2 = allocator.Alloc(1);
-  ASSERT_NE(ptr2, nullptr);
-  std::cout << "Allocated ptr2=" << ptr2
-            << ", Free: " << allocator.GetFreeCount()
-            << ", Used: " << allocator.GetUsedCount() << std::endl;
-  EXPECT_EQ(allocator.GetUsedCount(), 3);
-  EXPECT_EQ(allocator.GetFreeCount(), kTestPages - 3);
-
-  // 分配4页 (order=2)
-  std::cout << "Allocating 4 pages (order=2)..." << std::endl;
-  void* ptr3 = allocator.Alloc(2);
-  ASSERT_NE(ptr3, nullptr);
-  std::cout << "Allocated ptr3=" << ptr3
-            << ", Free: " << allocator.GetFreeCount()
-            << ", Used: " << allocator.GetUsedCount() << std::endl;
-  EXPECT_EQ(allocator.GetUsedCount(), 7);
-  EXPECT_EQ(allocator.GetFreeCount(), kTestPages - 7);
-
-  // 验证地址在有效范围内
   EXPECT_GE(ptr1, test_memory_);
   EXPECT_LT(ptr1, static_cast<char*>(test_memory_) + kTestMemorySize);
-  EXPECT_GE(ptr2, test_memory_);
-  EXPECT_LT(ptr2, static_cast<char*>(test_memory_) + kTestMemorySize);
-  EXPECT_GE(ptr3, test_memory_);
-  EXPECT_LT(ptr3, static_cast<char*>(test_memory_) + kTestMemorySize);
+
+  // 写入数据验证内存可用，并验证数据完整性
+  unsigned char* data = static_cast<unsigned char*>(ptr1);
+  for (size_t i = 0; i < 64; ++i) {
+    data[i] = static_cast<unsigned char>(i % 256);
+  }
+
+  // 验证写入的数据
+  for (size_t i = 0; i < 64; ++i) {
+    EXPECT_EQ(data[i], static_cast<unsigned char>(i % 256))
+        << "Data corruption at index " << i;
+  }
 
   // 释放内存
-  std::cout << "\n--- Memory Release Phase ---" << std::endl;
-  std::cout << "Freeing ptr1 (1 page)..." << std::endl;
-  allocator.Free(ptr1, 0);
-  std::cout << "After freeing ptr1 - Free: " << allocator.GetFreeCount()
-            << ", Used: " << allocator.GetUsedCount() << std::endl;
-  EXPECT_EQ(allocator.GetUsedCount(), 6);
-  EXPECT_EQ(allocator.GetFreeCount(), kTestPages - 6);
+  allocator.Free(ptr1);
 
-  std::cout << "Freeing ptr2 (2 pages)..." << std::endl;
-  allocator.Free(ptr2, 1);
-  std::cout << "After freeing ptr2 - Free: " << allocator.GetFreeCount()
-            << ", Used: " << allocator.GetUsedCount() << std::endl;
-  EXPECT_EQ(allocator.GetUsedCount(), 4);
-  EXPECT_EQ(allocator.GetFreeCount(), kTestPages - 4);
+  // 再次分配相同大小应该成功
+  void* ptr2 = allocator.Alloc(64);
+  ASSERT_NE(ptr2, nullptr);
 
-  std::cout << "Freeing ptr3 (4 pages)..." << std::endl;
-  allocator.Free(ptr3, 2);
-  std::cout << "Final state - Free: " << allocator.GetFreeCount()
-            << ", Used: " << allocator.GetUsedCount() << std::endl;
-  EXPECT_EQ(allocator.GetUsedCount(), 0);
-  EXPECT_EQ(allocator.GetFreeCount(), kTestPages);
+  // 验证新分配的内存可以正常写入和读取
+  unsigned char* data2 = static_cast<unsigned char*>(ptr2);
+  for (size_t i = 0; i < 64; ++i) {
+    data2[i] = static_cast<unsigned char>((i + 1) % 256);
+  }
+
+  // 验证数据完整性
+  for (size_t i = 0; i < 64; ++i) {
+    EXPECT_EQ(data2[i], static_cast<unsigned char>((i + 1) % 256))
+        << "Data corruption in second allocation at index " << i;
+  }
+
+  allocator.Free(ptr2);
 }
 
-// 内存数据完整性测试
-TEST_F(BuddyTest, MemoryDataIntegrityTest) {
-  Buddy<TestLogger> allocator("test_buddy", test_memory_, kTestPages);
-  std::cout << "\n=== Memory Data Integrity Test ===" << std::endl;
+// 不同大小分配测试
+TEST_F(BuddyTest, DifferentSizeAllocations) {
+  Buddy<TestLogger, TestLock> allocator("TestBuddy", test_memory_,
+                                        kTestMemorySize);
 
-  const size_t test_sizes[] = {1, 2, 4, 8};  // 不同order的测试
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_int_distribution<uint8_t> byte_dist(0, 255);
+  std::vector<void*> ptrs;
+  std::vector<size_t> sizes = {8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096};
+  std::vector<std::vector<unsigned char>> expected_data;
 
-  for (size_t order : test_sizes) {
-    size_t pages = 1 << order;
-    size_t bytes = pages * kPageSize;
+  // 分配不同大小的内存块
+  for (size_t i = 0; i < sizes.size(); ++i) {
+    size_t size = sizes[i];
+    void* ptr = allocator.Alloc(size);
+    ASSERT_NE(ptr, nullptr) << "Failed to allocate " << size << " bytes";
+    ptrs.push_back(ptr);
 
-    std::cout << "Testing order " << order << " (" << pages << " pages, "
-              << bytes << " bytes)..." << std::endl;
+    // 准备测试数据并写入
+    std::vector<unsigned char> test_data(size);
+    unsigned char* mem_ptr = static_cast<unsigned char*>(ptr);
+    for (size_t j = 0; j < size; ++j) {
+      test_data[j] = static_cast<unsigned char>((i * 37 + j) % 256);
+      mem_ptr[j] = test_data[j];
+    }
+    expected_data.push_back(test_data);
+  }
 
-    // 分配内存
-    void* ptr = allocator.Alloc(order);
-    if (!ptr) {
-      std::cout << "  Allocation failed - insufficient memory" << std::endl;
-      continue;  // 如果内存不足，跳过这个测试
+  // 验证所有内存块的数据完整性
+  for (size_t i = 0; i < ptrs.size(); ++i) {
+    unsigned char* mem_ptr = static_cast<unsigned char*>(ptrs[i]);
+    for (size_t j = 0; j < sizes[i]; ++j) {
+      EXPECT_EQ(mem_ptr[j], expected_data[i][j])
+          << "Data corruption in block " << i << " at offset " << j
+          << " (size=" << sizes[i] << ")";
+    }
+  }
+
+  // 释放所有内存
+  for (void* ptr : ptrs) {
+    allocator.Free(ptr);
+  }
+}
+
+// 内存对齐测试
+TEST_F(BuddyTest, MemoryAlignment) {
+  Buddy<TestLogger, TestLock> allocator("TestBuddy", test_memory_,
+                                        kTestMemorySize);
+
+  // 分配一些内存块并检查对齐
+  std::vector<void*> ptrs;
+  for (int i = 0; i < 10; ++i) {
+    size_t alloc_size = 64 + i * 8;
+    void* ptr = allocator.Alloc(alloc_size);
+    ASSERT_NE(ptr, nullptr);
+    ptrs.push_back(ptr);
+
+    // 检查地址是否正确对齐（通常是8或16字节对齐）
+    uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+    EXPECT_EQ(addr % 8, 0) << "Address " << ptr << " is not 8-byte aligned";
+
+    // 写入并验证数据，确保对齐的内存能够正确访问
+    unsigned char* data = static_cast<unsigned char*>(ptr);
+    for (size_t j = 0; j < alloc_size; ++j) {
+      data[j] = static_cast<unsigned char>((i + j) % 256);
     }
 
-    std::cout << "  Allocated at " << ptr << std::endl;
+    // 立即验证数据完整性
+    for (size_t j = 0; j < alloc_size; ++j) {
+      EXPECT_EQ(data[j], static_cast<unsigned char>((i + j) % 256))
+          << "Data corruption in alignment test block " << i << " at offset "
+          << j;
+    }
+  }
 
-    uint8_t* data = static_cast<uint8_t*>(ptr);
-    std::vector<uint8_t> expected_data(bytes);
+  // 清理内存
+  for (void* ptr : ptrs) {
+    allocator.Free(ptr);
+  }
+}
 
-    // 生成随机数据并写入
-    std::cout << "  Writing random data..." << std::endl;
-    for (size_t i = 0; i < bytes; ++i) {
-      expected_data[i] = byte_dist(gen);
-      data[i] = expected_data[i];
+// 大块内存分配测试
+TEST_F(BuddyTest, LargeAllocation) {
+  Buddy<TestLogger, TestLock> allocator("TestBuddy", test_memory_,
+                                        kTestMemorySize);
+
+  // 尝试分配一个大块内存（但小于总大小）
+  size_t large_size = kTestMemorySize / 4;
+  void* ptr = allocator.Alloc(large_size);
+  ASSERT_NE(ptr, nullptr);
+
+  // 写入特定模式的数据进行验证
+  unsigned char* data = static_cast<unsigned char*>(ptr);
+
+  // 使用复杂的数据模式：前1/4写入递增，中间1/2写入递减，最后1/4写入异或
+  size_t quarter = large_size / 4;
+
+  // 第一部分：递增模式
+  for (size_t i = 0; i < quarter; ++i) {
+    data[i] = static_cast<unsigned char>(i % 256);
+  }
+
+  // 第二、三部分：递减模式
+  for (size_t i = quarter; i < 3 * quarter; ++i) {
+    data[i] = static_cast<unsigned char>((255 - i) % 256);
+  }
+
+  // 第四部分：异或模式
+  for (size_t i = 3 * quarter; i < large_size; ++i) {
+    data[i] = static_cast<unsigned char>((i ^ 0xAA) % 256);
+  }
+
+  // 验证数据完整性
+  for (size_t i = 0; i < quarter; ++i) {
+    EXPECT_EQ(data[i], static_cast<unsigned char>(i % 256))
+        << "Data corruption in large allocation (increment pattern) at " << i;
+  }
+
+  for (size_t i = quarter; i < 3 * quarter; ++i) {
+    EXPECT_EQ(data[i], static_cast<unsigned char>((255 - i) % 256))
+        << "Data corruption in large allocation (decrement pattern) at " << i;
+  }
+
+  for (size_t i = 3 * quarter; i < large_size; ++i) {
+    EXPECT_EQ(data[i], static_cast<unsigned char>((i ^ 0xAA) % 256))
+        << "Data corruption in large allocation (XOR pattern) at " << i;
+  }
+
+  allocator.Free(ptr);
+}
+
+// 分配失败测试
+TEST_F(BuddyTest, AllocationFailure) {
+  Buddy<TestLogger, TestLock> allocator("TestBuddy", test_memory_,
+                                        kTestMemorySize);
+
+  // 尝试分配超过总大小的内存，应该失败
+  void* ptr = allocator.Alloc(kTestMemorySize * 2);
+  EXPECT_EQ(ptr, nullptr);
+
+  // 尝试分配零大小
+  ptr = allocator.Alloc(0);
+  // 根据实现，这可能返回nullptr或有效指针
+  if (ptr != nullptr) {
+    allocator.Free(ptr);
+  }
+}
+
+// 碎片化测试
+TEST_F(BuddyTest, FragmentationTest) {
+  Buddy<TestLogger, TestLock> allocator("TestBuddy", test_memory_,
+                                        kTestMemorySize);
+
+  std::vector<void*> ptrs;
+  std::vector<std::vector<unsigned char>> expected_data;
+
+  // 分配多个小块
+  for (int i = 0; i < 100; ++i) {
+    void* ptr = allocator.Alloc(32);
+    if (ptr != nullptr) {
+      ptrs.push_back(ptr);
+
+      // 为每个块写入唯一的数据模式
+      std::vector<unsigned char> block_data(32);
+      unsigned char* data = static_cast<unsigned char*>(ptr);
+      for (size_t j = 0; j < 32; ++j) {
+        block_data[j] = static_cast<unsigned char>((i * 7 + j) % 256);
+        data[j] = block_data[j];
+      }
+      expected_data.push_back(block_data);
+    }
+  }
+
+  EXPECT_FALSE(ptrs.empty());
+
+  // 验证所有分配块的数据完整性
+  for (size_t i = 0; i < ptrs.size(); ++i) {
+    if (ptrs[i] != nullptr) {
+      unsigned char* data = static_cast<unsigned char*>(ptrs[i]);
+      for (size_t j = 0; j < 32; ++j) {
+        EXPECT_EQ(data[j], expected_data[i][j])
+            << "Data corruption before fragmentation in block " << i
+            << " at offset " << j;
+      }
+    }
+  }
+
+  // 释放每隔一个块，造成碎片
+  for (size_t i = 0; i < ptrs.size(); i += 2) {
+    allocator.Free(ptrs[i]);
+    ptrs[i] = nullptr;
+  }
+
+  // 验证剩余块的数据完整性
+  for (size_t i = 1; i < ptrs.size(); i += 2) {
+    if (ptrs[i] != nullptr) {
+      unsigned char* data = static_cast<unsigned char*>(ptrs[i]);
+      for (size_t j = 0; j < 32; ++j) {
+        EXPECT_EQ(data[j], expected_data[i][j])
+            << "Data corruption after fragmentation in block " << i
+            << " at offset " << j;
+      }
+    }
+  }
+
+  // 尝试重新分配
+  for (size_t i = 0; i < ptrs.size(); i += 2) {
+    if (ptrs[i] == nullptr) {
+      void* new_ptr = allocator.Alloc(32);
+      if (new_ptr != nullptr) {
+        ptrs[i] = new_ptr;
+        // 写入新的数据模式并验证
+        unsigned char* data = static_cast<unsigned char*>(new_ptr);
+        for (size_t j = 0; j < 32; ++j) {
+          unsigned char expected =
+              static_cast<unsigned char>((i * 11 + j) % 256);
+          data[j] = expected;
+        }
+        // 立即验证写入
+        for (size_t j = 0; j < 32; ++j) {
+          unsigned char expected =
+              static_cast<unsigned char>((i * 11 + j) % 256);
+          EXPECT_EQ(data[j], expected)
+              << "Data corruption in reallocated block " << i << " at offset "
+              << j;
+        }
+      }
+    }
+  }
+
+  // 清理所有内存
+  for (void* ptr : ptrs) {
+    if (ptr != nullptr) {
+      allocator.Free(ptr);
+    }
+  }
+}
+
+// 重复分配释放测试
+TEST_F(BuddyTest, RepeatedAllocFree) {
+  Buddy<TestLogger, TestLock> allocator("TestBuddy", test_memory_,
+                                        kTestMemorySize);
+
+  const int iterations = 1000;
+  const size_t alloc_size = 128;
+
+  for (int i = 0; i < iterations; ++i) {
+    void* ptr = allocator.Alloc(alloc_size);
+    ASSERT_NE(ptr, nullptr) << "Allocation failed at iteration " << i;
+
+    // 写入特定模式的数据
+    unsigned char* data = static_cast<unsigned char*>(ptr);
+    unsigned char pattern = static_cast<unsigned char>(i % 256);
+    for (size_t j = 0; j < alloc_size; ++j) {
+      data[j] = static_cast<unsigned char>((pattern + j) % 256);
     }
 
     // 验证数据完整性
-    std::cout << "  Verifying data integrity..." << std::endl;
-    for (size_t i = 0; i < bytes; ++i) {
-      ASSERT_EQ(data[i], expected_data[i])
-          << "Data corruption at offset " << i << " in order " << order
-          << " allocation";
+    for (size_t j = 0; j < alloc_size; ++j) {
+      EXPECT_EQ(data[j], static_cast<unsigned char>((pattern + j) % 256))
+          << "Data corruption in iteration " << i << " at offset " << j;
     }
 
-    // 写入特殊模式测试
-    std::cout << "  Testing pattern write..." << std::endl;
-    for (size_t i = 0; i < bytes; ++i) {
-      data[i] = static_cast<uint8_t>(i & 0xFF);
-    }
-
-    // 验证特殊模式
-    for (size_t i = 0; i < bytes; ++i) {
-      ASSERT_EQ(data[i], static_cast<uint8_t>(i & 0xFF))
-          << "Pattern corruption at offset " << i;
-    }
-
-    // 释放内存
-    allocator.Free(ptr, order);
-
-    std::cout << "Memory integrity test passed for order " << order << " ("
-              << pages << " pages, " << bytes << " bytes)" << std::endl;
+    // 立即释放
+    allocator.Free(ptr);
+    allocator.Free(ptr);
   }
 }
 
-// 内存边界写入测试
-TEST_F(BuddyTest, MemoryBoundaryWriteTest) {
-  Buddy<TestLogger> allocator("test_buddy", test_memory_, kTestPages);
+// 边界情况测试
+TEST_F(BuddyTest, BoundaryConditions) {
+  Buddy<TestLogger, TestLock> allocator("TestBuddy", test_memory_,
+                                        kTestMemorySize);
 
-  // 分配一个页面
-  void* ptr = allocator.Alloc(0);
+  // 测试1字节分配
+  void* ptr1 = allocator.Alloc(1);
+  if (ptr1 != nullptr) {
+    unsigned char* data1 = static_cast<unsigned char*>(ptr1);
+    *data1 = 0xAA;
+    EXPECT_EQ(*data1, 0xAA) << "Single byte allocation data corruption";
+    allocator.Free(ptr1);
+  }
+
+  // 测试最大可能分配（接近总大小）
+  size_t max_size = kTestMemorySize / 2;  // 保守估计
+  void* ptr2 = allocator.Alloc(max_size);
+  if (ptr2 != nullptr) {
+    unsigned char* data2 = static_cast<unsigned char*>(ptr2);
+
+    // 写入开头、中间和结尾的测试模式
+    data2[0] = 0xBB;
+    data2[max_size / 2] = 0xCC;
+    data2[max_size - 1] = 0xDD;
+
+    // 验证数据完整性
+    EXPECT_EQ(data2[0], 0xBB) << "Large allocation start data corruption";
+    EXPECT_EQ(data2[max_size / 2], 0xCC)
+        << "Large allocation middle data corruption";
+    EXPECT_EQ(data2[max_size - 1], 0xDD)
+        << "Large allocation end data corruption";
+
+    // 写入更复杂的模式到整个块
+    for (size_t i = 0; i < max_size; ++i) {
+      data2[i] = static_cast<unsigned char>((i ^ 0x55) % 256);
+    }
+
+    // 验证整个块的数据完整性
+    for (size_t i = 0; i < max_size; ++i) {
+      EXPECT_EQ(data2[i], static_cast<unsigned char>((i ^ 0x55) % 256))
+          << "Large allocation full pattern data corruption at offset " << i;
+    }
+
+    allocator.Free(ptr2);
+  }
+}
+
+// 无锁版本测试
+TEST_F(BuddyTest, NoLockVersion) {
+  Buddy<TestLogger, LockBase> allocator("NoLockBuddy", test_memory_,
+                                        kTestMemorySize);
+
+  void* ptr = allocator.Alloc(256);
   ASSERT_NE(ptr, nullptr);
 
-  uint8_t* data = static_cast<uint8_t*>(ptr);
+  // 写入并验证数据
+  unsigned char* data = static_cast<unsigned char*>(ptr);
+  for (size_t i = 0; i < 256; ++i) {
+    data[i] = static_cast<unsigned char>((i + 0x77) % 256);
+  }
 
-  // 写入页面边界的数据
-  data[0] = 0xAA;              // 第一个字节
-  data[kPageSize - 1] = 0x55;  // 最后一个字节
-  data[kPageSize / 2] = 0xCC;  // 中间字节
+  // 验证数据完整性
+  for (size_t i = 0; i < 256; ++i) {
+    EXPECT_EQ(data[i], static_cast<unsigned char>((i + 0x77) % 256))
+        << "Data corruption in no-lock version at offset " << i;
+  }
 
-  // 验证边界数据
-  EXPECT_EQ(data[0], 0xAA);
-  EXPECT_EQ(data[kPageSize - 1], 0x55);
-  EXPECT_EQ(data[kPageSize / 2], 0xCC);
-
-  allocator.Free(ptr, 0);
+  allocator.Free(ptr);
 }
 
-// 内存分配后清零测试
-TEST_F(BuddyTest, MemoryZeroingTest) {
-  Buddy<TestLogger> allocator("test_buddy", test_memory_, kTestPages);
+// 无日志版本测试
+TEST_F(BuddyTest, NoLogVersion) {
+  Buddy<std::nullptr_t, TestLock> allocator("NoLogBuddy", test_memory_,
+                                            kTestMemorySize);
 
-  // 分配内存并写入数据
-  void* ptr1 = allocator.Alloc(1);  // 2页
-  ASSERT_NE(ptr1, nullptr);
+  void* ptr = allocator.Alloc(512);
+  ASSERT_NE(ptr, nullptr);
 
-  uint8_t* data1 = static_cast<uint8_t*>(ptr1);
-  memset(data1, 0xFF, 2 * kPageSize);  // 填充0xFF
-
-  allocator.Free(ptr1, 1);
-
-  // 重新分配相同大小的内存
-  void* ptr2 = allocator.Alloc(1);
-  ASSERT_NE(ptr2, nullptr);
-
-  uint8_t* data2 = static_cast<uint8_t*>(ptr2);
-
-  // 检查是否包含之前的数据（buddy分配器通常不会自动清零）
-  bool has_previous_data = false;
-  for (size_t i = 0; i < 2 * kPageSize; ++i) {
-    if (data2[i] == 0xFF) {
-      has_previous_data = true;
-      break;
-    }
+  // 写入并验证数据
+  unsigned char* data = static_cast<unsigned char*>(ptr);
+  for (size_t i = 0; i < 512; ++i) {
+    data[i] = static_cast<unsigned char>((i * 3 + 0x88) % 256);
   }
 
-  std::cout << "Memory "
-            << (has_previous_data ? "contains" : "does not contain")
-            << " previous data after reallocation" << std::endl;
+  // 验证数据完整性
+  for (size_t i = 0; i < 512; ++i) {
+    EXPECT_EQ(data[i], static_cast<unsigned char>((i * 3 + 0x88) % 256))
+        << "Data corruption in no-log version at offset " << i;
+  }
 
-  allocator.Free(ptr2, 1);
+  allocator.Free(ptr);
 }
 
-// 内存地址预测测试
-TEST_F(BuddyTest, AddressPredictionTest) {
-  Buddy<TestLogger> allocator("test_buddy", test_memory_,
-                              16);  // 16页，便于预测
+// 数据完整性压力测试
+TEST_F(BuddyTest, DataIntegrityStressTest) {
+  Buddy<TestLogger, TestLock> allocator("StressTest", test_memory_,
+                                        kTestMemorySize);
 
-  std::cout << "Base memory address: " << test_memory_ << std::endl;
-  std::cout << "Page size: " << kPageSize << " bytes" << std::endl;
+  const int num_blocks = 50;
+  const size_t block_size = 256;
 
-  // 测试连续的小块分配
-  std::vector<void*> ptrs;
-
-  // 分配8个1页的块
-  for (int i = 0; i < 8; ++i) {
-    void* ptr = allocator.Alloc(0);
-    if (ptr) {
-      ptrs.push_back(ptr);
-      size_t offset =
-          static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
-      size_t page_offset = offset / kPageSize;
-      std::cout << "Allocation " << i << ": ptr=" << ptr
-                << ", page offset=" << page_offset << std::endl;
-    }
-  }
-
-  // 分析分配模式
-  std::set<size_t> used_pages;
-  for (void* ptr : ptrs) {
-    size_t offset = static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
-    size_t page_offset = offset / kPageSize;
-    used_pages.insert(page_offset);
-  }
-
-  std::cout << "Used pages: ";
-  for (size_t page : used_pages) {
-    std::cout << page << " ";
-  }
-  std::cout << std::endl;
-
-  // 清理
-  for (void* ptr : ptrs) {
-    allocator.Free(ptr, 0);
-  }
-
-  // 测试buddy分配模式
-  std::cout << "\n--- Buddy allocation pattern test ---" << std::endl;
-
-  // 先分配一个大块，再分配小块，观察分割模式
-  void* large_ptr = allocator.Alloc(2);  // 4页
-  if (large_ptr) {
-    size_t large_offset =
-        static_cast<char*>(large_ptr) - static_cast<char*>(test_memory_);
-    std::cout << "Large block (4 pages) at offset: " << large_offset / kPageSize
-              << std::endl;
-  }
-
-  void* small_ptr1 = allocator.Alloc(0);  // 1页
-  void* small_ptr2 = allocator.Alloc(0);  // 1页
-
-  if (small_ptr1 && small_ptr2) {
-    size_t offset1 =
-        static_cast<char*>(small_ptr1) - static_cast<char*>(test_memory_);
-    size_t offset2 =
-        static_cast<char*>(small_ptr2) - static_cast<char*>(test_memory_);
-    std::cout << "Small block 1 at page: " << offset1 / kPageSize << std::endl;
-    std::cout << "Small block 2 at page: " << offset2 / kPageSize << std::endl;
-
-    // 验证分配的地址是否符合buddy算法的预期
-    EXPECT_TRUE(abs(static_cast<long>(offset1 - offset2)) ==
-                static_cast<long>(kPageSize))
-        << "Adjacent small blocks should be 1 page apart";
-  }
-
-  if (large_ptr) allocator.Free(large_ptr, 2);
-  if (small_ptr1) allocator.Free(small_ptr1, 0);
-  if (small_ptr2) allocator.Free(small_ptr2, 0);
-}
-
-// 内存布局分析测试
-TEST_F(BuddyTest, MemoryLayoutAnalysisTest) {
-  Buddy<TestLogger> allocator("test_buddy", test_memory_, 8);  // 8页
-
-  std::cout << "\n--- Memory Layout Analysis ---" << std::endl;
-
-  struct AllocationInfo {
+  struct BlockInfo {
     void* ptr;
-    size_t order;
-    size_t page_offset;
+    std::vector<unsigned char> expected_data;
   };
 
-  std::vector<AllocationInfo> allocations;
+  std::vector<BlockInfo> blocks;
 
-  // 执行一系列分配，记录布局
-  const size_t orders[] = {0, 1, 0, 2, 0, 1, 0};
+  // 分配多个块并写入唯一数据
+  for (int i = 0; i < num_blocks; ++i) {
+    void* ptr = allocator.Alloc(block_size);
+    if (ptr != nullptr) {
+      BlockInfo block;
+      block.ptr = ptr;
+      block.expected_data.resize(block_size);
 
-  for (size_t order : orders) {
-    void* ptr = allocator.Alloc(order);
-    if (ptr) {
-      size_t offset =
-          static_cast<char*>(ptr) - static_cast<char*>(test_memory_);
-      size_t page_offset = offset / kPageSize;
+      unsigned char* data = static_cast<unsigned char*>(ptr);
 
-      AllocationInfo info = {ptr, order, page_offset};
-      allocations.push_back(info);
-
-      std::cout << "Allocated " << (1 << order) << " page(s) at page offset "
-                << page_offset << std::endl;
-    }
-  }
-
-  // 分析内存碎片
-  std::set<size_t> occupied_pages;
-  for (const auto& alloc : allocations) {
-    size_t pages = 1 << alloc.order;
-    for (size_t i = 0; i < pages; ++i) {
-      occupied_pages.insert(alloc.page_offset + i);
-    }
-  }
-
-  std::cout << "Occupied pages: ";
-  for (size_t page : occupied_pages) {
-    std::cout << page << " ";
-  }
-  std::cout << std::endl;
-  std::cout << "Memory utilization: " << occupied_pages.size() << "/8 pages ("
-            << (occupied_pages.size() * 100.0 / 8) << "%)" << std::endl;
-
-  // 清理
-  for (const auto& alloc : allocations) {
-    allocator.Free(alloc.ptr, alloc.order);
-  }
-}
-
-// 压力测试 - 快速分配释放
-TEST_F(BuddyTest, StressTestRapidAllocFree) {
-  Buddy<TestLogger> allocator("test_buddy", test_memory_, kTestPages);
-  std::cout << "\n=== Rapid Allocation/Free Stress Test ===" << std::endl;
-
-  const size_t iterations = 10000;
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_int_distribution<> order_dist(0, 3);
-
-  std::cout << "Starting " << iterations << " rapid alloc/free operations..."
-            << std::endl;
-  auto start = std::chrono::high_resolution_clock::now();
-
-  size_t successful_allocs = 0;
-  size_t failed_allocs = 0;
-
-  // 快速分配和立即释放
-  for (size_t i = 0; i < iterations; ++i) {
-    size_t order = order_dist(gen);
-    void* ptr = allocator.Alloc(order);
-
-    if (ptr) {
-      successful_allocs++;
-      // 写入一些数据验证内存可用性
-      uint32_t* data = static_cast<uint32_t*>(ptr);
-      *data = static_cast<uint32_t>(i);
-
-      // 立即释放
-      allocator.Free(ptr, order);
-    } else {
-      failed_allocs++;
-    }
-
-    // 每1000次操作输出一次进度
-    if ((i + 1) % 1000 == 0) {
-      std::cout << "Progress: " << (i + 1) << "/" << iterations
-                << " operations completed" << std::endl;
-    }
-  }
-
-  auto end = std::chrono::high_resolution_clock::now();
-  auto duration =
-      std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-
-  std::cout << "Stress test (rapid alloc/free): " << duration.count() << " μs"
-            << std::endl;
-  std::cout << "Successful allocations: " << successful_allocs << std::endl;
-  std::cout << "Failed allocations: " << failed_allocs << std::endl;
-  std::cout << "Average per operation: "
-            << static_cast<double>(duration.count()) / iterations << " μs"
-            << std::endl;
-
-  // 验证最终状态
-  EXPECT_EQ(allocator.GetUsedCount(), 0);
-  EXPECT_EQ(allocator.GetFreeCount(), kTestPages);
-}
-
-// 压力测试 - 内存碎片化
-TEST_F(BuddyTest, StressTestFragmentation) {
-  Buddy<TestLogger> allocator("test_buddy", test_memory_, kTestPages);
-  std::cout << "\n=== Memory Fragmentation Stress Test ===" << std::endl;
-
-  std::vector<std::pair<void*, size_t>> allocations;
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_int_distribution<> order_dist(0, 2);
-
-  auto start = std::chrono::high_resolution_clock::now();
-
-  // 阶段1：创建碎片 - 分配大量小块
-  std::cout << "Phase 1: Creating fragmentation with small allocations..."
-            << std::endl;
-  for (size_t i = 0; i < 100; ++i) {
-    void* ptr = allocator.Alloc(0);  // 只分配1页
-    if (ptr) {
-      allocations.emplace_back(ptr, 0);
-    }
-  }
-  std::cout << "Allocated " << allocations.size() << " single pages"
-            << std::endl;
-  std::cout << "Memory state - Free: " << allocator.GetFreeCount()
-            << ", Used: " << allocator.GetUsedCount() << std::endl;
-
-  // 阶段2：随机释放一半，创建更多碎片
-  std::cout
-      << "\nPhase 2: Randomly freeing half to create more fragmentation..."
-      << std::endl;
-  std::shuffle(allocations.begin(), allocations.end(), gen);
-  size_t half = allocations.size() / 2;
-  for (size_t i = 0; i < half; ++i) {
-    allocator.Free(allocations[i].first, allocations[i].second);
-  }
-  allocations.erase(allocations.begin(), allocations.begin() + half);
-  std::cout << "Freed " << half << " pages randomly" << std::endl;
-  std::cout << "Memory state - Free: " << allocator.GetFreeCount()
-            << ", Used: " << allocator.GetUsedCount() << std::endl;
-
-  // 阶段3：尝试分配大块，测试合并能力
-  std::cout << "\nPhase 3: Attempting large allocations to test coalescing..."
-            << std::endl;
-  size_t large_alloc_success = 0;
-  for (size_t order = 1; order <= 4; ++order) {
-    std::cout << "Trying to allocate " << (1 << order) << " pages (order "
-              << order << ")..." << std::endl;
-    for (size_t i = 0; i < 10; ++i) {
-      void* ptr = allocator.Alloc(order);
-      if (ptr) {
-        large_alloc_success++;
-        allocations.emplace_back(ptr, order);
-      }
-    }
-    std::cout << "  Successfully allocated " << large_alloc_success
-              << " large blocks so far" << std::endl;
-  }
-
-  auto end = std::chrono::high_resolution_clock::now();
-  auto duration =
-      std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-
-  std::cout << "Fragmentation stress test: " << duration.count() << " μs"
-            << std::endl;
-  std::cout << "Large allocations successful: " << large_alloc_success << "/40"
-            << std::endl;
-  std::cout << "Current memory usage: " << allocator.GetUsedCount() << "/"
-            << kTestPages << " pages" << std::endl;
-
-  // 清理剩余分配
-  for (auto [ptr, order] : allocations) {
-    allocator.Free(ptr, order);
-  }
-
-  EXPECT_EQ(allocator.GetUsedCount(), 0);
-}
-
-// 基准性能测试
-TEST_F(BuddyTest, BenchmarkPerformanceTest) {
-  Buddy<TestLogger> allocator("test_buddy", test_memory_, kTestPages);
-
-  struct BenchmarkResult {
-    std::string test_name;
-    size_t operations;
-    std::chrono::microseconds duration;
-    double ops_per_second;
-  };
-
-  std::vector<BenchmarkResult> results;
-
-  // 测试1: 顺序分配相同大小
-  {
-    std::cout << "Benchmark 1: Sequential same-size allocation/free..."
-              << std::endl;
-    const size_t ops = 1000;
-    auto start = std::chrono::high_resolution_clock::now();
-
-    std::vector<void*> ptrs;
-    std::cout << "  Allocating " << ops << " single pages..." << std::endl;
-    for (size_t i = 0; i < ops && ptrs.size() < kTestPages; ++i) {
-      void* ptr = allocator.Alloc(0);
-      if (ptr) ptrs.push_back(ptr);
-    }
-    std::cout << "  Successfully allocated " << ptrs.size() << " pages"
-              << std::endl;
-
-    std::cout << "  Freeing all allocated pages..." << std::endl;
-    for (void* ptr : ptrs) {
-      allocator.Free(ptr, 0);
-    }
-
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration =
-        std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-
-    results.push_back({"Sequential same-size alloc/free",
-                       ops * 2,  // alloc + free
-                       duration, (ops * 2 * 1000000.0) / duration.count()});
-  }
-
-  // 测试2: 随机大小分配
-  {
-    std::cout << "\nBenchmark 2: Random size allocation/free..." << std::endl;
-    const size_t ops = 500;
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> order_dist(0, 3);
-
-    auto start = std::chrono::high_resolution_clock::now();
-
-    std::vector<std::pair<void*, size_t>> ptrs;
-    std::cout << "  Allocating " << ops << " blocks of random sizes..."
-              << std::endl;
-    for (size_t i = 0; i < ops; ++i) {
-      size_t order = order_dist(gen);
-      void* ptr = allocator.Alloc(order);
-      if (ptr) ptrs.emplace_back(ptr, order);
-    }
-    std::cout << "  Successfully allocated " << ptrs.size() << " blocks"
-              << std::endl;
-
-    std::cout << "  Freeing all allocated blocks..." << std::endl;
-    for (auto [ptr, order] : ptrs) {
-      allocator.Free(ptr, order);
-    }
-
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration =
-        std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-
-    results.push_back({"Random size alloc/free", ptrs.size() * 2, duration,
-                       (ptrs.size() * 2 * 1000000.0) / duration.count()});
-  }
-
-  // 测试3: 交错分配释放
-  {
-    std::cout << "\nBenchmark 3: Interleaved allocation/free..." << std::endl;
-    const size_t ops = 1000;
-    std::vector<std::pair<void*, size_t>> active_allocs;
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> order_dist(0, 2);
-
-    auto start = std::chrono::high_resolution_clock::now();
-
-    size_t total_ops = 0;
-    size_t alloc_count = 0;
-    size_t free_count = 0;
-
-    std::cout << "  Running " << ops << " interleaved operations..."
-              << std::endl;
-    for (size_t i = 0; i < ops; ++i) {
-      if (active_allocs.empty() || (active_allocs.size() < 20 && gen() % 2)) {
-        // 分配
-        size_t order = order_dist(gen);
-        void* ptr = allocator.Alloc(order);
-        if (ptr) {
-          active_allocs.emplace_back(ptr, order);
-          total_ops++;
-          alloc_count++;
-        }
-      } else {
-        // 释放
-        size_t idx = gen() % active_allocs.size();
-        auto [ptr, order] = active_allocs[idx];
-        allocator.Free(ptr, order);
-        active_allocs.erase(active_allocs.begin() + idx);
-        total_ops++;
-        free_count++;
+      // 为每个块生成唯一的数据模式
+      for (size_t j = 0; j < block_size; ++j) {
+        unsigned char value =
+            static_cast<unsigned char>((i * 17 + j * 31) % 256);
+        block.expected_data[j] = value;
+        data[j] = value;
       }
 
-      // 每200次操作输出一次进度
-      if ((i + 1) % 200 == 0) {
-        std::cout << "    Progress: " << (i + 1) << "/" << ops
-                  << " ops, active blocks: " << active_allocs.size()
-                  << std::endl;
-      }
+      blocks.push_back(block);
     }
-
-    std::cout << "  Cleaning up " << active_allocs.size()
-              << " remaining blocks..." << std::endl;
-    // 清理剩余
-    for (auto [ptr, order] : active_allocs) {
-      allocator.Free(ptr, order);
-      total_ops++;
-      free_count++;
-    }
-
-    std::cout << "  Total allocations: " << alloc_count
-              << ", Total frees: " << free_count << std::endl;
-
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration =
-        std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-
-    results.push_back({"Interleaved alloc/free", total_ops, duration,
-                       (total_ops * 1000000.0) / duration.count()});
   }
 
-  // 输出基准测试结果
-  std::cout << "\n=== Benchmark Results ===" << std::endl;
-  std::cout << std::left << std::setw(30) << "Test Name" << std::setw(12)
-            << "Operations" << std::setw(15) << "Duration (μs)" << std::setw(15)
-            << "Ops/Second" << std::endl;
-  std::cout << std::string(72, '-') << std::endl;
+  EXPECT_FALSE(blocks.empty())
+      << "Failed to allocate any blocks for stress test";
 
-  for (const auto& result : results) {
-    std::cout << std::left << std::setw(30) << result.test_name << std::setw(12)
-              << result.operations << std::setw(15) << result.duration.count()
-              << std::setw(15) << std::fixed << std::setprecision(0)
-              << result.ops_per_second << std::endl;
+  // 多次验证所有块的数据完整性
+  for (int round = 0; round < 10; ++round) {
+    for (size_t i = 0; i < blocks.size(); ++i) {
+      unsigned char* data = static_cast<unsigned char*>(blocks[i].ptr);
+      for (size_t j = 0; j < block_size; ++j) {
+        EXPECT_EQ(data[j], blocks[i].expected_data[j])
+            << "Data corruption in stress test round " << round << ", block "
+            << i << ", offset " << j;
+      }
+    }
+  }
+
+  // 清理所有块
+  for (const auto& block : blocks) {
+    allocator.Free(block.ptr);
   }
 }
