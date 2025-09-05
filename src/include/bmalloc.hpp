@@ -37,9 +37,14 @@ class Bmalloc {
    */
   [[nodiscard]] auto malloc(size_t size) -> void* {
     if (size == 0) {
+      Log("malloc: size is 0, returning nullptr\n");
       return nullptr;
     }
-    return allocator_.Alloc(size);
+    void* ptr = allocator_.Alloc(size);
+    if (ptr == nullptr) {
+      Log("malloc: failed to allocate %zu bytes\n", size);
+    }
+    return ptr;
   }
 
   /**
@@ -51,11 +56,16 @@ class Bmalloc {
    */
   [[nodiscard]] auto calloc(size_t num, size_t size) -> void* {
     if (num == 0 || size == 0) {
+      Log("calloc: num (%zu) or size (%zu) is 0, returning nullptr\n", num,
+          size);
       return nullptr;
     }
 
     // Check for overflow
     if (num > SIZE_MAX / size) {
+      Log("calloc: overflow detected - num (%zu) * size (%zu) exceeds "
+          "SIZE_MAX\n",
+          num, size);
       return nullptr;
     }
 
@@ -64,6 +74,9 @@ class Bmalloc {
 
     if (ptr != nullptr) {
       std::memset(ptr, 0, total_size);
+    } else {
+      Log("calloc: failed to allocate %zu bytes (num=%zu, size=%zu)\n",
+          total_size, num, size);
     }
 
     return ptr;
@@ -80,17 +93,24 @@ class Bmalloc {
   [[nodiscard]] auto realloc(void* ptr, size_t new_size) -> void* {
     // If ptr is nullptr, equivalent to malloc(new_size)
     if (ptr == nullptr) {
+      Log("realloc: ptr is nullptr, equivalent to malloc(%zu)\n", new_size);
       return allocator_.Alloc(new_size);
     }
 
     // If new_size is 0, equivalent to free(ptr) and return nullptr
     if (new_size == 0) {
+      Log("realloc: new_size is 0, equivalent to free(ptr)\n");
       allocator_.Free(ptr);
       return nullptr;
     }
 
     // Get the current size of the memory block
     size_t old_size = allocator_.AllocSize(ptr);
+    if (old_size == 0) {
+      Log("realloc: ptr %p is invalid or corrupted, AllocSize returned 0\n",
+          ptr);
+      return nullptr;
+    }
 
     // If the new size is the same or smaller and within reasonable bounds,
     // we can return the same pointer
@@ -101,6 +121,7 @@ class Bmalloc {
     // Allocate new memory
     void* new_ptr = allocator_.Alloc(new_size);
     if (new_ptr == nullptr) {
+      Log("realloc: failed to allocate new memory of size %zu\n", new_size);
       return nullptr;
     }
 
@@ -139,10 +160,13 @@ class Bmalloc {
   [[nodiscard]] auto aligned_alloc(size_t alignment, size_t size) -> void* {
     // 检查对齐参数是否为2的幂
     if (alignment == 0 || (alignment & (alignment - 1)) != 0) {
+      Log("aligned_alloc: invalid alignment %zu, must be power of 2\n",
+          alignment);
       return nullptr;
     }
 
     if (size == 0) {
+      Log("aligned_alloc: size is 0, returning nullptr\n");
       return nullptr;
     }
 
@@ -151,6 +175,9 @@ class Bmalloc {
     auto* original_ptr = allocator_.Alloc(size + extra_offset);
 
     if (original_ptr == nullptr) {
+      Log("aligned_alloc: failed to allocate %zu bytes (requested: %zu, "
+          "alignment: %zu)\n",
+          size + extra_offset, size, alignment);
       return nullptr;
     }
 
@@ -178,12 +205,18 @@ class Bmalloc {
    */
   void aligned_free(void* ptr) {
     if (ptr == nullptr) {
+      Log("aligned_free: ptr is nullptr, no operation performed\n");
       return;
     }
 
     // 获取存储在对齐地址前的原始指针
     auto* original_ptr_storage = reinterpret_cast<void**>(ptr) - 1;
     auto* original_ptr = *original_ptr_storage;
+
+    if (original_ptr == nullptr) {
+      Log("aligned_free: corrupted metadata, original_ptr is nullptr\n");
+      return;
+    }
 
     // 释放原始分配的内存
     allocator_.Free(original_ptr);
@@ -215,6 +248,7 @@ class Bmalloc {
    */
   [[nodiscard]] auto aligned_malloc_size(void* ptr) const -> size_t {
     if (ptr == nullptr) {
+      Log("aligned_malloc_size: ptr is nullptr, returning 0\n");
       return 0;
     }
 
@@ -222,14 +256,38 @@ class Bmalloc {
     auto* original_ptr_storage = reinterpret_cast<void**>(ptr) - 1;
     auto* original_ptr = *original_ptr_storage;
 
+    if (original_ptr == nullptr) {
+      Log("aligned_malloc_size: corrupted metadata, original_ptr is "
+          "nullptr\n");
+      return 0;
+    }
+
     // 返回原始分配的大小
-    return allocator_.AllocSize(original_ptr);
+    size_t size = allocator_.AllocSize(original_ptr);
+    if (size == 0) {
+      Log("aligned_malloc_size: original_ptr %p is invalid, AllocSize "
+          "returned 0\n",
+          original_ptr);
+    }
+    return size;
   }
 
  private:
   // using PageAllocator = Buddy<LogFunc, Lock>;
   using Allocator = Buddy<LogFunc, Lock>;
   Allocator allocator_;
+
+  /**
+   * @brief 记录日志信息
+   * @param  format          格式化字符串
+   * @param  args            可变参数
+   */
+  template <typename... Args>
+  void Log(const char* format, Args&&... args) const {
+    if constexpr (!std::is_same_v<LogFunc, std::nullptr_t>) {
+      LogFunc{}(format, args...);
+    }
+  }
 };
 
 }  // namespace bmalloc
