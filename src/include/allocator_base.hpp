@@ -122,6 +122,19 @@ class AllocatorBase {
   [[nodiscard]] auto GetFreeCount() const -> size_t { return free_count_; }
 
  protected:
+  /// 分配器名称
+  const char* name_;
+  /// 当前管理的内存区域起始地址
+  const void* start_addr_;
+  /// 当前管理的内存区域长度
+  const size_t length_;
+  /// 当前管理的内存区域空闲数量
+  size_t free_count_;
+  /// 当前管理的内存区域已使用数量
+  size_t used_count_;
+  /// 用于线程安全的锁对象
+  Lock lock_;
+
   /**
    * @brief 分配指定长度的内存的实际实现（线程不安全）
    * @param  length          要分配的长度
@@ -161,19 +174,6 @@ class AllocatorBase {
       LogFunc{}(format, args...);
     }
   }
-
-  /// 分配器名称
-  const char* name_;
-  /// 当前管理的内存区域起始地址
-  const void* start_addr_;
-  /// 当前管理的内存区域长度
-  const size_t length_;
-  /// 当前管理的内存区域空闲数量
-  size_t free_count_;
-  /// 当前管理的内存区域已使用数量
-  size_t used_count_;
-  /// 用于线程安全的锁对象
-  Lock lock_;
 };
 
 }  // namespace bmalloc
