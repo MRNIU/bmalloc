@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 __attribute__((weak)) void *memset(void *dest, int val, size_t n) {
-  unsigned char *ptr = dest;
+  unsigned char *ptr = (unsigned char *)dest;
   while (n-- > 0) {
     *ptr++ = val;
   }
