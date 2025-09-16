@@ -20,7 +20,7 @@ target_compile_options(${PROJECT_NAME} PRIVATE
 )
 
 target_compile_definitions(${PROJECT_NAME} PUBLIC
-        BUDDY_PRINTF
+        BUDDY_PRINTF=(void)
 )
 
 set_target_properties(${PROJECT_NAME} PROPERTIES PUBLIC_HEADER "include/bmalloc.h")

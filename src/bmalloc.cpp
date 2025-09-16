@@ -7,6 +7,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
 __attribute__((weak)) void *memset(void *dest, int val, size_t n) {
   unsigned char *ptr = (unsigned char *)dest;
   while (n-- > 0) {
@@ -14,6 +15,7 @@ __attribute__((weak)) void *memset(void *dest, int val, size_t n) {
   }
   return dest;
 }
+
 #ifdef __cplusplus
 }
 #endif
