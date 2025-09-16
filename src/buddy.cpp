@@ -8,6 +8,7 @@
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#pragma GCC diagnostic ignored "-Wunused-value"
 #include <buddy_alloc/buddy_alloc.h>
 #pragma GCC diagnostic pop
 
