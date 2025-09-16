@@ -19,4 +19,8 @@ target_compile_options(${PROJECT_NAME} PRIVATE
         -ffreestanding
 )
 
+target_compile_definitions(${PROJECT_NAME} PUBLIC
+        BUDDY_PRINTF
+)
+
 set_target_properties(${PROJECT_NAME} PROPERTIES PUBLIC_HEADER "include/bmalloc.h")
