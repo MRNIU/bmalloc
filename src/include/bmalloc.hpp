@@ -12,6 +12,7 @@
 
 #include "allocator_base.hpp"
 #include "buddy.hpp"
+#include "bump.hpp"
 #include "first_fit.hpp"
 #include "slab.hpp"
 
@@ -274,7 +275,7 @@ class Bmalloc {
 
  private:
   // using PageAllocator = Buddy<LogFunc, Lock>;
-  using Allocator = Buddy<LogFunc, Lock>;
+  using Allocator = BumpAllocator<LogFunc, Lock>;
   Allocator allocator_;
 
   /**
