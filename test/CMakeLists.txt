@@ -4,9 +4,6 @@ project(
         bmalloc_test
 )
 
-# 查找GoogleTest
-find_package(GTest REQUIRED)
-
 add_executable(${PROJECT_NAME}
         buddy_test.cpp
         firstfit_test.cpp
@@ -36,8 +33,9 @@ target_link_options(${PROJECT_NAME} PRIVATE
 # 添加要链接的库
 target_link_libraries(${PROJECT_NAME} PRIVATE
         bmalloc
-        GTest::gtest
-        GTest::gtest_main
+        gtest
+        gmock
+        gtest_main
 )
 
 add_dependencies(${PROJECT_NAME}
