@@ -319,12 +319,12 @@ TEST_F(BmallocTest, BoundaryConditions) {
 
       if (size == 1) {
         // 对于大小为1的情况，只写入和验证一个字节
-        bytes[0] = 0xAA;
+        bytes[0] = (char)0xAA;
         EXPECT_EQ(bytes[0], static_cast<char>(0xAA));
       } else {
         // 对于大小大于1的情况，写入开头和结尾
-        bytes[0] = 0xAA;
-        bytes[size - 1] = 0xBB;
+        bytes[0] = (char)0xAA;
+        bytes[size - 1] = (char)0xBB;
 
         // 验证写入
         EXPECT_EQ(bytes[0], static_cast<char>(0xAA));
@@ -630,8 +630,8 @@ TEST_F(BmallocTest, AlignedAlloc4KPageWithDataValidation) {
     char* bytes = static_cast<char*>(ptr);
 
     // 3. 边界测试 - 写入页面边界位置
-    bytes[0] = 0xAA;              // 第一个字节
-    bytes[page_size - 1] = 0xBB;  // 最后一个字节
+    bytes[0] = (char)0xAA;              // 第一个字节
+    bytes[page_size - 1] = (char)0xBB;  // 最后一个字节
 
     // 验证边界写入
     EXPECT_EQ(bytes[0], static_cast<char>(0xAA)) << "First byte write failed";
@@ -832,8 +832,8 @@ TEST_F(BmallocTest, AlignedMallocSizeFunctionality) {
       char* bytes = static_cast<char*>(ptr);
       if (reported_size > 0) {
         // 写入第一个和最后一个字节
-        bytes[0] = 0xAA;
-        bytes[reported_size - 1] = 0xBB;
+        bytes[0] = (char)0xAA;
+        bytes[reported_size - 1] = (char)0xBB;
 
         // 验证写入成功
         EXPECT_EQ(bytes[0], static_cast<char>(0xAA))
