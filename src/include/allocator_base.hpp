@@ -13,7 +13,7 @@
 
 namespace bmalloc {
 /// 分配器的页面大小
-static constexpr const size_t kPageSize = 4096;
+static constexpr size_t kPageSize = 4096;
 
 /**
  * @brief 锁接口抽象基类
